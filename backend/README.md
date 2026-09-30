@@ -1,6 +1,6 @@
 # Tag Game
 
-A server-authoritative multiplayer game of tag built with **Rust, Axum, Tokio, and WebSockets.
+A server-authoritative multiplayer game of tag built with **Rust, Axum, Tokio, and WebSockets.**
 
 ---
 
