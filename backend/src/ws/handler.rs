@@ -1,4 +1,3 @@
-
 use axum::{
     extract::{
         ws::{WebSocket, WebSocketUpgrade},
@@ -9,66 +8,38 @@ use axum::{
 
 use crate::{
     app::AppState,
-    ws::{
-        connection::handle_connection,
-        protocol::ServerMessage,
-    },
+    ws::connection::handle_connection,
 };
 
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
 ) -> Response {
-    ws.max_message_size(16 * 1024)
-        .max_frame_size(16 * 1024)
-        .on_upgrade(move |socket| async move {
-            connect_player(socket, state).await;
-        })
-}
+    ws.on_upgrade(
+        move |socket: WebSocket| async move {
+            let player_id =
+                uuid::Uuid::new_v4();
 
-async fn connect_player(
-    socket: WebSocket,
-    state: AppState,
-) {
-    let player_id = {
-        let mut world = state.rooms.world.lock().await;
+            let (outbound_tx, outbound_rx) =
+                tokio::sync::mpsc::channel(100);
 
-        world.add_player(
-            format!("Duck-{}", rand_suffix()),
-        )
-    };
+            let rooms =
+                state.rooms.clone();
 
-    
-    let (outbound_tx, outbound_rx) =
-        state.rooms.register(player_id).await;
+            rooms
+                .register(
+                    player_id,
+                    outbound_tx,
+                )
+                .await;
 
-    let _ = outbound_tx
-        .send(ServerMessage::Welcome {
-            player_id,
-            tick_rate: crate::rooms::room::TICK_RATE,
-        })
-        .await;
-
-    let snapshot = {
-        state.rooms.world.lock().await.snapshot()
-    };
-
-    let _ = outbound_tx.send(snapshot).await;
-
-    handle_connection(
-        socket,
-        player_id,
-        outbound_rx,
-        state.rooms,
+            handle_connection(
+                socket,
+                player_id,
+                outbound_rx,
+                rooms,
+            )
+            .await;
+        },
     )
-    .await;
-}
-
-fn rand_suffix() -> u16 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_micros() as u16
 }

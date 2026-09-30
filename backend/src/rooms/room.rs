@@ -1,111 +1,173 @@
-
 use std::{
     collections::HashMap,
     sync::Arc,
-    time::Duration,
 };
 
-use tokio::{
-    sync::{mpsc, Mutex},
-    time,
+use tokio::sync::{
+    mpsc,
+    Mutex,
 };
 use uuid::Uuid;
 
 use crate::{
-    game::world::World,
+    game::{
+        world::World,
+    },
     ws::protocol::ServerMessage,
 };
 
-pub const TICK_RATE: u32 = 30;
-pub const OUTBOUND_CAPACITY: usize = 64;
-
-pub type OutboundSender = mpsc::Sender<ServerMessage>;
+const TICK_RATE: u64 = 30;
 
 #[derive(Clone)]
 pub struct RoomManager {
     pub world: Arc<Mutex<World>>,
-    pub connections: Arc<Mutex<HashMap<Uuid, OutboundSender>>>,
+
+    connections:
+        Arc<
+            Mutex<
+                HashMap<
+                    Uuid,
+                    mpsc::Sender<ServerMessage>,
+                >,
+            >,
+        >,
 }
 
 impl RoomManager {
-    pub fn new(world: World) -> Self {
-        let manager = Self {
-            world: Arc::new(Mutex::new(world)),
-            connections: Arc::new(Mutex::new(HashMap::new())),
-        };
+    pub fn new() -> Self {
+        Self {
+            world: Arc::new(
+                Mutex::new(World::new())
+            ),
 
-        manager.start_game_loop();
-
-        manager
+            connections: Arc::new(
+                Mutex::new(HashMap::new())
+            ),
+        }
     }
 
     pub async fn register(
         &self,
         player_id: Uuid,
-    ) -> (
-        OutboundSender,
-        mpsc::Receiver<ServerMessage>,
+        sender: mpsc::Sender<ServerMessage>,
     ) {
-        let (tx, rx) =
-            mpsc::channel(OUTBOUND_CAPACITY);
+        {
+            let mut connections =
+                self.connections.lock().await;
 
-        self.connections
+            connections.insert(
+                player_id,
+                sender,
+            );
+        }
+
+        self.world
             .lock()
             .await
-            .insert(player_id, tx.clone());
+            .add_player(player_id);
 
-        (tx, rx)
-    }
-
-    pub async fn unregister(&self, player_id: Uuid) {
-        self.connections.lock().await.remove(&player_id);
-
-        self.world.lock().await.remove_player(player_id);
-
-        self.broadcast(ServerMessage::PlayerLeft {
-            player_id,
-        })
+        self.broadcast(
+            ServerMessage::PlayerJoined {
+                player_id,
+            },
+        )
         .await;
     }
 
-    pub async fn broadcast(&self, message: ServerMessage) {
-        let mut connections = self.connections.lock().await;
+    pub async fn unregister(
+        &self,
+        player_id: Uuid,
+    ) {
+        {
+            let mut connections =
+                self.connections.lock().await;
 
-        connections.retain(|_, sender| {
-            match sender.try_send(message.clone()) {
-                Ok(()) => true,
-                Err(mpsc::error::TrySendError::Closed(_)) => false,
-                Err(mpsc::error::TrySendError::Full(_)) => true,
-            }
-        });
+            connections.remove(&player_id);
+        }
+
+        self.world
+            .lock()
+            .await
+            .remove_player(player_id);
+
+        self.broadcast(
+            ServerMessage::PlayerLeft {
+                player_id,
+            },
+        )
+        .await;
     }
 
-    pub async fn start_tick(&self) {
-        let snapshot = {
-            let mut world = self.world.lock().await;
+    pub async fn send_to(
+        &self,
+        player_id: Uuid,
+        message: ServerMessage,
+    ) {
+        let sender = {
+            let connections =
+                self.connections.lock().await;
 
-            world.advance_tick(1.0 / TICK_RATE as f32);
-
-            world.snapshot()
+            connections
+                .get(&player_id)
+                .cloned()
         };
 
-        self.broadcast(snapshot).await;
+        if let Some(sender) = sender {
+            let _ = sender.send(message).await;
+        }
     }
 
-    fn start_game_loop(&self) {
-        let manager = self.clone();
+    pub async fn broadcast(
+        &self,
+        message: ServerMessage,
+    ) {
+        let connections = {
+            let connections =
+                self.connections.lock().await;
 
-        tokio::spawn(async move {
-            let mut interval = time::interval(
-                Duration::from_secs_f64(
-                    1.0 / TICK_RATE as f64,
+            connections
+                .values()
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+
+        for sender in connections {
+            let _ = sender
+                .send(message.clone())
+                .await;
+        }
+    }
+
+    pub async fn run_tick_loop(
+        &self,
+    ) {
+        let mut interval =
+            tokio::time::interval(
+                tokio::time::Duration::from_millis(
+                    1000 / TICK_RATE
                 ),
             );
 
-            loop {
-                interval.tick().await;
-                manager.start_tick().await;
-            }
-        });
+        loop {
+            interval.tick().await;
+
+            let snapshot = {
+                let mut world =
+                    self.world.lock().await;
+
+                world.advance_tick(
+                    1.0 / TICK_RATE as f32
+                );
+
+                world.snapshot()
+            };
+
+            self.broadcast(
+                ServerMessage::Snapshot {
+                    players: snapshot,
+                },
+            )
+            .await;
+        }
     }
 }

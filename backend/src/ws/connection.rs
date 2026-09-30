@@ -1,12 +1,22 @@
+use axum::extract::ws::{
+    Message,
+    WebSocket,
+};
 
-use axum::extract::ws::{Message, WebSocket};
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{
+    SinkExt,
+    StreamExt,
+};
+
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::{
     rooms::room::RoomManager,
-    ws::protocol::{ClientMessage, ServerMessage},
+    ws::protocol::{
+        ClientMessage,
+        ServerMessage,
+    },
 };
 
 pub async fn handle_connection(
@@ -15,24 +25,29 @@ pub async fn handle_connection(
     mut outbound_rx: mpsc::Receiver<ServerMessage>,
     rooms: RoomManager,
 ) {
-    let (mut sender, mut receiver) = socket.split();
+    let (mut sender, mut receiver) =
+        socket.split();
 
     loop {
         tokio::select! {
             outgoing = outbound_rx.recv() => {
                 match outgoing {
                     Some(message) => {
-                        let Ok(json) = message.to_json() else {
+                        let Ok(json) =
+                            message.to_json()
+                        else {
                             continue;
                         };
 
-                        if sender.send(Message::Text(json.into()))
+                        if sender
+                            .send(Message::Text(json.into()))
                             .await
                             .is_err()
                         {
                             break;
                         }
                     }
+
                     None => break,
                 }
             }
@@ -40,15 +55,20 @@ pub async fn handle_connection(
             incoming = receiver.next() => {
                 match incoming {
                     Some(Ok(Message::Text(text))) => {
-                        let message: ClientMessage =
-                            match serde_json::from_str(&text) {
+                        let message =
+                            match serde_json::from_str::<ClientMessage>(&text) {
                                 Ok(message) => message,
-                                Err(_) => {
-                                    let error = ServerMessage::Error {
-                                        message: "Invalid message".into(),
-                                    };
 
-                                    if let Ok(json) = error.to_json() {
+                                Err(_) => {
+                                    let error =
+                                        ServerMessage::Error {
+                                            message:
+                                                "Invalid message".into(),
+                                        };
+
+                                    if let Ok(json) =
+                                        error.to_json()
+                                    {
                                         let _ = sender
                                             .send(Message::Text(json.into()))
                                             .await;
@@ -62,20 +82,23 @@ pub async fn handle_connection(
                             message,
                             player_id,
                             &rooms,
-                        ).await;
-                    }
-
-                    Some(Ok(Message::Close(_))) | None => {
-                        break;
+                        )
+                        .await;
                     }
 
                     Some(Ok(Message::Ping(bytes))) => {
-                        if sender.send(Message::Pong(bytes))
+                        if sender
+                            .send(Message::Pong(bytes))
                             .await
                             .is_err()
                         {
                             break;
                         }
+                    }
+
+                    Some(Ok(Message::Close(_)))
+                    | None => {
+                        break;
                     }
 
                     Some(Ok(_)) => {}
@@ -86,7 +109,9 @@ pub async fn handle_connection(
         }
     }
 
-    rooms.unregister(player_id).await;
+    rooms
+        .unregister(player_id)
+        .await;
 }
 
 async fn handle_client_message(
@@ -95,38 +120,62 @@ async fn handle_client_message(
     rooms: &RoomManager,
 ) {
     match message {
-        ClientMessage::MoveInput { seq, x, y } => {
-            rooms.world.lock().await.set_input(
-                player_id,
-                seq,
-                x,
-                y,
-            );
+        ClientMessage::MoveInput {
+            seq,
+            x,
+            y,
+            running,
+        } => {
+            rooms
+                .world
+                .lock()
+                .await
+                .set_input(
+                    player_id,
+                    crate::game::world::PlayerInput {
+                        seq,
+                        x,
+                        y,
+                        running,
+                    },
+                );
         }
 
-        ClientMessage::TagPlayer { target_id } => {
+        ClientMessage::TagPlayer {
+            target_id,
+        } => {
             let tagged = rooms
                 .world
                 .lock()
                 .await
-                .tag_player(player_id, target_id);
+                .tag_player(
+                    player_id,
+                    target_id,
+                );
 
             if tagged {
-                rooms.broadcast(
-                    ServerMessage::PlayerTagged {
-                        tagger_id: player_id,
-                        target_id,
-                    },
-                )
-                .await;
+                rooms
+                    .broadcast(
+                        ServerMessage::PlayerTagged {
+                            tagger_id: player_id,
+                            target_id,
+                        },
+                    )
+                    .await;
             }
         }
 
-        ClientMessage::Ping { timestamp } => {
-            rooms.broadcast(ServerMessage::Pong {
-                timestamp,
-            })
-            .await;
+        ClientMessage::Ping {
+            timestamp,
+        } => {
+            rooms
+                .send_to(
+                    player_id,
+                    ServerMessage::Pong {
+                        timestamp,
+                    },
+                )
+                .await;
         }
 
         ClientMessage::Join { .. } => {}

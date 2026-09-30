@@ -1,52 +1,53 @@
-
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::game::player::Position;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+#[serde(tag = "type", content = "data")]
 pub enum ClientMessage {
     Join {
-        name: String,
+        room_id: String,
     },
+
     MoveInput {
         seq: u64,
         x: f32,
         y: f32,
+        running: bool,
     },
-    Ping {
-        timestamp: u64,
-    },
+
     TagPlayer {
         target_id: Uuid,
+    },
+
+    Ping {
+        timestamp: u64,
     },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+#[serde(tag = "type", content = "data")]
 pub enum ServerMessage {
-    Welcome {
-        player_id: Uuid,
-        tick_rate: u32,
-    },
-    WorldSnapshot {
-        tick: u64,
+    Snapshot {
         players: Vec<PlayerSnapshot>,
     },
+
     PlayerJoined {
-        player: PlayerSnapshot,
+        player_id: Uuid,
     },
+
     PlayerLeft {
         player_id: Uuid,
     },
+
     PlayerTagged {
         tagger_id: Uuid,
         target_id: Uuid,
     },
+
     Pong {
         timestamp: u64,
     },
+
     Error {
         message: String,
     },
@@ -55,14 +56,16 @@ pub enum ServerMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerSnapshot {
     pub id: Uuid,
-    pub name: String,
-    pub position: Position,
-    pub is_it: bool,
-    pub last_processed_seq: u64,
+    pub x: f32,
+    pub y: f32,
+    pub energy: f32,
+    pub is_running: bool,
 }
 
 impl ServerMessage {
-    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+    pub fn to_json(
+        &self,
+    ) -> Result<String, serde_json::Error> {
         serde_json::to_string(self)
     }
 }

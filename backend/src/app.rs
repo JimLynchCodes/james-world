@@ -20,7 +20,7 @@ pub struct AppState {
 
 pub fn create_app() -> Router {
     let world = World::new();
-    let rooms = RoomManager::new(world);
+    let rooms = RoomManager::new();
 
     let state = AppState { rooms };
 

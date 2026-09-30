@@ -1,22 +1,20 @@
-
 use crate::game::player::Position;
 
-pub const TAG_RADIUS: f32 = 40.0;
+pub fn distance_squared(
+    a: Position,
+    b: Position,
+) -> f32 {
+    let dx = a.x - b.x;
+    let dy = a.y - b.y;
 
-pub fn is_near(
-    first: &Position,
-    second: &Position,
-    radius: f32,
-) -> bool {
-    let dx = first.x - second.x;
-    let dy = first.y - second.y;
-
-    dx * dx + dy * dy <= radius * radius
+    dx * dx + dy * dy
 }
 
-pub fn can_tag(
-    tagger: &Position,
-    target: &Position,
+pub fn is_within_distance(
+    a: Position,
+    b: Position,
+    distance: f32,
 ) -> bool {
-    is_near(tagger, target, TAG_RADIUS)
+    distance_squared(a, b)
+        <= distance * distance
 }

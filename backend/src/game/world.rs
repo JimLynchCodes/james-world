@@ -1,21 +1,38 @@
-
 use std::collections::HashMap;
 
 use uuid::Uuid;
 
-use crate::{
-    game::{
-        collision::can_tag,
-        movement::move_player,
-        player::{Player, Position},
-    },
-    ws::protocol::{PlayerSnapshot, ServerMessage},
+use super::{
+    energy,
+    movement,
+    player::Player,
 };
+
+pub const WALK_SPEED: f32 = 200.0;
+pub const RUN_SPEED: f32 = 350.0;
+
+#[derive(Debug, Clone, Copy)]
+pub struct PlayerInput {
+    pub seq: u64,
+    pub x: f32,
+    pub y: f32,
+    pub running: bool,
+}
+
+impl Default for PlayerInput {
+    fn default() -> Self {
+        Self {
+            seq: 0,
+            x: 0.0,
+            y: 0.0,
+            running: false,
+        }
+    }
+}
 
 pub struct World {
     pub players: HashMap<Uuid, Player>,
-    pub inputs: HashMap<Uuid, Position>,
-    pub tick: u64,
+    pub inputs: HashMap<Uuid, PlayerInput>,
 }
 
 impl World {
@@ -23,75 +40,109 @@ impl World {
         Self {
             players: HashMap::new(),
             inputs: HashMap::new(),
-            tick: 0,
         }
     }
 
-    pub fn add_player(&mut self, name: String) -> Uuid {
-        let player = Player::new(name);
-        let id = player.id;
+    pub fn add_player(
+        &mut self,
+        id: Uuid,
+    ) {
+        let player =
+            Player::new(
+                id,
+                400.0,
+                300.0,
+            );
 
-        self.players.insert(id, player);
-        self.inputs.insert(id, Position::default());
+        self.players.insert(
+            id,
+            player,
+        );
 
-        id
+        self.inputs.insert(
+            id,
+            PlayerInput::default(),
+        );
     }
 
-    pub fn remove_player(&mut self, player_id: Uuid) {
-        self.players.remove(&player_id);
-        self.inputs.remove(&player_id);
+    pub fn remove_player(
+        &mut self,
+        id: Uuid,
+    ) {
+        self.players.remove(&id);
+        self.inputs.remove(&id);
     }
 
     pub fn set_input(
         &mut self,
-        player_id: Uuid,
-        seq: u64,
-        x: f32,
-        y: f32,
+        id: Uuid,
+        input: PlayerInput,
     ) {
-        if !x.is_finite() || !y.is_finite() {
-            return;
-        }
-
-        let Some(player) = self.players.get_mut(&player_id)
-        else {
-            return;
-        };
-
-        if seq <= player.last_processed_seq {
-            return;
-        }
-
-        player.last_processed_seq = seq;
-
-        self.inputs.insert(
-            player_id,
-            Position {
-                x: x.clamp(-1.0, 1.0),
-                y: y.clamp(-1.0, 1.0),
-            },
-        );
-    }
-
-    pub fn advance_tick(&mut self, delta_seconds: f32) {
-        self.tick += 1;
-
-        let inputs = self.inputs.clone();
-
-        for (player_id, input) in inputs {
-            if let Some(player) = self.players.get_mut(&player_id) {
-                move_player(
-                    &mut player.position,
-                    input.x,
-                    input.y,
-                    delta_seconds,
-                );
+        if let Some(existing) =
+            self.inputs.get_mut(&id)
+        {
+            if input.seq >= existing.seq {
+                *existing = input;
             }
         }
     }
 
-    pub fn tag_player(
+    pub fn advance_tick(
         &mut self,
+        dt: f32,
+    ) {
+        let player_ids =
+            self.players
+                .keys()
+                .copied()
+                .collect::<Vec<_>>();
+
+        for id in player_ids {
+            let input =
+                self.inputs
+                    .get(&id)
+                    .copied()
+                    .unwrap_or_default();
+
+            let Some(player) =
+                self.players.get_mut(&id)
+            else {
+                continue;
+            };
+
+            let moving =
+                input.x != 0.0
+                    || input.y != 0.0;
+
+            energy::update_energy(
+                player,
+                moving,
+                input.running,
+                dt,
+            );
+
+            let speed =
+                if player.is_running {
+                    RUN_SPEED
+                        * energy::running_speed_multiplier(
+                            player.energy
+                        )
+                } else {
+                    WALK_SPEED
+                };
+
+            movement::move_player(
+                &mut player.position,
+                input.x,
+                input.y,
+                speed,
+                dt,
+            );
+        }
+    }
+
+    pub fn tag_player(
+        &self,
         tagger_id: Uuid,
         target_id: Uuid,
     ) -> bool {
@@ -99,49 +150,48 @@ impl World {
             return false;
         }
 
-        let Some(tagger) = self.players.get(&tagger_id) else {
+        let Some(tagger) =
+            self.players.get(&tagger_id)
+        else {
             return false;
         };
 
-        let Some(target) = self.players.get(&target_id) else {
+        let Some(target) =
+            self.players.get(&target_id)
+        else {
             return false;
         };
 
-        if !tagger.is_it {
-            return false;
-        }
+        let dx =
+            tagger.position.x
+                - target.position.x;
 
-        if !can_tag(&tagger.position, &target.position) {
-            return false;
-        }
+        let dy =
+            tagger.position.y
+                - target.position.y;
 
-        if let Some(tagger) = self.players.get_mut(&tagger_id) {
-            tagger.is_it = false;
-        }
+        const TAG_DISTANCE: f32 = 50.0;
 
-        if let Some(target) = self.players.get_mut(&target_id) {
-            target.is_it = true;
-        }
-
-        true
+        dx * dx + dy * dy
+            <= TAG_DISTANCE * TAG_DISTANCE
     }
 
-    pub fn snapshot(&self) -> ServerMessage {
-        let players = self
-            .players
+    pub fn snapshot(
+        &self,
+    ) -> Vec<
+        crate::ws::protocol::PlayerSnapshot
+    > {
+        self.players
             .values()
-            .map(|player| PlayerSnapshot {
-                id: player.id,
-                name: player.name.clone(),
-                position: player.position,
-                is_it: player.is_it,
-                last_processed_seq: player.last_processed_seq,
+            .map(|player| {
+                crate::ws::protocol::PlayerSnapshot {
+                    id: player.id,
+                    x: player.position.x,
+                    y: player.position.y,
+                    energy: player.energy,
+                    is_running: player.is_running,
+                }
             })
-            .collect();
-
-        ServerMessage::WorldSnapshot {
-            tick: self.tick,
-            players,
-        }
+            .collect()
     }
 }
