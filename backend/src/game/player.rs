@@ -10,8 +10,19 @@ pub struct Position {
 pub struct Player {
     pub id: Uuid,
     pub position: Position,
+
     pub energy: f32,
+
     pub is_running: bool,
+
+    pub is_it: bool,
+
+    // Number of ticks until this player can be tagged again.
+    pub tag_immunity_ticks: u32,
+
+    // Number of ticks remaining for the temporary
+    // "just got tagged" speed boost.
+    pub escape_boost_ticks: u32,
 }
 
 impl Player {
@@ -22,12 +33,21 @@ impl Player {
     ) -> Self {
         Self {
             id,
+
             position: Position {
                 x,
                 y,
             },
+
             energy: 100.0,
+
             is_running: false,
+
+            is_it: false,
+
+            tag_immunity_ticks: 0,
+
+            escape_boost_ticks: 0,
         }
     }
 }
