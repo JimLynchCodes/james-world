@@ -7,12 +7,11 @@ use tokio::sync::{
     mpsc,
     Mutex,
 };
+
 use uuid::Uuid;
 
 use crate::{
-    game::{
-        world::World,
-    },
+    game::world::World,
     ws::protocol::ServerMessage,
 };
 
@@ -22,7 +21,7 @@ const TICK_RATE: u64 = 30;
 pub struct RoomManager {
     pub world: Arc<Mutex<World>>,
 
-    connections:
+    pub connections:
         Arc<
             Mutex<
                 HashMap<
@@ -37,11 +36,15 @@ impl RoomManager {
     pub fn new() -> Self {
         Self {
             world: Arc::new(
-                Mutex::new(World::new())
+                Mutex::new(
+                    World::new()
+                )
             ),
 
             connections: Arc::new(
-                Mutex::new(HashMap::new())
+                Mutex::new(
+                    HashMap::new()
+                )
             ),
         }
     }
@@ -53,7 +56,9 @@ impl RoomManager {
     ) {
         {
             let mut connections =
-                self.connections.lock().await;
+                self.connections
+                    .lock()
+                    .await;
 
             connections.insert(
                 player_id,
@@ -80,15 +85,21 @@ impl RoomManager {
     ) {
         {
             let mut connections =
-                self.connections.lock().await;
+                self.connections
+                    .lock()
+                    .await;
 
-            connections.remove(&player_id);
+            connections.remove(
+                &player_id
+            );
         }
 
         self.world
             .lock()
             .await
-            .remove_player(player_id);
+            .remove_player(
+                player_id
+            );
 
         self.broadcast(
             ServerMessage::PlayerLeft {
@@ -105,7 +116,9 @@ impl RoomManager {
     ) {
         let sender = {
             let connections =
-                self.connections.lock().await;
+                self.connections
+                    .lock()
+                    .await;
 
             connections
                 .get(&player_id)
@@ -113,7 +126,10 @@ impl RoomManager {
         };
 
         if let Some(sender) = sender {
-            let _ = sender.send(message).await;
+            let _ =
+                sender
+                    .send(message)
+                    .await;
         }
     }
 
@@ -123,7 +139,9 @@ impl RoomManager {
     ) {
         let connections = {
             let connections =
-                self.connections.lock().await;
+                self.connections
+                    .lock()
+                    .await;
 
             connections
                 .values()
@@ -132,9 +150,10 @@ impl RoomManager {
         };
 
         for sender in connections {
-            let _ = sender
-                .send(message.clone())
-                .await;
+            let _ =
+                sender
+                    .send(message.clone())
+                    .await;
         }
     }
 
@@ -153,7 +172,9 @@ impl RoomManager {
 
             let snapshot = {
                 let mut world =
-                    self.world.lock().await;
+                    self.world
+                        .lock()
+                        .await;
 
                 world.advance_tick(
                     1.0 / TICK_RATE as f32

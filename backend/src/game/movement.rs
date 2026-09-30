@@ -14,8 +14,11 @@ pub fn move_player(
         return;
     }
 
-    let normalized_x = dx / length;
-    let normalized_y = dy / length;
+    let normalized_x =
+        dx / length;
+
+    let normalized_y =
+        dy / length;
 
     position.x +=
         normalized_x * speed * dt;

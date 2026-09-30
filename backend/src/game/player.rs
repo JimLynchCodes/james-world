@@ -9,6 +9,7 @@ pub struct Position {
 #[derive(Debug, Clone)]
 pub struct Player {
     pub id: Uuid,
+
     pub position: Position,
 
     pub energy: f32,
@@ -17,11 +18,8 @@ pub struct Player {
 
     pub is_it: bool,
 
-    // Number of ticks until this player can be tagged again.
     pub tag_immunity_ticks: u32,
 
-    // Number of ticks remaining for the temporary
-    // "just got tagged" speed boost.
     pub escape_boost_ticks: u32,
 }
 

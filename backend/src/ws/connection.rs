@@ -9,6 +9,7 @@ use futures_util::{
 };
 
 use tokio::sync::mpsc;
+
 use uuid::Uuid;
 
 use crate::{
@@ -40,7 +41,11 @@ pub async fn handle_connection(
                         };
 
                         if sender
-                            .send(Message::Text(json.into()))
+                            .send(
+                                Message::Text(
+                                    json.into()
+                                )
+                            )
                             .await
                             .is_err()
                         {
@@ -48,7 +53,9 @@ pub async fn handle_connection(
                         }
                     }
 
-                    None => break,
+                    None => {
+                        break;
+                    }
                 }
             }
 
@@ -70,7 +77,11 @@ pub async fn handle_connection(
                                         error.to_json()
                                     {
                                         let _ = sender
-                                            .send(Message::Text(json.into()))
+                                            .send(
+                                                Message::Text(
+                                                    json.into()
+                                                )
+                                            )
                                             .await;
                                     }
 
@@ -88,7 +99,9 @@ pub async fn handle_connection(
 
                     Some(Ok(Message::Ping(bytes))) => {
                         if sender
-                            .send(Message::Pong(bytes))
+                            .send(
+                                Message::Pong(bytes)
+                            )
                             .await
                             .is_err()
                         {
@@ -103,7 +116,9 @@ pub async fn handle_connection(
 
                     Some(Ok(_)) => {}
 
-                    Some(Err(_)) => break,
+                    Some(Err(_)) => {
+                        break;
+                    }
                 }
             }
         }
@@ -122,8 +137,8 @@ async fn handle_client_message(
     match message {
         ClientMessage::MoveInput {
             seq,
-            x,
-            y,
+            dx,
+            dy,
             running,
         } => {
             rooms
@@ -134,8 +149,8 @@ async fn handle_client_message(
                     player_id,
                     crate::game::world::PlayerInput {
                         seq,
-                        x,
-                        y,
+                        dx,
+                        dy,
                         running,
                     },
                 );
@@ -178,6 +193,8 @@ async fn handle_client_message(
                 .await;
         }
 
-        ClientMessage::Join { .. } => {}
+        ClientMessage::Join {
+            room_id: _,
+        } => {}
     }
 }

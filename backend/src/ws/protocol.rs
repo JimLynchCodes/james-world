@@ -1,8 +1,4 @@
-use serde::{
-    Deserialize,
-    Serialize,
-};
-
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -14,8 +10,8 @@ pub enum ClientMessage {
 
     MoveInput {
         seq: u64,
-        x: f32,
-        y: f32,
+        dx: f32,
+        dy: f32,
         running: bool,
     },
 
@@ -60,14 +56,10 @@ pub enum ServerMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerSnapshot {
     pub id: Uuid,
-
     pub x: f32,
     pub y: f32,
-
     pub energy: f32,
-
     pub is_running: bool,
-
     pub is_it: bool,
 }
 
