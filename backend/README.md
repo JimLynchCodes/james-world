@@ -706,3 +706,19 @@ Server detects there is no IT
 ```
 
 Server will then randomly select a new player to be IT.
+
+---
+
+## Getting started
+
+Run the project with cargo:
+```
+cargo run
+```
+
+This will install any dependencies (if needed) and start the local webserver at: 0.0.0.0:8000
+
+Check it by sending a GET request to: http://0.0.0.0:8000/health
+
+
+originally built with rustc 1.92.0-nightly (dd7fda570 2025-09-20)
