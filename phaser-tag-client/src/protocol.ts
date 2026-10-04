@@ -21,6 +21,8 @@ export type PlayerSnapshot = {
   energy: number;
   is_running: boolean;
   is_it: boolean;
+  /** Direction of last movement in radians (atan2(dy, dx)). */
+  facing: number;
 };
 
 export type ServerMessage =

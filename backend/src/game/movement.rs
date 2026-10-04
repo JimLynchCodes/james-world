@@ -26,3 +26,17 @@ pub fn move_player(
     position.y +=
         normalized_y * speed * dt;
 }
+
+/// Keep a circle of `radius` fully inside the `[0, width] x [0, height]` world.
+pub fn clamp_to_bounds(
+    position: &mut Position,
+    radius: f32,
+    width: f32,
+    height: f32,
+) {
+    position.x =
+        position.x.clamp(radius, width - radius);
+
+    position.y =
+        position.y.clamp(radius, height - radius);
+}

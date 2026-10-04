@@ -17,6 +17,7 @@ const PLAYER_RADIUS = 18;
 
 type RemoteSprite = {
   body: Phaser.GameObjects.Arc;
+  pointer: Phaser.GameObjects.Arc;
   label: Phaser.GameObjects.Text;
   targetX: number;
   targetY: number;
@@ -151,6 +152,7 @@ class GameScene extends Phaser.Scene {
       remote.body.x = Phaser.Math.Linear(remote.body.x, remote.targetX, 0.25);
       remote.body.y = Phaser.Math.Linear(remote.body.y, remote.targetY, 0.25);
       remote.label.setPosition(remote.body.x, remote.body.y - 34);
+      this.positionPointer(remote.pointer, remote.body.x, remote.body.y, remote.snapshot.facing);
     }
   }
 
@@ -177,13 +179,24 @@ class GameScene extends Phaser.Scene {
     this.playerLabel.setPosition(this.playerBody.x, this.playerBody.y - 34);
 
     // Update direction indicator relative to player angle
-    const pointerOffset = PLAYER_RADIUS - 3;
-    this.playerPointer.setPosition(
-      this.playerBody.x + Math.cos(this.playerFacingAngle) * pointerOffset,
-      this.playerBody.y + Math.sin(this.playerFacingAngle) * pointerOffset
+    this.positionPointer(
+      this.playerPointer,
+      this.playerBody.x,
+      this.playerBody.y,
+      this.playerFacingAngle
     );
 
     this.updateHud();
+  }
+
+  private positionPointer(
+    pointer: Phaser.GameObjects.Arc,
+    x: number,
+    y: number,
+    angle: number
+  ) {
+    const offset = PLAYER_RADIUS - 3;
+    pointer.setPosition(x + Math.cos(angle) * offset, y + Math.sin(angle) * offset);
   }
 
   private sendMovement() {
@@ -331,8 +344,13 @@ class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(20);
 
+    // Facing direction dot, same as the local player's.
+    const pointer = this.add.circle(body.x, body.y, 4, 0xffffff);
+    pointer.setDepth(20);
+
     const remote: RemoteSprite = {
       body,
+      pointer,
       label,
       targetX: body.x,
       targetY: body.y,
@@ -343,6 +361,7 @@ class GameScene extends Phaser.Scene {
         energy: 100,
         is_running: false,
         is_it: false,
+        facing: 0,
       },
     };
 
@@ -356,6 +375,7 @@ class GameScene extends Phaser.Scene {
 
     remote.body.destroy();
     remote.label.destroy();
+    remote.pointer.destroy();
     this.remotePlayers.delete(id);
   }
 
