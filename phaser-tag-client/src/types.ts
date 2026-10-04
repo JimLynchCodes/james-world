@@ -7,5 +7,6 @@ export type PlayerState = {
   energy: number;
   is_running: boolean;
   is_it: boolean;
+  is_bot: boolean;
   facing: number;
 };

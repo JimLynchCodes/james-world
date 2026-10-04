@@ -311,12 +311,13 @@ class GameScene extends Phaser.Scene {
     remote.targetY = player.y;
     remote.snapshot = player;
 
+    // Bots are purple, other humans are amber; anyone who is IT is red.
     remote.body.setFillStyle(
-      player.is_it ? 0xef4444 : 0xf59e0b
+      player.is_it ? 0xef4444 : player.is_bot ? 0xa78bfa : 0xf59e0b
     );
 
     remote.label.setText(
-      `${player.is_it ? "IT • " : ""}${player.id.slice(0, 8)}`
+      `${player.is_it ? "IT • " : ""}${player.is_bot ? "BOT" : player.id.slice(0, 8)}`
     );
   }
 
@@ -361,6 +362,7 @@ class GameScene extends Phaser.Scene {
         energy: 100,
         is_running: false,
         is_it: false,
+        is_bot: false,
         facing: 0,
       },
     };

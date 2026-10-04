@@ -1,3 +1,4 @@
+pub mod bot;
 pub mod collision;
 pub mod energy;
 pub mod movement;
