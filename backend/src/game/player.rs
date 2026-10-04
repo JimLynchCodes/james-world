@@ -18,6 +18,9 @@ pub struct Player {
 
     pub is_it: bool,
 
+    /// True for server-controlled bots (no websocket connection).
+    pub is_bot: bool,
+
     /// Direction the player last moved in, in radians (0 = +x, atan2(dy, dx)).
     pub facing: f32,
 
@@ -45,6 +48,8 @@ impl Player {
             is_running: false,
 
             is_it: false,
+
+            is_bot: false,
 
             facing: 0.0,
 

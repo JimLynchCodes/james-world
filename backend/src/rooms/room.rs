@@ -74,7 +74,7 @@ impl RoomManager {
             );
         }
 
-        let existing_players = {
+        let (existing_players, spawned_bots) = {
             let mut world =
                 self.world
                     .lock()
@@ -86,9 +86,10 @@ impl RoomManager {
                 .copied()
                 .collect::<Vec<_>>();
 
-            world.add_player(player_id);
+            // Joining may also spawn the bot players.
+            let spawned_bots = world.add_player(player_id);
 
-            existing
+            (existing, spawned_bots)
         };
 
         // Tell the new player about everyone already here...
@@ -110,6 +111,15 @@ impl RoomManager {
             },
         )
         .await;
+
+        for bot_id in spawned_bots {
+            self.broadcast(
+                ServerMessage::PlayerJoined {
+                    player_id: bot_id,
+                },
+            )
+            .await;
+        }
     }
 
     pub async fn unregister(
@@ -127,7 +137,8 @@ impl RoomManager {
             );
         }
 
-        self.world
+        let removed_bots = self
+            .world
             .lock()
             .await
             .remove_player(
@@ -140,6 +151,15 @@ impl RoomManager {
             },
         )
         .await;
+
+        for bot_id in removed_bots {
+            self.broadcast(
+                ServerMessage::PlayerLeft {
+                    player_id: bot_id,
+                },
+            )
+            .await;
+        }
     }
 
     pub async fn send_to(
@@ -229,7 +249,7 @@ impl RoomManager {
         loop {
             interval.tick().await;
 
-            let snapshot = {
+            let (snapshot, bot_tags) = {
                 let mut world =
                     self.world
                         .lock()
@@ -239,8 +259,18 @@ impl RoomManager {
                     1.0 / TICK_RATE as f32
                 );
 
-                world.snapshot()
+                (world.snapshot(), world.take_tag_events())
             };
+
+            for (tagger_id, target_id) in bot_tags {
+                self.broadcast(
+                    ServerMessage::PlayerTagged {
+                        tagger_id,
+                        target_id,
+                    },
+                )
+                .await;
+            }
 
             self.broadcast(
                 ServerMessage::Snapshot {

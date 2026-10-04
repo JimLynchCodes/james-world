@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
-use rand::seq::IteratorRandom;
+use rand::{seq::IteratorRandom, Rng};
 use uuid::Uuid;
 
 use super::{
+    bot::{self, BotBrain, BOT_COUNT},
     energy,
     movement,
     player::Player,
@@ -37,6 +38,8 @@ impl Default for PlayerInput {
 pub struct World {
     pub players: HashMap<Uuid, Player>,
     pub inputs: HashMap<Uuid, PlayerInput>,
+    pub bots: HashMap<Uuid, BotBrain>,
+    tag_events: Vec<(Uuid, Uuid)>,
 }
 
 impl World {
@@ -44,13 +47,24 @@ impl World {
         Self {
             players: HashMap::new(),
             inputs: HashMap::new(),
+            bots: HashMap::new(),
+            tag_events: Vec::new(),
         }
     }
 
+    pub fn human_count(&self) -> usize {
+        self.players
+            .values()
+            .filter(|p| !p.is_bot)
+            .count()
+    }
+
+    /// Adds a human player. Returns the ids of any bots that were spawned
+    /// because of this join (bots exist only while a human is connected).
     pub fn add_player(
         &mut self,
         id: Uuid,
-    ) {
+    ) -> Vec<Uuid> {
         let player = Player::new(
             id,
             400.0,
@@ -64,13 +78,68 @@ impl World {
             PlayerInput::default(),
         );
 
+        let spawned = self.spawn_missing_bots();
+
         self.assign_it_if_needed();
+
+        spawned
     }
 
+    fn spawn_missing_bots(&mut self) -> Vec<Uuid> {
+        let mut spawned = Vec::new();
+
+        if self.human_count() == 0 {
+            return spawned;
+        }
+
+        let mut rng = rand::rng();
+
+        while self.bots.len() < BOT_COUNT {
+            let humans = self
+                .players
+                .values()
+                .filter(|p| !p.is_bot)
+                .map(|p| p.position)
+                .collect::<Vec<_>>();
+
+            // Spawn well away from humans so a join isn't an instant tag.
+            let mut spot = (0.0, 0.0);
+            for _ in 0..16 {
+                spot = (
+                    rng.random_range(200.0..WORLD_WIDTH - 200.0),
+                    rng.random_range(200.0..WORLD_HEIGHT - 200.0),
+                );
+
+                let far_enough = humans.iter().all(|h| {
+                    let dx = h.x - spot.0;
+                    let dy = h.y - spot.1;
+                    dx * dx + dy * dy > 800.0 * 800.0
+                });
+
+                if far_enough {
+                    break;
+                }
+            }
+
+            let id = Uuid::new_v4();
+            let mut bot_player = Player::new(id, spot.0, spot.1);
+            bot_player.is_bot = true;
+
+            self.players.insert(id, bot_player);
+            self.inputs.insert(id, PlayerInput::default());
+            self.bots.insert(id, BotBrain::default());
+            spawned.push(id);
+        }
+
+        spawned
+    }
+
+    /// Removes a player. When the last human leaves, every bot is removed
+    /// too; their ids are returned so callers can announce it.
     pub fn remove_player(
         &mut self,
         id: Uuid,
-    ) {
+    ) -> Vec<Uuid> {
         let was_it = self
             .players
             .get(&id)
@@ -79,10 +148,67 @@ impl World {
 
         self.players.remove(&id);
         self.inputs.remove(&id);
+        self.bots.remove(&id);
+
+        let mut removed_bots = Vec::new();
+        if self.human_count() == 0 {
+            removed_bots = self.bots.keys().copied().collect();
+            for bot_id in &removed_bots {
+                self.players.remove(bot_id);
+                self.inputs.remove(bot_id);
+            }
+            self.bots.clear();
+        }
 
         if was_it {
             self.assign_random_it();
         }
+
+        removed_bots
+    }
+
+    /// Tags performed by bots since the last call, for broadcasting.
+    pub fn take_tag_events(&mut self) -> Vec<(Uuid, Uuid)> {
+        std::mem::take(&mut self.tag_events)
+    }
+
+    /// Runs each bot's AI and stores its movement input.
+    fn think_bots(&mut self) -> Vec<(Uuid, Uuid)> {
+        let bot_ids = self.bots.keys().copied().collect::<Vec<_>>();
+        let mut tag_attempts = Vec::new();
+
+        for id in bot_ids {
+            let Some(mut brain) = self.bots.remove(&id) else {
+                continue;
+            };
+
+            if let Some(me) = self.players.get(&id) {
+                let decision = bot::think(
+                    me,
+                    &self.players,
+                    &self.inputs,
+                    &mut brain,
+                );
+
+                self.inputs.insert(
+                    id,
+                    PlayerInput {
+                        seq: 0,
+                        dx: decision.dx,
+                        dy: decision.dy,
+                        running: decision.running,
+                    },
+                );
+
+                if let Some(target) = decision.tag {
+                    tag_attempts.push((id, target));
+                }
+            }
+
+            self.bots.insert(id, brain);
+        }
+
+        tag_attempts
     }
 
     fn assign_it_if_needed(
@@ -165,6 +291,8 @@ impl World {
             }
         }
 
+        let tag_attempts = self.think_bots();
+
         let player_ids =
             self.players
                 .keys()
@@ -234,6 +362,12 @@ impl World {
                 WORLD_WIDTH,
                 WORLD_HEIGHT,
             );
+        }
+
+        for (tagger, target) in tag_attempts {
+            if self.tag_player(tagger, target) {
+                self.tag_events.push((tagger, target));
+            }
         }
     }
 
@@ -341,6 +475,7 @@ impl World {
                     energy: player.energy,
                     is_running: player.is_running,
                     is_it: player.is_it,
+                    is_bot: player.is_bot,
                     facing: player.facing,
                 }
             })

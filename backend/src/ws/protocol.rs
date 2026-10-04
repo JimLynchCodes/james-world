@@ -66,6 +66,7 @@ pub struct PlayerSnapshot {
     pub energy: f32,
     pub is_running: bool,
     pub is_it: bool,
+    pub is_bot: bool,
     pub facing: f32,
 }
 

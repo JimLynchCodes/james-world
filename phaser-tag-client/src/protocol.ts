@@ -21,6 +21,8 @@ export type PlayerSnapshot = {
   energy: number;
   is_running: boolean;
   is_it: boolean;
+  /** True for server-controlled bot players. */
+  is_bot: boolean;
   /** Direction of last movement in radians (atan2(dy, dx)). */
   facing: number;
 };
