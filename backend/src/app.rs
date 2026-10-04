@@ -19,8 +19,13 @@ pub struct AppState {
 }
 
 pub fn create_app() -> Router {
-    let world = World::new();
     let rooms = RoomManager::new();
+
+    // Clone the exact same RoomManager instance for the background tick task
+    let rooms_clone = rooms.clone();
+    tokio::spawn(async move {
+        rooms_clone.run_tick_loop().await;
+    });
 
     let state = AppState { rooms };
 
