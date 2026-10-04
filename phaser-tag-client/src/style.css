@@ -78,3 +78,9 @@ canvas {
   transform-origin: left;
   background: #22c55e;
 }
+
+.events {
+  margin-top: 8px;
+  font-size: 12px;
+  opacity: .8;
+}

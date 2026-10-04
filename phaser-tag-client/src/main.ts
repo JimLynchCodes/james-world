@@ -6,15 +6,13 @@ import type { UUID } from "./types";
 
 const WS_URL =
   import.meta.env.VITE_WS_URL ??
-  `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:3000/ws`;
+  `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:8000/ws`;
 
 const ROOM_ID = import.meta.env.VITE_ROOM_ID ?? "default";
 
 const WORLD_WIDTH = 5000;
 const WORLD_HEIGHT = 5000;
 
-const WALK_SPEED = 180;
-const RUN_SPEED = 320;
 const PLAYER_RADIUS = 18;
 
 type RemoteSprite = {
@@ -36,6 +34,8 @@ class GameScene extends Phaser.Scene {
 
   private remotePlayers = new Map<UUID, RemoteSprite>();
   private localPlayerId: UUID | null = null;
+  private localTargetX: number | null = null;
+  private localTargetY: number | null = null;
 
   private sequence = 0;
   private inputTimer = 0;
@@ -47,6 +47,7 @@ class GameScene extends Phaser.Scene {
   private hudStatus!: HTMLElement;
   private hudEnergy!: HTMLElement;
   private hudPlayers!: HTMLElement;
+  private hudEvents: HTMLElement | null = null;
 
   constructor() {
     super("GameScene");
@@ -153,7 +154,9 @@ class GameScene extends Phaser.Scene {
     }
   }
 
-  private updateLocalMovement(dt: number) {
+  private updateLocalMovement(_dt: number) {
+    // The server is authoritative: we only send inputs (see sendMovement)
+    // and ease toward the position it reports in each Snapshot.
     let dx = 0;
     let dy = 0;
 
@@ -162,35 +165,16 @@ class GameScene extends Phaser.Scene {
     if (this.cursors.up.isDown || this.keys.W.isDown) dy -= 1;
     if (this.cursors.down.isDown || this.keys.S.isDown) dy += 1;
 
-    const moving = dx !== 0 || dy !== 0;
-    const running = this.keys.SHIFT.isDown;
-
-    if (moving) {
-      const length = Math.hypot(dx, dy);
-      dx /= length;
-      dy /= length;
-
+    if (dx !== 0 || dy !== 0) {
       this.playerFacingAngle = Math.atan2(dy, dx);
-
-      const speed = running ? RUN_SPEED : WALK_SPEED;
-
-      this.playerBody.x = Phaser.Math.Clamp(
-        this.playerBody.x + dx * speed * dt,
-        PLAYER_RADIUS,
-        WORLD_WIDTH - PLAYER_RADIUS
-      );
-
-      this.playerBody.y = Phaser.Math.Clamp(
-        this.playerBody.y + dy * speed * dt,
-        PLAYER_RADIUS,
-        WORLD_HEIGHT - PLAYER_RADIUS
-      );
-
-      this.playerLabel.setPosition(
-        this.playerBody.x,
-        this.playerBody.y - 34
-      );
     }
+
+    if (this.localTargetX !== null && this.localTargetY !== null) {
+      this.playerBody.x = Phaser.Math.Linear(this.playerBody.x, this.localTargetX, 0.35);
+      this.playerBody.y = Phaser.Math.Linear(this.playerBody.y, this.localTargetY, 0.35);
+    }
+
+    this.playerLabel.setPosition(this.playerBody.x, this.playerBody.y - 34);
 
     // Update direction indicator relative to player angle
     const pointerOffset = PLAYER_RADIUS - 3;
@@ -199,7 +183,6 @@ class GameScene extends Phaser.Scene {
       this.playerBody.y + Math.sin(this.playerFacingAngle) * pointerOffset
     );
 
-    // Update HUD every frame (drains/recharges energy smoothly while stationary)
     this.updateHud();
   }
 
@@ -240,16 +223,24 @@ class GameScene extends Phaser.Scene {
         this.applySnapshot(message.data.players);
         break;
 
+      case "Welcome":
+        // Sent only to us, before anything else: this is our own player id.
+        this.localPlayerId = message.data.player_id;
+        this.removeRemotePlayer(message.data.player_id);
+        this.logEvent(`You joined as ${message.data.player_id.slice(0, 8)}`);
+        break;
+
       case "PlayerJoined":
-        // If local ID is not set yet, the first PlayerJoined belongs to us
-        if (!this.localPlayerId) {
-          this.localPlayerId = message.data.player_id;
-        }
+        if (message.data.player_id === this.localPlayerId) break;
         this.ensureRemotePlayer(message.data.player_id);
+        this.logEvent(`Player ${message.data.player_id.slice(0, 8)} joined`);
+        this.updateHud();
         break;
 
       case "PlayerLeft":
         this.removeRemotePlayer(message.data.player_id);
+        this.logEvent(`Player ${message.data.player_id.slice(0, 8)} left`);
+        this.updateHud();
         break;
 
       case "PlayerTagged":
@@ -266,15 +257,6 @@ class GameScene extends Phaser.Scene {
   }
 
   private applySnapshot(players: PlayerSnapshot[]) {
-    if (!this.localPlayerId) {
-      const configured = import.meta.env.VITE_PLAYER_ID as string | undefined;
-      if (configured) {
-        this.localPlayerId = configured;
-      } else if (players.length === 1) {
-        this.localPlayerId = players[0].id;
-      }
-    }
-
     for (const player of players) {
       if (player.id === this.localPlayerId) {
         this.applyLocalSnapshot(player);
@@ -295,26 +277,17 @@ class GameScene extends Phaser.Scene {
   private localEnergy = 100;
 
   private applyLocalSnapshot(player: PlayerSnapshot) {
-    // Reconcile prediction to server authority.
-    this.playerBody.x = Phaser.Math.Linear(
-      this.playerBody.x,
-      player.x,
-      0.35
-    );
-    this.playerBody.y = Phaser.Math.Linear(
-      this.playerBody.y,
-      player.y,
-      0.35
-    );
+    // Snap to the server position on the first snapshot, then ease toward it.
+    if (this.localTargetX === null) {
+      this.playerBody.setPosition(player.x, player.y);
+    }
+    this.localTargetX = player.x;
+    this.localTargetY = player.y;
 
     this.playerLabel.setText(player.is_it ? "YOU • IT" : "YOU");
+    this.playerBody.setFillStyle(player.is_it ? 0xef4444 : 0x38bdf8);
 
-    if (player.is_it) {
-      this.playerBody.setFillStyle(0xef4444);
-    } else {
-      this.playerBody.setFillStyle(0x38bdf8);
-    }
-
+    // Energy comes straight from our entry in the server snapshot.
     this.localEnergy = player.energy;
   }
 
@@ -464,11 +437,26 @@ class GameScene extends Phaser.Scene {
     }
   }
 
+  private logEvent(text: string) {
+    console.log(`[game] ${text}`);
+    if (!this.hudEvents) return;
+
+    const entry = document.createElement("div");
+    entry.textContent = text;
+    this.hudEvents.appendChild(entry);
+    while (this.hudEvents.childElementCount > 5) {
+      this.hudEvents.firstElementChild?.remove();
+    }
+    setTimeout(() => entry.remove(), 6000);
+  }
+
   setHudElements(
     status: HTMLElement,
     energy: HTMLElement,
-    players: HTMLElement
+    players: HTMLElement,
+    events?: HTMLElement
   ) {
+    this.hudEvents = events ?? null;
     this.hudStatus = status;
     this.hudEnergy = energy;
     this.hudPlayers = players;
@@ -525,6 +513,7 @@ hud.innerHTML = `
     <div class="energy-bar">
       <div id="energy" class="energy-fill"></div>
     </div>
+    <div id="events" class="events"></div>
   </div>
 
   <div class="controls">
@@ -541,7 +530,9 @@ const energy = document.querySelector("#energy") as HTMLElement;
 const players = document.querySelector("#players") as HTMLElement;
 const connection = document.querySelector("#connection") as HTMLElement;
 
-scene.setHudElements(status, energy, players);
+const events = document.querySelector("#events") as HTMLElement;
+
+scene.setHudElements(status, energy, players, events);
 
 window.addEventListener("resize", () => game.scale.resize(window.innerWidth, window.innerHeight));
 

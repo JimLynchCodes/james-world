@@ -54,6 +54,14 @@ impl RoomManager {
         player_id: Uuid,
         sender: mpsc::Sender<ServerMessage>,
     ) {
+        // The connection's channel is ordered, so queue the Welcome first:
+        // the client always learns its own id before any snapshot or join.
+        let _ = sender
+            .send(ServerMessage::Welcome {
+                player_id,
+            })
+            .await;
+
         {
             let mut connections =
                 self.connections
@@ -62,16 +70,41 @@ impl RoomManager {
 
             connections.insert(
                 player_id,
-                sender,
+                sender.clone(),
             );
         }
 
-        self.world
-            .lock()
-            .await
-            .add_player(player_id);
+        let existing_players = {
+            let mut world =
+                self.world
+                    .lock()
+                    .await;
 
-        self.broadcast(
+            let existing = world
+                .players
+                .keys()
+                .copied()
+                .collect::<Vec<_>>();
+
+            world.add_player(player_id);
+
+            existing
+        };
+
+        // Tell the new player about everyone already here...
+        for existing_id in existing_players {
+            let _ = sender
+                .send(
+                    ServerMessage::PlayerJoined {
+                        player_id: existing_id,
+                    },
+                )
+                .await;
+        }
+
+        // ...and tell everyone else about the new player.
+        self.broadcast_except(
+            player_id,
             ServerMessage::PlayerJoined {
                 player_id,
             },
@@ -129,6 +162,32 @@ impl RoomManager {
             let _ =
                 sender
                     .send(message)
+                    .await;
+        }
+    }
+
+    pub async fn broadcast_except(
+        &self,
+        excluded: Uuid,
+        message: ServerMessage,
+    ) {
+        let connections = {
+            let connections =
+                self.connections
+                    .lock()
+                    .await;
+
+            connections
+                .iter()
+                .filter(|(id, _)| **id != excluded)
+                .map(|(_, sender)| sender.clone())
+                .collect::<Vec<_>>()
+        };
+
+        for sender in connections {
+            let _ =
+                sender
+                    .send(message.clone())
                     .await;
         }
     }

@@ -27,5 +27,5 @@ async fn websocket_sends_welcome() {
 
     let text = message.into_text().unwrap();
 
-    assert!(text.contains("welcome"));
+    assert!(text.contains("Welcome"));
 }
