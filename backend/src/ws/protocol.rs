@@ -27,6 +27,11 @@ pub enum ClientMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum ServerMessage {
+    /// Sent only to the connecting client, first, to tell it its own player id.
+    Welcome {
+        player_id: Uuid,
+    },
+
     Snapshot {
         players: Vec<PlayerSnapshot>,
     },

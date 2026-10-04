@@ -24,6 +24,7 @@ export type PlayerSnapshot = {
 };
 
 export type ServerMessage =
+  | { type: "Welcome"; data: { player_id: UUID } }
   | { type: "Snapshot"; data: { players: PlayerSnapshot[] } }
   | { type: "PlayerJoined"; data: { player_id: UUID } }
   | { type: "PlayerLeft"; data: { player_id: UUID } }

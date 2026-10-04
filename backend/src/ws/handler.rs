@@ -7,7 +7,7 @@ use axum::{
 };
 
 use crate::{
-    app::AppState, ws::{connection::handle_connection, protocol::ServerMessage},
+    app::AppState, ws::connection::handle_connection,
 };
 
 pub async fn ws_handler(
@@ -26,14 +26,6 @@ pub async fn ws_handler(
                 .register(
                     player_id,
                     outbound_tx,
-                )
-                .await;
-
-            // Notify the client of their assigned UUID right when they join
-            rooms
-                .send_to(
-                    player_id,
-                    ServerMessage::PlayerJoined { player_id },
                 )
                 .await;
 
