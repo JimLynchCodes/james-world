@@ -18,6 +18,9 @@ pub struct Player {
 
     pub is_it: bool,
 
+    /// Direction the player last moved in, in radians (0 = +x, atan2(dy, dx)).
+    pub facing: f32,
+
     pub tag_immunity_ticks: u32,
 
     pub escape_boost_ticks: u32,
@@ -42,6 +45,8 @@ impl Player {
             is_running: false,
 
             is_it: false,
+
+            facing: 0.0,
 
             tag_immunity_ticks: 0,
 

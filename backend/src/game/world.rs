@@ -10,6 +10,9 @@ use super::{
 };
 
 pub const TICK_RATE: u32 = 30;
+pub const WORLD_WIDTH: f32 = 5000.0;
+pub const WORLD_HEIGHT: f32 = 5000.0;
+pub const PLAYER_RADIUS: f32 = 18.0;
 pub const TAG_COOLDOWN_SECONDS: f32 = 5.0;
 
 #[derive(Debug, Clone, Copy)]
@@ -219,6 +222,18 @@ impl World {
                 speed,
                 dt,
             );
+
+            if moving {
+                player.facing =
+                    input.dy.atan2(input.dx);
+            }
+
+            movement::clamp_to_bounds(
+                &mut player.position,
+                PLAYER_RADIUS,
+                WORLD_WIDTH,
+                WORLD_HEIGHT,
+            );
         }
     }
 
@@ -326,6 +341,7 @@ impl World {
                     energy: player.energy,
                     is_running: player.is_running,
                     is_it: player.is_it,
+                    facing: player.facing,
                 }
             })
             .collect()
