@@ -39,5 +39,5 @@ fn facing_follows_last_movement_direction() {
     // Standing still keeps the last facing.
     run(&mut world, id, 0.0, 0.0, 1);
     assert!((world.players[&id].facing - std::f32::consts::FRAC_PI_2).abs() < 1e-4);
-    assert!((world.snapshot()[0].facing - std::f32::consts::FRAC_PI_2).abs() < 1e-4);
+    assert!((world.snapshot().iter().find(|p| p.id == id).unwrap().facing - std::f32::consts::FRAC_PI_2).abs() < 1e-4);
 }

@@ -145,14 +145,39 @@ This is a small change but makes the protocol unambiguous.
 
 The game uses a 5000 x 5000 world.
 
-The local player is represented by a circle at their authoritative
-world coordinate. Phaser's camera follows that object, so the player
+The local player is drawn as a kid sprite (see "Character sprites")
+at their authoritative world coordinate. Phaser's camera follows that object, so the player
 stays approximately in the center of the viewport while the world
 moves underneath them.
 
 Remote players use their server snapshot coordinates and are
 interpolated toward the latest snapshot to reduce visible network
 jitter.
+
+## Character sprites
+
+Every player (you, other humans and bots) is an 8-direction kid sprite
+(`src/kid.ts`). The direction comes from the facing angle (`atan2(dy, dx)`,
+0 = east, +PI/2 = south): your own input for the local player, `facing`
+from the snapshot for everyone else.
+
+- walk loop while moving (faster while running), breathing loop when still
+- tag (arm reach + small forward lunge) plays once on the tagger when the
+  server sends `PlayerTagged`, and immediately when you press E
+- coloured ring under the feet: blue = you, red = IT, purple = bot,
+  amber = other human; IT also gets a light red tint
+- sprites are depth-sorted by y so lower players draw in front
+
+`public/assets/kid.png` (80x100 frames, 22 per row, rows E, SE, S, SW, W,
+NW, N, NE; columns idle 0-3, walk 4-11, breathing 12-15, tag 16-21) is
+generated from the original presentation sheet `tools/kid_sheet_source.png`:
+
+```bash
+python3 tools/slice_kid_sheet.py --preview /tmp/kid_preview.png
+```
+
+(needs Python 3 with Pillow and numpy). See the comments at the top of the
+script for how the source rows map to directions.
 
 ## Security / authority
 
