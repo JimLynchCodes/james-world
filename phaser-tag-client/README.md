@@ -177,7 +177,24 @@ python3 tools/slice_kid_sheet.py --preview /tmp/kid_preview.png
 ```
 
 (needs Python 3 with Pillow and numpy). See the comments at the top of the
-script for how the source rows map to directions.
+script for how the source rows map to directions. The source sheet has no
+front-three-quarter frames (its SE/SW rows are side profiles), so SE and SW
+are built from the S (front) frames with a small "head turn" warp, mirrored
+for SW, so diagonal-down movement shows a kid facing the camera rather than
+a profile.
+
+## Schoolyard background
+
+`src/schoolyard.ts` draws the world procedurally at startup (no image
+assets): grass with subtle patches, a blacktop with basketball courts,
+four-square, hopscotch and other painted games, a running track around a
+soccer field, a baseball diamond, a wood-chip playground, sidewalks, trees,
+bushes, benches, picnic tables, and a chain-link fence along the world edge
+(which is the server's boundary wall). It is decoration only (no
+collision). For performance everything is baked once into canvas textures:
+the grass layers are camera-sized TileSprites that follow the view, each
+area is a single image, and props reuse a few small textures. The layout is
+seeded, so every client sees the same yard.
 
 ## Security / authority
 
