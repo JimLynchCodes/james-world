@@ -14,7 +14,7 @@
 
 import type { Mood, Settings } from "./settings";
 
-export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "click";
+export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "click";
 
 const CROSSFADE_S = 1.5;
 const LOOKAHEAD_S = 0.15;
@@ -465,6 +465,8 @@ export interface AudioDebugState {
   fileUrl: Partial<Record<Mood, string>>;
   gains: { master: number; music: number; sfx: number };
   sfxPlayed: number;
+  /** last sound effect played (debug / tests) */
+  lastSfx: Sfx | null;
 }
 
 export class GameAudio {
@@ -478,6 +480,9 @@ export class GameAudio {
   private fading: Track[] = [];
   private settings: Settings;
   private sfxPlayed = 0;
+  private lastSfx: Sfx | null = null;
+  /** Banana James alternates feet: left / right squeak at slightly different pitches. */
+  private bananaFoot = false;
   private lastJoin = 0;
   private buffers = new Map<Mood, AudioBuffer>();
   private loads = new Map<Mood, LoadStatus>();
@@ -583,11 +588,29 @@ export class GameAudio {
         syn.noise(t, { filter: "lowpass", freq: 700 + Math.random() * 400, gain: 0.22 * v, release: 0.035 });
         syn.tone(t, 110 + Math.random() * 20, { gain: 0.07 * v, release: 0.04 });
         break;
+      case "bananaStep": { // Banana James: squelchy squish + rubbery squeak-boing
+        this.bananaFoot = !this.bananaFoot;
+        const base = (this.bananaFoot ? 330 : 270) * (0.94 + Math.random() * 0.12);
+        syn.noise(t, { filter: "bandpass", freq: 1500, sweepTo: 320, q: 2.4, gain: 0.32 * v, attack: 0.004, release: 0.075 });
+        syn.tone(t + 0.012, base, {
+          type: "triangle",
+          glideTo: base * 2.2,
+          attack: 0.008,
+          hold: 0.045,
+          release: 0.1,
+          gain: 0.1 * v,
+          vibrato: [30, 28],
+          filter: 2800,
+        });
+        syn.tone(t, 95, { gain: 0.06 * v, release: 0.05 });
+        break;
+      }
       case "click":
         syn.tone(t, 1250, { type: "triangle", gain: 0.08 * v, release: 0.035 });
         break;
     }
     this.sfxPlayed++;
+    this.lastSfx = name;
   }
 
   /** Snapshot for debugging / tests. */
@@ -605,6 +628,7 @@ export class GameAudio {
         ? { master: this.master.gain.value, music: this.music.gain.value, sfx: this.sfx.gain.value }
         : { master: 0, music: 0, sfx: 0 },
       sfxPlayed: this.sfxPlayed,
+      lastSfx: this.lastSfx,
     };
   }
 

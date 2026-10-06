@@ -1,0 +1,40 @@
+{
+  "image": "kid_banana.png",
+  "frameWidth": 80,
+  "frameHeight": 120,
+  "baselineY": 116,
+  "anchorX": 40,
+  "columns": 30,
+  "directions": [
+    "E",
+    "SE",
+    "S",
+    "SW",
+    "W",
+    "NW",
+    "N",
+    "NE"
+  ],
+  "animations": {
+    "idle": {
+      "start": 0,
+      "count": 4
+    },
+    "walk": {
+      "start": 4,
+      "count": 8
+    },
+    "breathe": {
+      "start": 12,
+      "count": 4
+    },
+    "tag": {
+      "start": 16,
+      "count": 6
+    },
+    "run": {
+      "start": 22,
+      "count": 8
+    }
+  }
+}

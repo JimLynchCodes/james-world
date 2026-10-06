@@ -55,7 +55,7 @@ impl RoomManager {
         sender: mpsc::Sender<ServerMessage>,
     ) {
         // Add to the world first: that's where the player's name comes from.
-        let (name, existing_players, spawned_bots) = {
+        let (name, skin, existing_players, spawned_bots) = {
             let mut world =
                 self.world
                     .lock()
@@ -64,17 +64,17 @@ impl RoomManager {
             let existing = world
                 .players
                 .values()
-                .map(|p| (p.id, p.name.clone()))
+                .map(|p| (p.id, p.name.clone(), p.skin))
                 .collect::<Vec<_>>();
 
             // Joining may also spawn the bot players.
             let spawned_bots = world
                 .add_player(player_id)
                 .into_iter()
-                .map(|id| (id, world.name_of(&id)))
+                .map(|id| (id, world.name_of(&id), world.skin_of(&id)))
                 .collect::<Vec<_>>();
 
-            (world.name_of(&player_id), existing, spawned_bots)
+            (world.name_of(&player_id), world.skin_of(&player_id), existing, spawned_bots)
         };
 
         // The connection's channel is ordered and snapshots only reach
@@ -100,12 +100,13 @@ impl RoomManager {
         }
 
         // Tell the new player about everyone already here...
-        for (existing_id, existing_name) in existing_players {
+        for (existing_id, existing_name, existing_skin) in existing_players {
             let _ = sender
                 .send(
                     ServerMessage::PlayerJoined {
                         player_id: existing_id,
                         name: existing_name,
+                        skin: existing_skin,
                     },
                 )
                 .await;
@@ -117,15 +118,17 @@ impl RoomManager {
             ServerMessage::PlayerJoined {
                 player_id,
                 name,
+                skin,
             },
         )
         .await;
 
-        for (bot_id, bot_name) in spawned_bots {
+        for (bot_id, bot_name, bot_skin) in spawned_bots {
             self.broadcast(
                 ServerMessage::PlayerJoined {
                     player_id: bot_id,
                     name: bot_name,
+                    skin: bot_skin,
                 },
             )
             .await;

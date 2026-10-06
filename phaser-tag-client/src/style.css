@@ -561,3 +561,74 @@ canvas {
    show through. Still clickable. */
 .status, .controls { transition: opacity .2s; }
 .see-through { opacity: .18; }
+
+/* Settings > Skins: one card per skin with a live sprite preview */
+.skin-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.skin-card {
+  --s: 1.25; /* preview scale */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 8px 12px;
+  border: 3px solid var(--ink);
+  border-radius: 18px;
+  background: #f4f1ff;
+  box-shadow: 0 4px 0 var(--ink);
+  font-family: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  transition: transform .15s cubic-bezier(.34, 1.8, .5, 1), background .15s;
+}
+.skin-card:hover { transform: translateY(-3px); }
+.skin-card:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+.skin-card.picked {
+  background: var(--sun);
+  transform: rotate(-1.5deg);
+}
+.skin-card:focus-visible { outline: 3px dashed var(--tangerine); outline-offset: 3px; }
+.skin-stage {
+  position: relative;
+  display: block;
+  width: 100%;
+  /* tallest frame (Banana James, 120px) so both kids stand on the same line */
+  height: calc(120px * var(--s));
+  border-radius: 12px;
+  background:
+    radial-gradient(ellipse 34% 7% at 50% calc(100% - 7px), rgba(43, 33, 64, .28), transparent 70%),
+    linear-gradient(#c9ecff, #e9f8ff 70%, #9fd78a 70%);
+}
+.skin-preview {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: calc(var(--fw) * var(--s) * 1px);
+  height: calc(var(--fh) * var(--s) * 1px);
+  transform: translateX(-50%);
+  background-image: var(--sheet);
+  background-repeat: no-repeat;
+  /* 30 frames per row, 8 rows; row 2 = facing the camera (S) */
+  background-size: calc(var(--fw) * var(--s) * 30px) calc(var(--fh) * var(--s) * 8px);
+  background-position-y: calc(var(--fh) * var(--s) * -2px);
+  image-rendering: pixelated;
+  animation: skin-breathe 1.3s steps(4) infinite;
+}
+.skin-card.picked .skin-preview { animation: skin-walk .8s steps(8) infinite; }
+@keyframes skin-breathe { /* breathing frames 12-15 */
+  from { background-position-x: calc(var(--fw) * var(--s) * -12px); }
+  to { background-position-x: calc(var(--fw) * var(--s) * -16px); }
+}
+@keyframes skin-walk { /* walk frames 4-11 */
+  from { background-position-x: calc(var(--fw) * var(--s) * -4px); }
+  to { background-position-x: calc(var(--fw) * var(--s) * -12px); }
+}
+.skin-name { font-size: 16px; font-weight: 900; }
+.skin-note { font-size: 12px; font-weight: 700; color: #5b4f73; }
+@media (prefers-reduced-motion: reduce) {
+  .skin-preview, .skin-card.picked .skin-preview { animation: none; background-position-x: calc(var(--fw) * var(--s) * -12px); }
+}

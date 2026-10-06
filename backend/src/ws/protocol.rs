@@ -1,11 +1,22 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::game::skin::Skin;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum ClientMessage {
     Join {
         room_id: String,
+        /// Skin to wear ("james" | "banana"). Optional for older clients;
+        /// unknown values fall back to "james" (see `Skin::parse`).
+        #[serde(default)]
+        skin: Option<String>,
+    },
+
+    /// Change skin mid-game (from the settings panel).
+    SetSkin {
+        skin: String,
     },
 
     MoveInput {
@@ -41,6 +52,8 @@ pub enum ServerMessage {
     PlayerJoined {
         player_id: Uuid,
         name: String,
+        /// Skin at join time; live changes arrive in snapshots.
+        skin: Skin,
     },
 
     PlayerLeft {
@@ -66,6 +79,7 @@ pub struct PlayerSnapshot {
     pub id: Uuid,
     /// Display name, e.g. "James 3".
     pub name: String,
+    pub skin: Skin,
     pub x: f32,
     pub y: f32,
     pub energy: f32,

@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { DEFAULT_SKIN, SKINS, SKIN_IDS, type Skin, type SkinSheet } from "./skins";
 
 /**
  * 8-direction kid character.
@@ -10,13 +11,14 @@ import Phaser from "phaser";
  * feet on y = 96 and the head centred on x = 40. Columns per row:
  *   0-3 idle (static), 4-11 walk, 12-15 breathing (used as idle),
  *   16-21 tag (arm reach), 22-29 run (generated: big stride + arm swing).
+ *
+ * Skins (see skins.ts) use the same layout; Banana James
+ * (`kid_banana.png`, from tools/make_banana_skin.py) has taller frames.
+ * Animation keys are `<texture>-<anim>-<dir>`, e.g. `kid_banana-walk-SE`.
  */
-export const KID_TEXTURE = "kid";
-export const KID_URL = `${import.meta.env.BASE_URL}assets/kid.png`;
-
 const FRAME_W = 80;
+/** Height of the default (James) frame; art sizes below are relative to it. */
 const FRAME_H = 100;
-const BASELINE_Y = 96;
 const COLUMNS = 30;
 
 /** Order of the direction rows in the sheet (clockwise from east, y down). */
@@ -48,24 +50,38 @@ const TAG_LUNGE = 10 * SIZE;
 const WALK_FPS = 10;
 const RUN_FPS = 15;
 
+/** Load every skin's spritesheet. */
 export function preloadKid(scene: Phaser.Scene) {
-  scene.load.spritesheet(KID_TEXTURE, KID_URL, {
-    frameWidth: FRAME_W,
-    frameHeight: FRAME_H,
-  });
+  for (const id of SKIN_IDS) {
+    const sheet = SKINS[id];
+    scene.load.spritesheet(sheet.texture, sheet.url, {
+      frameWidth: sheet.frameWidth,
+      frameHeight: sheet.frameHeight,
+    });
+  }
 }
 
-function animKey(name: AnimName, dir: KidDirection) {
-  return `kid-${name}-${dir}`;
+function animKey(name: AnimName, dir: KidDirection, skin: Skin = DEFAULT_SKIN) {
+  return `${SKINS[skin].texture}-${name}-${dir}`;
 }
 
-/** Register all kid animations once per game (idempotent). */
+/** Animation name ("walk", "tag", ...) of a key made by animKey. */
+function animOf(key: string | undefined): string | undefined {
+  return key?.split("-")[1];
+}
+
+/** Register all kid animations for every skin once per game (idempotent). */
 export function createKidAnimations(scene: Phaser.Scene) {
+  for (const id of SKIN_IDS) createSkinAnimations(scene, SKINS[id]);
+}
+
+function createSkinAnimations(scene: Phaser.Scene, sheet: SkinSheet) {
+  const animKey = (name: AnimName, dir: KidDirection) => `${sheet.texture}-${name}-${dir}`;
   KID_DIRECTIONS.forEach((dir, row) => {
     const frame = (i: number) => row * COLUMNS + i;
     const range = (name: AnimName) =>
       Array.from({ length: ANIM[name].count }, (_, i) => ({
-        key: KID_TEXTURE,
+        key: sheet.texture,
         frame: frame(ANIM[name].start + i),
       }));
 
@@ -150,6 +166,7 @@ export class KidAvatar {
   private lunge = { t: 0 };
   private lungeTween: Phaser.Tweens.Tween | null = null;
   private readonly feetOffset: number;
+  private skin: Skin = DEFAULT_SKIN;
 
   /**
    * @param radius the player's collision radius on the server; sizes the
@@ -176,8 +193,9 @@ export class KidAvatar {
     );
     this.shadow.setDepth(1);
 
-    this.sprite = scene.add.sprite(x, y + this.feetOffset, KID_TEXTURE, 2 * COLUMNS + ANIM.breathe.start);
-    this.sprite.setOrigin(0.5, BASELINE_Y / FRAME_H);
+    const sheet = SKINS[this.skin];
+    this.sprite = scene.add.sprite(x, y + this.feetOffset, sheet.texture, 2 * COLUMNS + ANIM.breathe.start);
+    this.sprite.setOrigin(0.5, sheet.baselineY / sheet.frameHeight);
     this.sprite.setScale(KID_SCALE);
 
     const label = (line: LabelLine) =>
@@ -188,7 +206,7 @@ export class KidAvatar {
     this.sprite.on(
       Phaser.Animations.Events.ANIMATION_COMPLETE,
       (anim: Phaser.Animations.Animation) => {
-        if (anim.key.startsWith("kid-tag-")) this.endTag();
+        if (animOf(anim.key) === "tag") this.endTag();
       }
     );
 
@@ -204,6 +222,36 @@ export class KidAvatar {
     // A light red wash on the kid makes IT readable even without the ring.
     if (role === "it") this.sprite.setTint(0xffc4c4);
     else this.sprite.clearTint();
+  }
+
+  /**
+   * Switch outfit (e.g. James <-> Banana James). Keeps whatever the kid is
+   * doing: the same animation, direction and progress continue in the new
+   * skin's sheet.
+   */
+  setSkin(skin: Skin) {
+    if (skin === this.skin || !SKINS[skin]) return;
+    const current = this.sprite.anims.currentAnim?.key;
+    const progress = this.sprite.anims.isPlaying ? this.sprite.anims.getProgress() : 0;
+    this.skin = skin;
+    const sheet = SKINS[skin];
+    this.sprite.setTexture(sheet.texture, this.sprite.frame.name);
+    this.sprite.setOrigin(0.5, sheet.baselineY / sheet.frameHeight);
+    const [, name, dir] = current?.split("-") ?? [];
+    if (name && dir) {
+      this.sprite.anims.play(animKey(name as AnimName, dir as KidDirection, skin));
+      if (progress) this.sprite.anims.setProgress(progress);
+    }
+    this.update();
+  }
+
+  get currentSkin(): Skin {
+    return this.skin;
+  }
+
+  /** Height of the art above the feet in world px (hair top or banana stem). */
+  private get artHeight(): number {
+    return SKINS[this.skin].artHeight * KID_SCALE;
   }
 
   /** Label stack contents: name, plus the YOU / IT lines when they apply. */
@@ -225,7 +273,7 @@ export class KidAvatar {
       left = Math.min(left, this.x - half);
       right = Math.max(right, this.x + half);
     }
-    const top = Math.min(this.labelTop, feetY - FRAME_H * KID_SCALE * 0.9);
+    const top = Math.min(this.labelTop, feetY - this.artHeight);
     const bottom = feetY + this.shadow.height / 2;
     return new Phaser.Geom.Rectangle(left, top, right - left, bottom - top);
   }
@@ -250,7 +298,7 @@ export class KidAvatar {
     this.tagFacing = towardAngle ?? null;
 
     const dir = directionFromAngle(this.tagFacing ?? this.facing);
-    this.sprite.anims.play(animKey("tag", dir), true);
+    this.sprite.anims.play(animKey("tag", dir, this.skin), true);
 
     // Small forward lunge in the facing direction, synced to the reach.
     this.lungeTween?.stop();
@@ -295,19 +343,17 @@ export class KidAvatar {
       // Re-evaluated every frame from the current flags only: walk / run
       // while moving, the breathing idle as soon as moving goes false.
       if (this.moving) {
-        const key = animKey(this.running ? "run" : "walk", dir);
+        const key = animKey(this.running ? "run" : "walk", dir, this.skin);
         const current = this.sprite.anims.currentAnim?.key;
         if (current !== key) {
           // Keep the stride phase when turning or switching walk <-> run.
-          const progress =
-            current?.startsWith("kid-walk-") || current?.startsWith("kid-run-")
-              ? this.sprite.anims.getProgress()
-              : 0;
+          const was = animOf(current);
+          const progress = was === "walk" || was === "run" ? this.sprite.anims.getProgress() : 0;
           this.sprite.anims.play(key);
           if (progress) this.sprite.anims.setProgress(progress);
         }
       } else {
-        this.sprite.anims.play(animKey("breathe", dir), true);
+        this.sprite.anims.play(animKey("breathe", dir, this.skin), true);
       }
     }
 
@@ -321,7 +367,7 @@ export class KidAvatar {
     // Lower on screen = drawn in front.
     this.sprite.setDepth(10 + feetY / 10);
     // Stack the visible label lines upward from just above the head.
-    let labelY = feetY - FRAME_H * KID_SCALE * 0.9 - LABEL_GAP;
+    let labelY = feetY - this.artHeight - LABEL_GAP;
     for (const line of LABEL_LINES) {
       const text = this.labels[line];
       text.setVisible(this.showLabel[line]);

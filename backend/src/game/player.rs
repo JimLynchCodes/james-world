@@ -1,5 +1,7 @@
 use uuid::Uuid;
 
+use super::skin::Skin;
+
 #[derive(Debug, Clone, Copy)]
 pub struct Position {
     pub x: f32,
@@ -12,6 +14,9 @@ pub struct Player {
 
     /// Display name, e.g. "James 7" (assigned by the World on join).
     pub name: String,
+
+    /// Cosmetic outfit chosen by the player (bots keep the default).
+    pub skin: Skin,
 
     pub position: Position,
 
@@ -42,6 +47,8 @@ impl Player {
             id,
 
             name: String::new(),
+
+            skin: Skin::default(),
 
             position: Position {
                 x,
