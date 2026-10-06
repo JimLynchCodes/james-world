@@ -237,7 +237,7 @@ class GameScene extends Phaser.Scene {
       this.stepTimer -= delta;
       if (this.stepTimer <= 0) {
         // Banana James has squeaky costume shoes.
-        this.audio?.playSfx(this.localSkin === "banana" ? "bananaStep" : "step");
+        this.audio?.playSfx(this.localSkin === "banana" ? "bananaStep" : this.localSkin === "trex" ? "trexStep" : "step");
         this.stepTimer = running ? STEP_MS.run : STEP_MS.walk;
       }
     } else {
@@ -963,6 +963,12 @@ scene.setHudOverlays([
   settingsPanel.cog,
   runButton.el,
 ]);
+
+// Dev-only hooks for Playwright / live debugging (not shipped in prod builds).
+if (import.meta.env.DEV) {
+  (window as unknown as { __scene: GameScene; __audio: GameAudio }).__scene = scene;
+  (window as unknown as { __scene: GameScene; __audio: GameAudio }).__audio = audio;
+}
 
 window.addEventListener("resize", () => game.scale.resize(window.innerWidth, window.innerHeight));
 

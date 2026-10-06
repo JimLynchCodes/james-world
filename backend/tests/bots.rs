@@ -192,6 +192,10 @@ fn skins_default_to_james_and_unknown_values_fall_back() {
         assert_eq!(Skin::parse(bad), Skin::James, "{bad:?}");
     }
     assert_eq!(Skin::parse(" Banana "), Skin::Banana);
+    assert!(world.set_skin(human, Skin::parse("trex")));
+    assert_eq!(world.skin_of(&human), Skin::Trex);
+    assert_eq!(Skin::parse("TREX"), Skin::Trex);
+    assert_eq!(Skin::parse(" Trex "), Skin::Trex);
     assert!(!world.set_skin(Uuid::new_v4(), Skin::Banana));
 }
 

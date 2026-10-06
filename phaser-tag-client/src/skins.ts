@@ -1,24 +1,25 @@
 /**
- * Kid skins. Both sheets share the same layout (30 columns: idle, walk,
+ * Kid skins. All sheets share the same layout (30 columns: idle, walk,
  * breathing, tag, run; one row per direction), so the same animation code
- * drives both. Banana James frames are taller (the banana tip and stem
- * stick up above the head), so each skin has its own frame height and
- * feet line.
+ * drives every skin. Costume skins may be taller/wider (banana tip, trex
+ * crest + tail), so each skin has its own frame size and feet line.
  *
  *   james  - public/assets/kid.png         (tools/slice_kid_sheet.py)
- *   banana - public/assets/kid_banana.png  (tools/make_banana_skin.py,
- *            built from kid.png)
+ *   banana - public/assets/kid_banana.png  (tools/make_banana_skin.py)
+ *   trex   - public/assets/kid_trex.png    (tools/make_trex_skin.py)
  *
  * The id is what goes over the wire (`skin` in Join / SetSkin /
  * PlayerSnapshot); the server falls back to "james" for unknown values.
  */
-export type Skin = "james" | "banana";
+export type Skin = "james" | "banana" | "trex";
 
 export const DEFAULT_SKIN: Skin = "james";
 
 export interface SkinSheet {
   id: Skin;
   label: string;
+  /** Short note under the skins-tab card (footstep flavour, default, …). */
+  note: string;
   /** Phaser texture key, also the animation key prefix. */
   texture: string;
   url: string;
@@ -26,7 +27,7 @@ export interface SkinSheet {
   frameHeight: number;
   /** Feet rest on this row of every frame. */
   baselineY: number;
-  /** Height of the art above the feet (top of the hair / banana stem), frame px. */
+  /** Height of the art above the feet (top of hair / costume), frame px. */
   artHeight: number;
 }
 
@@ -36,6 +37,7 @@ export const SKINS: Record<Skin, SkinSheet> = {
   james: {
     id: "james",
     label: "James",
+    note: "Default",
     texture: "kid",
     url: `${BASE}assets/kid.png`,
     frameWidth: 80,
@@ -46,6 +48,7 @@ export const SKINS: Record<Skin, SkinSheet> = {
   banana: {
     id: "banana",
     label: "Banana James",
+    note: "Squeaky shoes",
     texture: "kid_banana",
     url: `${BASE}assets/kid_banana.png`,
     frameWidth: 80,
@@ -54,6 +57,18 @@ export const SKINS: Record<Skin, SkinSheet> = {
     // the stem tops out ~110px above the feet; let the name label tuck in
     // a little over it so the stack doesn't float
     artHeight: 107,
+  },
+  trex: {
+    id: "trex",
+    label: "T-rex James",
+    note: "Scary stomps",
+    texture: "kid_trex",
+    url: `${BASE}assets/kid_trex.png`,
+    frameWidth: 120,
+    frameHeight: 122,
+    baselineY: 112,
+    // crest + spikes sit ~108px above the feet; padded sides hold the tail
+    artHeight: 108,
   },
 };
 
