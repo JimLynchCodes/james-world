@@ -565,12 +565,15 @@ canvas {
 /* Settings > Skins: one card per skin with a live sprite preview */
 .skin-cards {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 14px;
 }
+@media (max-width: 560px) {
+  .skin-cards { grid-template-columns: 1fr; }
+}
 .skin-card {
-  --s: 1.25; /* preview scale */
+  --s: 1.05; /* preview scale (3 cards; trex frames are wide) */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -596,8 +599,8 @@ canvas {
   position: relative;
   display: block;
   width: 100%;
-  /* tallest frame (Banana James, 120px) so both kids stand on the same line */
-  height: calc(120px * var(--s));
+  /* tallest frame (T-rex / Banana ~122px) so every kid stands on the same line */
+  height: calc(122px * var(--s));
   border-radius: 12px;
   background:
     radial-gradient(ellipse 34% 7% at 50% calc(100% - 7px), rgba(43, 33, 64, .28), transparent 70%),

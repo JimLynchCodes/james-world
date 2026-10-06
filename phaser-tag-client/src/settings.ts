@@ -301,7 +301,7 @@ export class SettingsPanel {
         <button type="button" class="skin-card" role="radio" aria-checked="false" data-skin="${id}">
           <span class="skin-stage"><span class="skin-preview" style="${vars}"></span></span>
           <span class="skin-name">${s.label}</span>
-          ${id === DEFAULT_SKIN ? '<span class="skin-note">Default</span>' : '<span class="skin-note">Squeaky shoes</span>'}
+          <span class="skin-note">${s.note}</span>
         </button>`;
     }).join("");
 

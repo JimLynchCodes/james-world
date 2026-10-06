@@ -14,7 +14,7 @@
 
 import type { Mood, Settings } from "./settings";
 
-export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "click";
+export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "click";
 
 const CROSSFADE_S = 1.5;
 const LOOKAHEAD_S = 0.15;
@@ -483,6 +483,7 @@ export class GameAudio {
   private lastSfx: Sfx | null = null;
   /** Banana James alternates feet: left / right squeak at slightly different pitches. */
   private bananaFoot = false;
+  private trexFoot = false;
   private lastJoin = 0;
   private buffers = new Map<Mood, AudioBuffer>();
   private loads = new Map<Mood, LoadStatus>();
@@ -603,6 +604,51 @@ export class GameAudio {
           filter: 2800,
         });
         syn.tone(t, 95, { gain: 0.06 * v, release: 0.05 });
+        break;
+      }
+      case "trexStep": { // T-rex James: deep heavy scary stomp (alternate feet)
+        this.trexFoot = !this.trexFoot;
+        const thud = (this.trexFoot ? 55 : 42) * (0.92 + Math.random() * 0.16);
+        // subby body impact
+        syn.tone(t, thud, {
+          type: "sine",
+          glideTo: Math.max(28, thud * 0.55),
+          attack: 0.004,
+          hold: 0.04,
+          release: 0.22,
+          gain: 0.28 * v,
+          filter: 280,
+        });
+        // mid "thud" body
+        syn.tone(t + 0.008, thud * 2.1, {
+          type: "triangle",
+          glideTo: thud * 1.2,
+          attack: 0.003,
+          hold: 0.025,
+          release: 0.14,
+          gain: 0.12 * v,
+          filter: 600,
+        });
+        // dirty ground scrape / rumble
+        syn.noise(t, {
+          filter: "lowpass",
+          freq: 180 + Math.random() * 80,
+          sweepTo: 70,
+          q: 0.7,
+          gain: 0.38 * v,
+          attack: 0.002,
+          release: 0.16,
+        });
+        // faint scary grit click
+        syn.noise(t + 0.01, {
+          filter: "bandpass",
+          freq: 900,
+          sweepTo: 400,
+          q: 1.8,
+          gain: 0.12 * v,
+          attack: 0.001,
+          release: 0.05,
+        });
         break;
       }
       case "click":

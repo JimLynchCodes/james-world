@@ -8,7 +8,7 @@ A minimal fullscreen Phaser client for the Rust WebSocket protocol.
 - Title screen ("James World"): watch the yard, then hit Start to join
 - WASD / arrow-key movement, or Tap mode (tap/click where to walk)
 - Settings panel (cog, top right): controls mode, volumes, music mood, skin
-- Skins: James (default) or Banana James, seen by every player
+- Skins: James (default), Banana James, or T-rex James, seen by every player
 - Music and sound effects: procedural (Web Audio) plus one CC0 lo-fi loop
 - SHIFT to request running
 - E to attempt tagging the nearest player
@@ -261,10 +261,10 @@ player stops.
   mobile UA, iPadOS touch points, coarse primary pointer without hover).
 - **Sound**: Master volume, Background music, Sound effects (0-100), and
   a Mood dropdown (Happy, Spooky, Relaxed, Chillin) that picks the music.
-- **Skins**: two cards with a live preview of each kid: **James** (default)
-  and **Banana James** (the same kid in a banana costume, with squeaky
-  costume shoes: a squishy "boing" footstep on the SFX bus instead of the
-  normal step). See "Skins" below.
+- **Skins**: three cards with a live preview of each kid: **James** (default),
+  **Banana James** (banana costume, squeaky shoes on the SFX bus), and
+  **T-rex James** (T-rex onesie, deep scary stomp on the SFX bus). See
+  "Skins" below.
 
 Only settings the user has actually chosen are saved in `localStorage`
 (`tag26.settings`), and they are applied on load. Invalid or unknown saved
@@ -310,7 +310,9 @@ empty. Bots leave only when the last human *and* the last spectator are gone.
 
 `src/skins.ts` lists the skins. Each one is a spritesheet with the same
 layout as `kid.png` (same columns, rows and animation ranges), so the same
-animation code drives both. Animation keys are `<texture>-<anim>-<dir>`.
+animation code drives every skin. Costume skins may be taller/wider; each
+skin carries its own frame size and feet line. Animation keys are
+`<texture>-<anim>-<dir>`.
 
 - `james`: `public/assets/kid.png` (80x100 frames).
 - `banana`: `public/assets/kid_banana.png` (80x120 frames, feet on y = 116;
@@ -323,6 +325,14 @@ animation code drives both. Animation keys are `<texture>-<anim>-<dir>`.
   front and side views (back views are all banana), and puts the arms
   back on top. Re-run it after regenerating `kid.png`:
   `python3 tools/make_banana_skin.py [--preview /tmp/banana.png]`.
+- `trex`: `public/assets/kid_trex.png` (120x122 frames, feet on y = 112;
+  padded sides hold the long tail, padded top holds the crest and spikes).
+  Generated from `kid.png` by `tools/make_trex_skin.py`. Olive onesie with
+  a lime belly, dark dorsal spikes, white teeth around a mouth opening
+  (face shows through on front/side views; back views are spiked hood +
+  tail), claw mittens and booties, and a prominent spiked tail. Footsteps
+  use a deep scary stomp on the SFX bus (`trexStep`). Re-run:
+  `python3 tools/make_trex_skin.py [--preview /tmp/trex.png]`.
 
 Multiplayer: the client sends its skin in `Join` (`skin`, optional) and
 `SetSkin { skin }` when it changes in Settings. The server stores it on the

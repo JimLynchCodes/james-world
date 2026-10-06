@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// The outfit a player's kid wears. Sent to clients as a lowercase string
-/// ("james", "banana"); mirrored by `Skin` in phaser-tag-client/src/protocol.ts.
+/// ("james", "banana", "trex"); mirrored by `Skin` in phaser-tag-client/src/protocol.ts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Skin {
@@ -12,6 +12,8 @@ pub enum Skin {
     James,
     /// Banana James: the same kid in a banana costume.
     Banana,
+    /// T-rex James: the same kid in a T-rex onesie.
+    Trex,
 }
 
 impl Skin {
@@ -20,6 +22,7 @@ impl Skin {
     pub fn parse(value: &str) -> Self {
         match value.trim().to_ascii_lowercase().as_str() {
             "banana" => Skin::Banana,
+            "trex" => Skin::Trex,
             _ => Skin::James,
         }
     }
@@ -28,6 +31,7 @@ impl Skin {
         match self {
             Skin::James => "james",
             Skin::Banana => "banana",
+            Skin::Trex => "trex",
         }
     }
 }
