@@ -4,9 +4,11 @@
  *   sources -> track gain (crossfades) -> music bus --\
  *   sfx voices --------------------------------> sfx bus --> master -> limiter -> out
  *
- * Three looping background tracks, one per Mood, are synthesised live by a
- * small look-ahead step sequencer; switching mood crossfades the old track
- * out and the new one in. The AudioContext is only created/resumed from a
+ * Four looping background tracks, one per Mood: three are synthesised live
+ * by a small look-ahead step sequencer (Happy, Spooky, Relaxed) and one is a
+ * CC0 recording (Chillin, public/audio/, see CREDITS.md) decoded into an
+ * AudioBuffer and looped. Both kinds go through the same per-track gain ->
+ * music bus, so the sliders and the mood crossfade treat them alike. The AudioContext is only created/resumed from a
  * user gesture (browser autoplay policy): see installGestureUnlock().
  */
 
@@ -252,7 +254,8 @@ const SPOOKY: TrackDef = {
   },
 };
 
-// --- Chillin: lo-fi, mellow 7th chords, swung, 76 bpm (Fmaj7 Em7 Dm7 Cmaj7) --
+// --- Relaxed: lo-fi, mellow 7th chords, swung, 76 bpm (Fmaj7 Em7 Dm7 Cmaj7) --
+// (This was the "Chillin" mood before Chillin became the CC0 recording.)
 const CHILL_CHORDS = [
   [53, 57, 60, 64],
   [52, 55, 59, 62],
@@ -269,7 +272,7 @@ const CHILL_MELODY: Record<number, number>[] = [
 /** Deterministic hash in [0,1) for vinyl crackle placement. */
 const crackle = (bar: number, s: number) => ((Math.sin(bar * 91.7 + s * 12.9898) * 43758.5453) % 1 + 1) % 1;
 
-const CHILLIN: TrackDef = {
+const RELAXED: TrackDef = {
   bpm: 76,
   bars: 4,
   swing: 0.33,
@@ -302,10 +305,90 @@ const CHILLIN: TrackDef = {
   },
 };
 
-const TRACKS: Record<Mood, TrackDef> = { happy: HAPPY, spooky: SPOOKY, chillin: CHILLIN };
+/** A recorded loop: tried in order, first format the browser can play wins. */
+interface FileTrackDef {
+  urls: { url: string; type: string }[];
+  /** level trim so it sits with the synth tracks */
+  gain: number;
+}
 
-/** One running track: a look-ahead step scheduler feeding its own gain node. */
-class Track {
+const BASE = import.meta.env.BASE_URL;
+
+const TRACKS: Record<Mood, TrackDef | FileTrackDef> = {
+  happy: HAPPY,
+  spooky: SPOOKY,
+  relaxed: RELAXED,
+  // "Lofi Hip Hop Loop" by omfgdude (OMF-Games), CC0 - public/audio/CREDITS.md
+  chillin: {
+    urls: [
+      { url: `${BASE}audio/lofi-hip-hop-loop.ogg`, type: 'audio/ogg; codecs="vorbis"' },
+      { url: `${BASE}audio/lofi-hip-hop-loop.mp3`, type: "audio/mpeg" },
+    ],
+    gain: 0.9,
+  },
+};
+
+const isFileTrack = (def: TrackDef | FileTrackDef): def is FileTrackDef => "urls" in def;
+
+type LoadStatus = "idle" | "loading" | "ready" | "error";
+
+/** What GameAudio needs from a playing track (synth or file). */
+interface Track {
+  readonly mood: Mood;
+  readonly out: GainNode;
+  /** steps scheduled (synth) or loops started (file), for inspection */
+  readonly scheduled: number;
+  start(at: number): void;
+  stop(): void;
+  dispose(): void;
+}
+
+/** A decoded recording looping forever into its own gain node. */
+class FileTrack implements Track {
+  readonly out: GainNode;
+  private source: AudioBufferSourceNode | null = null;
+  scheduled = 0;
+
+  constructor(
+    private readonly ctx: AudioContext,
+    dest: AudioNode,
+    private readonly buffer: AudioBuffer,
+    readonly mood: Mood,
+    private readonly trim: number
+  ) {
+    this.out = ctx.createGain();
+    this.out.connect(dest);
+  }
+
+  start(at: number) {
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.buffer;
+    src.loop = true;
+    const trim = this.ctx.createGain();
+    trim.gain.value = this.trim;
+    src.connect(trim).connect(this.out);
+    src.start(at);
+    this.source = src;
+    this.scheduled = 1;
+  }
+
+  stop() {
+    try {
+      this.source?.stop();
+    } catch {
+      // already stopped
+    }
+    this.source = null;
+  }
+
+  dispose() {
+    this.stop();
+    this.out.disconnect();
+  }
+}
+
+/** One running synth track: a look-ahead step scheduler feeding its own gain node. */
+class SynthTrack implements Track {
   readonly out: GainNode;
   private readonly syn: Synth;
   private timer: number | null = null;
@@ -318,15 +401,12 @@ class Track {
     private readonly ctx: AudioContext,
     dest: AudioNode,
     noise: AudioBuffer,
-    readonly mood: Mood
+    readonly mood: Mood,
+    private readonly def: TrackDef
   ) {
     this.out = ctx.createGain();
     this.out.connect(dest);
     this.syn = new Synth(ctx, this.out, noise);
-  }
-
-  private get def() {
-    return TRACKS[this.mood];
   }
 
   start(at: number) {
@@ -377,6 +457,12 @@ export interface AudioDebugState {
   /** tracks still fading out */
   fadingOut: Mood[];
   scheduledSteps: number;
+  /** "synth" or "file" for the current track */
+  source: "synth" | "file" | null;
+  /** load state of each recorded track */
+  files: Partial<Record<Mood, LoadStatus>>;
+  /** which URL the recorded track was decoded from */
+  fileUrl: Partial<Record<Mood, string>>;
   gains: { master: number; music: number; sfx: number };
   sfxPlayed: number;
 }
@@ -393,6 +479,9 @@ export class GameAudio {
   private settings: Settings;
   private sfxPlayed = 0;
   private lastJoin = 0;
+  private buffers = new Map<Mood, AudioBuffer>();
+  private loads = new Map<Mood, LoadStatus>();
+  private loadedFrom = new Map<Mood, string>();
 
   constructor(settings: Settings) {
     this.settings = { ...settings };
@@ -509,6 +598,9 @@ export class GameAudio {
       playing: this.track?.mood ?? null,
       fadingOut: this.fading.map(t => t.mood),
       scheduledSteps: this.track?.scheduled ?? 0,
+      source: this.track ? (this.track instanceof FileTrack ? "file" : "synth") : null,
+      files: Object.fromEntries(this.loads),
+      fileUrl: Object.fromEntries(this.loadedFrom),
       gains: this.ctx
         ? { master: this.master.gain.value, music: this.music.gain.value, sfx: this.sfx.gain.value }
         : { master: 0, music: 0, sfx: 0 },
@@ -534,6 +626,14 @@ export class GameAudio {
     const mood = this.settings.mood;
     if (this.track?.mood === mood) return;
 
+    // A recorded track has to be fetched and decoded first; keep the old
+    // music playing meanwhile, then crossfade as usual once it's ready.
+    const def = TRACKS[mood];
+    if (isFileTrack(def) && !this.buffers.has(mood)) {
+      if (this.loads.get(mood) !== "loading") void this.loadFile(mood, def);
+      return;
+    }
+
     const now = ctx.currentTime;
     const old = this.track;
     if (old) {
@@ -550,10 +650,38 @@ export class GameAudio {
       window.setTimeout(() => old.stop(), CROSSFADE_S * 1000);
     }
 
-    const track = new Track(ctx, this.music, this.noise, mood);
+    const track: Track = isFileTrack(def)
+      ? new FileTrack(ctx, this.music, this.buffers.get(mood)!, mood, def.gain)
+      : new SynthTrack(ctx, this.music, this.noise, mood, def);
     track.out.gain.setValueAtTime(0, now);
     track.out.gain.linearRampToValueAtTime(1, now + (old ? CROSSFADE_S : 0.6));
     track.start(now + 0.05);
     this.track = track;
+  }
+
+  /** Fetch + decode a recorded track (first playable format), then start it. */
+  private async loadFile(mood: Mood, def: FileTrackDef) {
+    const ctx = this.ctx!;
+    this.loads.set(mood, "loading");
+    const probe = document.createElement("audio");
+    // Formats the browser says it can play first, the rest as a fallback.
+    const candidates = [...def.urls].sort(
+      (a, b) => Number(!probe.canPlayType(a.type)) - Number(!probe.canPlayType(b.type))
+    );
+    for (const { url } of candidates) {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const buffer = await ctx.decodeAudioData(await response.arrayBuffer());
+        this.buffers.set(mood, buffer);
+        this.loadedFrom.set(mood, url);
+        this.loads.set(mood, "ready");
+        this.ensureMusic(); // crossfades in if this mood is still selected
+        return;
+      } catch (error) {
+        console.warn(`[audio] couldn't load ${url}:`, error);
+      }
+    }
+    this.loads.set(mood, "error");
   }
 }

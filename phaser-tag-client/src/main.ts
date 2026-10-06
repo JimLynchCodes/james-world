@@ -6,11 +6,13 @@ import type { UUID } from "./types";
 import { KidAvatar, createKidAnimations, preloadKid } from "./kid";
 import { createSchoolyard } from "./schoolyard";
 import { GameAudio } from "./audio";
+import { RunButton } from "./runButton";
 import {
   SettingsPanel,
   controlsHint,
   loadSettings,
   type ControlMode,
+  type Settings,
 } from "./settings";
 
 const WS_URL =
@@ -77,6 +79,10 @@ class GameScene extends Phaser.Scene {
   private tapTarget: { x: number; y: number } | null = null;
   private tapDir: { x: number; y: number } | null = null;
   private tapDragging = false;
+  /** Phaser pointer id doing the tap / drag-to-steer (multi-touch safe). */
+  private tapPointerId: number | null = null;
+  /** Tap mode's on-screen Run button is held. */
+  private runHeld = false;
   private tapMarker!: Phaser.GameObjects.Container;
   private stepTimer = 0;
 
@@ -250,7 +256,8 @@ class GameScene extends Phaser.Scene {
     if (this.uiOpen) return { dx, dy, running: false };
     if (this.controlMode === "tap") {
       if (this.tapDir) ({ x: dx, y: dy } = this.tapDir);
-      return { dx, dy, running: this.keys.SHIFT.isDown && (dx !== 0 || dy !== 0) };
+      const runKey = this.keys.SHIFT.isDown || this.runHeld;
+      return { dx, dy, running: runKey && (dx !== 0 || dy !== 0) };
     }
     if (this.cursors.left.isDown || this.keys.A.isDown) dx -= 1;
     if (this.cursors.right.isDown || this.keys.D.isDown) dx += 1;
@@ -515,7 +522,15 @@ class GameScene extends Phaser.Scene {
 
   setControlMode(mode: ControlMode) {
     this.controlMode = mode;
-    if (mode !== "tap") this.clearTapTarget();
+    if (mode !== "tap") {
+      this.clearTapTarget();
+      this.runHeld = false;
+    }
+  }
+
+  /** Tap mode Run button: same `running` flag as SHIFT. */
+  setRunHeld(held: boolean) {
+    this.runHeld = held;
   }
 
   /** Pause game input while the Settings modal is open. */
@@ -560,14 +575,18 @@ class GameScene extends Phaser.Scene {
       }
       // Tap the ground (or a far-away kid): walk there; drag to steer.
       this.tapDragging = true;
+      this.tapPointerId = pointer.id;
       this.setTapTarget(kid ? kid.avatar.x : world.x, kid ? kid.avatar.y : world.y);
     });
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
-      if (!this.tapDragging || !pointer.isDown || this.controlMode !== "tap" || this.uiOpen) return;
+      if (!this.tapDragging || pointer.id !== this.tapPointerId || !pointer.isDown) return;
+      if (this.controlMode !== "tap" || this.uiOpen) return;
       const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
       this.setTapTarget(world.x, world.y);
     });
-    const stopDrag = () => (this.tapDragging = false);
+    const stopDrag = (pointer: Phaser.Input.Pointer) => {
+      if (pointer.id === this.tapPointerId) this.tapDragging = false;
+    };
     this.input.on(Phaser.Input.Events.POINTER_UP, stopDrag);
     this.input.on(Phaser.Input.Events.POINTER_UP_OUTSIDE, stopDrag);
   }
@@ -688,6 +707,10 @@ const game = new Phaser.Game({
     width: "100%",
     height: "100%",
   },
+  input: {
+    // Tap mode: one finger steers while another holds the Run button.
+    activePointers: 3,
+  },
   physics: {
     default: "arcade",
     arcade: {
@@ -727,21 +750,30 @@ const events = document.querySelector("#events") as HTMLElement;
 
 scene.setHudElements(status, energy, players, events);
 
-// Settings (cog + modal) and procedural audio; all prefs live in localStorage.
-const settings = loadSettings();
+// Settings (cog + modal), audio and the Run button; prefs live in localStorage.
+const { settings, saved } = loadSettings();
 const audio = new GameAudio(settings);
 audio.installGestureUnlock();
 scene.setAudio(audio);
-scene.setControlMode(settings.controlMode);
 
 const controls = hud.querySelector(".controls") as HTMLElement;
-controls.innerHTML = controlsHint(settings.controlMode);
+const runButton = new RunButton(hud, held => scene.setRunHeld(held));
 
-new SettingsPanel(hud, settings, {
+const applyControls = (s: Readonly<Settings>) => {
+  scene.setControlMode(s.controlMode);
+  controls.innerHTML = controlsHint(s.controlMode);
+  runButton.setVisible(s.controlMode === "tap");
+  runButton.setSide(s.runSide);
+  // Lets the CSS keep the controls hint clear of the Run button.
+  hud.dataset.mode = s.controlMode;
+  hud.dataset.runSide = s.runSide;
+};
+applyControls(settings);
+
+new SettingsPanel(hud, settings, saved, {
   onChange: s => {
     audio.apply(s);
-    scene.setControlMode(s.controlMode);
-    controls.innerHTML = controlsHint(s.controlMode);
+    applyControls(s);
   },
   onOpenChange: open => scene.setUiOpen(open),
   onSound: kind => audio.playSfx(kind === "preview" ? "join" : "click"),
