@@ -22,6 +22,10 @@ const PLAYER_RADIUS = 18;
 const REMOTE_MOVE_EPSILON = 1.5;
 /** ...or for this long after their snapshot position last changed (ms). */
 const REMOTE_MOVE_GRACE_MS = 120;
+/** A snapshot-to-snapshot change smaller than this (px) doesn't count as moving. */
+const REMOTE_SNAPSHOT_MOVE_PX = 0.5;
+/** Keep a diagonal facing if the keys are let go within this window (ms). */
+const DIAGONAL_RELEASE_MS = 120;
 
 type RemoteSprite = {
   avatar: KidAvatar;
@@ -38,6 +42,8 @@ class GameScene extends Phaser.Scene {
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private player!: KidAvatar;
   private playerFacingAngle = Math.PI / 2; // In radians; start facing the camera
+  private wasMoving = false;
+  private lastDiagonal: { angle: number; at: number } | null = null;
 
   private remotePlayers = new Map<UUID, RemoteSprite>();
   private localPlayerId: UUID | null = null;
@@ -116,7 +122,18 @@ class GameScene extends Phaser.Scene {
       },
     });
 
-    this.events.on("shutdown", () => this.socket.close());
+    // Phaser already releases held keys when the window blurs; also do it
+    // when the tab is hidden so a key-up we never saw can't leave the kid
+    // walking.
+    const releaseKeys = () => {
+      if (document.hidden) this.input.keyboard?.resetKeys();
+    };
+    document.addEventListener("visibilitychange", releaseKeys);
+
+    this.events.on("shutdown", () => {
+      document.removeEventListener("visibilitychange", releaseKeys);
+      this.socket.close();
+    });
   }
 
   update(_time: number, delta: number) {
@@ -152,18 +169,25 @@ class GameScene extends Phaser.Scene {
   private updateLocalMovement(_dt: number) {
     // The server is authoritative: we only send inputs (see sendMovement)
     // and ease toward the position it reports in each Snapshot.
-    let dx = 0;
-    let dy = 0;
-
-    if (this.cursors.left.isDown || this.keys.A.isDown) dx -= 1;
-    if (this.cursors.right.isDown || this.keys.D.isDown) dx += 1;
-    if (this.cursors.up.isDown || this.keys.W.isDown) dy -= 1;
-    if (this.cursors.down.isDown || this.keys.S.isDown) dy += 1;
-
+    // Animation state comes from the keys held *now*, never from the eased
+    // position (which keeps drifting toward the server for a few frames).
+    const { dx, dy, running } = this.readInput();
     const moving = dx !== 0 || dy !== 0;
     if (moving) {
       this.playerFacingAngle = Math.atan2(dy, dx);
+      if (dx !== 0 && dy !== 0) {
+        this.lastDiagonal = { angle: this.playerFacingAngle, at: this.time.now };
+      }
+    } else if (
+      this.wasMoving &&
+      this.lastDiagonal &&
+      this.time.now - this.lastDiagonal.at < DIAGONAL_RELEASE_MS
+    ) {
+      // Two keys are rarely released on the same frame: don't let the last
+      // one turn a SE/SW/NE/NW kid to face S/E/N/W as they stop.
+      this.playerFacingAngle = this.lastDiagonal.angle;
     }
+    this.wasMoving = moving;
 
     if (this.localTargetX !== null && this.localTargetY !== null) {
       this.player.x = Phaser.Math.Linear(this.player.x, this.localTargetX, 0.35);
@@ -172,25 +196,30 @@ class GameScene extends Phaser.Scene {
 
     this.player.facing = this.playerFacingAngle;
     this.player.moving = moving;
-    this.player.running = moving && this.keys.SHIFT.isDown;
+    this.player.running = running;
     this.player.update();
 
     this.updateHud();
   }
 
-  private sendMovement() {
-    if (!this.connected) return;
-
+  /** Current movement keys: dx/dy in {-1, 0, 1}; running = SHIFT while moving. */
+  private readInput() {
     let dx = 0;
     let dy = 0;
-
     if (this.cursors.left.isDown || this.keys.A.isDown) dx -= 1;
     if (this.cursors.right.isDown || this.keys.D.isDown) dx += 1;
     if (this.cursors.up.isDown || this.keys.W.isDown) dy -= 1;
     if (this.cursors.down.isDown || this.keys.S.isDown) dy += 1;
+    const running = this.keys.SHIFT.isDown && (dx !== 0 || dy !== 0);
+    return { dx, dy, running };
+  }
 
-    const running =
-      this.keys.SHIFT.isDown && (dx !== 0 || dy !== 0);
+  private sendMovement() {
+    if (!this.connected) return;
+
+    const input = this.readInput();
+    let { dx, dy } = input;
+    const { running } = input;
 
     if (dx !== 0 || dy !== 0) {
       const length = Math.hypot(dx, dy);
@@ -293,7 +322,8 @@ class GameScene extends Phaser.Scene {
       remote.avatar.x = player.x;
       remote.avatar.y = player.y;
     }
-    if (player.x !== remote.targetX || player.y !== remote.targetY) {
+    // Moved between snapshots (ignoring sub-pixel nudges)?
+    if (Math.hypot(player.x - remote.targetX, player.y - remote.targetY) > REMOTE_SNAPSHOT_MOVE_PX) {
       remote.lastMovedAt = this.time.now;
     }
 
