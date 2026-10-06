@@ -32,12 +32,18 @@ const ANIM = {
 } as const;
 type AnimName = keyof typeof ANIM;
 
-/** Art is ~89px tall inside the 100px frame; scale to ~64px on screen. */
-const KID_SCALE = 0.72;
+/** Art is ~89px tall inside the 100px frame; scale to ~75px on screen. */
+const KID_SCALE = 0.84;
+/**
+ * The ground ring, feet offset and lunge were tuned for the original 0.72
+ * scale (~64px kid); grow them with the sprite so everything stays in
+ * proportion. Display only: the server collision radius is unchanged.
+ */
+const SIZE = KID_SCALE / 0.72;
 /** Feet sit this far below the player's (server) centre, as a fraction of its radius. */
-const FEET_OFFSET_RADII = 0.9;
+const FEET_OFFSET_RADII = 0.9 * SIZE;
 /** How far the kid lunges forward during the tag swing (world px). */
-const TAG_LUNGE = 10;
+const TAG_LUNGE = 10 * SIZE;
 
 const WALK_FPS = 10;
 const RUN_FPS = 15;
@@ -132,13 +138,20 @@ export class KidAvatar {
     y: number,
     radius: number,
     labelText: string,
-    labelSize = "12px"
+    labelSize = "13px"
   ) {
     this.x = x;
     this.y = y;
     this.feetOffset = radius * FEET_OFFSET_RADII;
 
-    this.shadow = scene.add.ellipse(x, y + this.feetOffset, radius * 2, radius * 0.75, 0x000000, 0.45);
+    this.shadow = scene.add.ellipse(
+      x,
+      y + this.feetOffset,
+      radius * 2 * SIZE,
+      radius * 0.75 * SIZE,
+      0x000000,
+      0.45
+    );
     this.shadow.setDepth(1);
 
     this.sprite = scene.add.sprite(x, y + this.feetOffset, KID_TEXTURE, 2 * COLUMNS + ANIM.breathe.start);
@@ -217,6 +230,14 @@ export class KidAvatar {
   private endTag() {
     this.tagging = false;
     this.tagFacing = null;
+  }
+
+  /** Does world point (x, y) land on this kid's body (for tap-to-tag)? */
+  hitTest(x: number, y: number): boolean {
+    const feetY = this.y + this.feetOffset;
+    const height = FRAME_H * KID_SCALE * 0.9;
+    const halfWidth = FRAME_W * KID_SCALE * 0.3;
+    return Math.abs(x - this.x) <= halfWidth && y <= feetY + 8 && y >= feetY - height;
   }
 
   /** Call every frame after updating x/y/facing/moving/running. */
