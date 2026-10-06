@@ -67,6 +67,9 @@ pub struct World {
     tag_events: Vec<(Uuid, Uuid)>,
     /// Players (humans and bots) that have joined so far; names use it.
     joins: u64,
+    /// Connected sockets that have not (yet) sent Join. They keep bots
+    /// alive so the title screen isn't empty when you're alone.
+    spectators: u32,
 }
 
 impl World {
@@ -77,6 +80,7 @@ impl World {
             bots: HashMap::new(),
             tag_events: Vec::new(),
             joins: 0,
+            spectators: 0,
         }
     }
 
@@ -120,12 +124,43 @@ impl World {
             .count()
     }
 
+    /// True while anyone is watching or playing (bots stay for both).
+    pub fn has_presence(&self) -> bool {
+        self.human_count() > 0 || self.spectators > 0
+    }
+
+    pub fn spectator_count(&self) -> u32 {
+        self.spectators
+    }
+
+    /// A title-screen connection opened. May spawn bots so the yard isn't empty.
+    pub fn add_spectator(&mut self) -> Vec<Uuid> {
+        self.spectators += 1;
+        let spawned = self.spawn_missing_bots();
+        self.assign_it_if_needed();
+        spawned
+    }
+
+    /// A spectator disconnected without joining. Bots leave if nobody is left.
+    pub fn remove_spectator(&mut self) -> Vec<Uuid> {
+        self.spectators = self.spectators.saturating_sub(1);
+        self.despawn_bots_if_empty()
+    }
+
+    /// Spectator is about to Join: free the seat (presence continues via the human).
+    pub fn release_spectator_seat(&mut self) {
+        self.spectators = self.spectators.saturating_sub(1);
+    }
+
     /// Adds a human player. Returns the ids of any bots that were spawned
-    /// because of this join (bots exist only while a human is connected).
+    /// because of this join. No-op (empty vec) if this id is already a player.
     pub fn add_player(
         &mut self,
         id: Uuid,
     ) -> Vec<Uuid> {
+        if self.players.contains_key(&id) {
+            return Vec::new();
+        }
         let mut player = Player::new(
             id,
             400.0,
@@ -150,7 +185,7 @@ impl World {
     fn spawn_missing_bots(&mut self) -> Vec<Uuid> {
         let mut spawned = Vec::new();
 
-        if self.human_count() == 0 {
+        if !self.has_presence() {
             return spawned;
         }
 
@@ -197,8 +232,8 @@ impl World {
         spawned
     }
 
-    /// Removes a player. When the last human leaves, every bot is removed
-    /// too; their ids are returned so callers can announce it.
+    /// Removes a player. When nobody is left (no humans and no spectators),
+    /// every bot is removed too; their ids are returned so callers can announce it.
     pub fn remove_player(
         &mut self,
         id: Uuid,
@@ -213,21 +248,27 @@ impl World {
         self.inputs.remove(&id);
         self.bots.remove(&id);
 
-        let mut removed_bots = Vec::new();
-        if self.human_count() == 0 {
-            removed_bots = self.bots.keys().copied().collect();
-            for bot_id in &removed_bots {
-                self.players.remove(bot_id);
-                self.inputs.remove(bot_id);
-            }
-            self.bots.clear();
-        }
+        let removed_bots = self.despawn_bots_if_empty();
 
         if was_it {
             self.assign_random_it();
         }
 
         removed_bots
+    }
+
+    /// Drop every bot when the room has no humans and no spectators.
+    fn despawn_bots_if_empty(&mut self) -> Vec<Uuid> {
+        if self.has_presence() {
+            return Vec::new();
+        }
+        let removed: Vec<_> = self.bots.keys().copied().collect();
+        for bot_id in &removed {
+            self.players.remove(bot_id);
+            self.inputs.remove(bot_id);
+        }
+        self.bots.clear();
+        removed
     }
 
     /// Tags performed by bots since the last call, for broadcasting.

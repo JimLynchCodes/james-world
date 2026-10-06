@@ -5,6 +5,7 @@ A minimal fullscreen Phaser client for the Rust WebSocket protocol.
 ## Features
 
 - Fullscreen Phaser game
+- Title screen ("James Game"): watch the yard, then hit Start to join
 - WASD / arrow-key movement, or Tap mode (tap/click where to walk)
 - Settings panel (cog, top right): controls mode, volumes, music mood, skin
 - Skins: James (default) or Banana James, seen by every player
@@ -287,6 +288,20 @@ joined / left blips, footsteps, UI clicks) go to their own bus:
 `track -> music bus -> master`, `sfx -> sfx bus -> master`, then a gentle
 limiter. The AudioContext is only created/resumed on the first click, tap
 or key press (autoplay policy) and is suspended while the tab is hidden.
+
+## Title screen
+
+On load the client connects as a **spectator**: it receives `Hello`, then
+snapshots of whoever is already playing, but does not send `Join` and does
+not spawn a local kid. The title overlay ("James Game" / Start) sits on top;
+the settings cog stays available so you can pick a skin first.
+
+Pressing **Start** sends `Join`. The server replies with `Welcome` (your id
+and "James N" name), the local kid appears, and the overlay dismisses.
+
+Spectators count toward "someone is here" on the server, so bots keep
+running even when you're alone on the title screen — the yard never looks
+empty. Bots leave only when the last human *and* the last spectator are gone.
 
 ## Skins
 

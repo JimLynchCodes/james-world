@@ -38,8 +38,11 @@ pub enum ClientMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum ServerMessage {
-    /// Sent only to the connecting client, first, to tell it its own player
-    /// id and name.
+    /// Sent on connect: the socket is a spectator. Snapshots and join/leave
+    /// events follow; the client is not a player until it sends `Join`.
+    Hello {},
+
+    /// Sent only to the client that just joined as a player: its id and name.
     Welcome {
         player_id: Uuid,
         name: String,

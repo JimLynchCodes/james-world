@@ -22,8 +22,9 @@ pub async fn ws_handler(
 
             let rooms = state.rooms.clone();
 
+            // Connect as a spectator; Join (from the client) promotes to a player.
             rooms
-                .register(
+                .register_spectator(
                     player_id,
                     outbound_tx,
                 )

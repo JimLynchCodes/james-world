@@ -194,3 +194,23 @@ fn skins_default_to_james_and_unknown_values_fall_back() {
     assert_eq!(Skin::parse(" Banana "), Skin::Banana);
     assert!(!world.set_skin(Uuid::new_v4(), Skin::Banana));
 }
+
+#[test]
+fn spectators_keep_bots_and_joining_keeps_them() {
+    let mut world = World::new();
+    let spawned = world.add_spectator();
+    assert_eq!(spawned.len(), BOT_COUNT);
+    assert_eq!(bots(&world).len(), BOT_COUNT);
+
+    // Spectator hits Start: seat released, then human added — bots stay.
+    world.release_spectator_seat();
+    let human = Uuid::new_v4();
+    assert!(world.add_player(human).is_empty()); // bots already there
+    assert_eq!(bots(&world).len(), BOT_COUNT);
+    assert_eq!(world.spectator_count(), 0);
+    assert_eq!(world.human_count(), 1);
+
+    // Human leaves with no spectators: bots go.
+    let removed = world.remove_player(human);
+    assert_eq!(removed.len(), BOT_COUNT);
+}

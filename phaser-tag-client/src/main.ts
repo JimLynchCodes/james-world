@@ -16,6 +16,7 @@ import {
   type ControlMode,
   type Settings,
 } from "./settings";
+import { TitleScreen } from "./title";
 
 const WS_URL =
   import.meta.env.VITE_WS_URL ??
@@ -52,7 +53,10 @@ class GameScene extends Phaser.Scene {
   private socket!: GameSocket;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
-  private player!: KidAvatar;
+  /** Local kid: null on the title screen until Start. */
+  private player: KidAvatar | null = null;
+  /** True after Start / Welcome: we are a player, not a spectator. */
+  private playing = false;
   private playerFacingAngle = Math.PI / 2; // In radians; start facing the camera
   private wasMoving = false;
   private lastDiagonal: { angle: number; at: number } | null = null;
@@ -104,17 +108,9 @@ class GameScene extends Phaser.Scene {
     this.createWorld();
     createKidAnimations(this);
 
-    // The sprite's facing direction replaces the old white pointer dot.
-    // Name arrives with Welcome; until then the stack is just "YOU".
-    this.player = new KidAvatar(this, WORLD_WIDTH / 2, WORLD_HEIGHT / 2, PLAYER_RADIUS, "");
-    this.player.setLabels({ name: "", you: true, it: false });
-    this.player.setRole("self");
-    this.player.setSkin(this.localSkin);
-
+    // Title screen: watch the yard. Local kid is created on Start / Welcome.
     this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-    // Follow the ground ring (logical position), not the sprite, so the
-    // tag lunge doesn't shake the camera.
-    this.cameras.main.startFollow(this.player.shadow, true, 0.12, 0.12);
+    this.cameras.main.centerOn(900, 700);
 
     this.cursors = this.input.keyboard!.createCursorKeys();
     this.keys = this.input.keyboard!.addKeys("W,A,S,D,SHIFT,E") as Record<
@@ -128,11 +124,14 @@ class GameScene extends Phaser.Scene {
     this.socket = new GameSocket(WS_URL, {
       onOpen: () => {
         this.connected = true;
-        this.setStatus("Connected");
-        this.socket.send({
-          type: "Join",
-          data: { room_id: ROOM_ID, skin: this.localSkin },
-        });
+        // Spectator until Start: Hello arrives next; Join is sent from startPlaying().
+        this.setStatus(this.playing ? "Connected" : "Watching…");
+        if (this.startRequested && !this.playing) {
+          this.socket.send({
+            type: "Join",
+            data: { room_id: ROOM_ID, skin: this.localSkin },
+          });
+        }
       },
       onClose: () => {
         this.connected = false;
@@ -174,18 +173,23 @@ class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number) {
-    this.updateLocalMovement(delta);
+    if (this.playing) {
+      this.updateLocalMovement(delta);
 
-    this.inputTimer -= delta;
-    if (this.inputTimer <= 0) {
-      this.sendMovement();
-      this.inputTimer = 50;
-    }
+      this.inputTimer -= delta;
+      if (this.inputTimer <= 0) {
+        this.sendMovement();
+        this.inputTimer = 50;
+      }
 
-    this.tagCooldown = Math.max(0, this.tagCooldown - delta);
+      this.tagCooldown = Math.max(0, this.tagCooldown - delta);
 
-    if (Phaser.Input.Keyboard.JustDown(this.keys.E)) {
-      this.tryTagNearest();
+      if (Phaser.Input.Keyboard.JustDown(this.keys.E)) {
+        this.tryTagNearest();
+      }
+    } else {
+      this.updateSpectatorCamera();
+      this.updateHud();
     }
 
     for (const remote of this.remotePlayers.values()) {
@@ -202,6 +206,7 @@ class GameScene extends Phaser.Scene {
   }
 
   private updateLocalMovement(delta: number) {
+    if (!this.player) return;
     // The server is authoritative: we only send inputs (see sendMovement)
     // and ease toward the position it reports in each Snapshot.
     // Animation state comes from the input held *now* (keys, or an active
@@ -259,7 +264,7 @@ class GameScene extends Phaser.Scene {
   private readInput() {
     let dx = 0;
     let dy = 0;
-    if (this.uiOpen) return { dx, dy, running: false };
+    if (this.uiOpen || !this.playing) return { dx, dy, running: false };
     if (this.controlMode === "tap") {
       if (this.tapDir) ({ x: dx, y: dy } = this.tapDir);
       const runKey = this.keys.SHIFT.isDown || this.runHeld;
@@ -274,7 +279,7 @@ class GameScene extends Phaser.Scene {
   }
 
   private sendMovement() {
-    if (!this.connected) return;
+    if (!this.connected || !this.playing) return;
 
     const input = this.readInput();
     let { dx, dy } = input;
@@ -299,15 +304,20 @@ class GameScene extends Phaser.Scene {
 
   private handleServerMessage(message: ServerMessage) {
     switch (message.type) {
+      case "Hello":
+        // Spectator: we receive snapshots of everyone else until Start.
+        this.setStatus("Watching…");
+        break;
+
       case "Snapshot":
         this.applySnapshot(message.data.players);
         break;
 
       case "Welcome":
-        // Sent only to us, before anything else: this is our own player id.
+        // Sent only to us, right after Join: this is our own player id.
         this.localPlayerId = message.data.player_id;
         this.removeRemotePlayer(message.data.player_id);
-        this.player.setLabels({ name: message.data.name, you: true, it: false });
+        this.spawnLocalPlayer(message.data.name);
         this.logEvent(`You joined as ${message.data.name}`);
         break;
 
@@ -345,9 +355,9 @@ class GameScene extends Phaser.Scene {
 
   private applySnapshot(players: PlayerSnapshot[]) {
     for (const player of players) {
-      if (player.id === this.localPlayerId) {
+      if (this.playing && player.id === this.localPlayerId) {
         this.applyLocalSnapshot(player);
-      } else {
+      } else if (player.id !== this.localPlayerId) {
         this.applyRemoteSnapshot(player);
       }
     }
@@ -364,6 +374,7 @@ class GameScene extends Phaser.Scene {
   private localEnergy = 100;
 
   private applyLocalSnapshot(player: PlayerSnapshot) {
+    if (!this.player) return;
     // Snap to the server position on the first snapshot, then ease toward it.
     if (this.localTargetX === null) {
       this.player.x = player.x;
@@ -448,6 +459,7 @@ class GameScene extends Phaser.Scene {
   }
 
   private distanceToPlayer(remote: RemoteSprite) {
+    if (!this.player) return Infinity;
     return Phaser.Math.Distance.Between(
       this.player.x,
       this.player.y,
@@ -472,7 +484,7 @@ class GameScene extends Phaser.Scene {
 
   /** Swing at `closest` (a remote within TAG_DISTANCE), or at the air if null. */
   private tryTag(closest: RemoteSprite | null) {
-    if (!this.connected || this.tagCooldown > 0 || !this.localPlayerId) {
+    if (!this.connected || !this.playing || !this.player || this.tagCooldown > 0 || !this.localPlayerId) {
       return;
     }
 
@@ -506,8 +518,8 @@ class GameScene extends Phaser.Scene {
   }
 
   private flashTag(taggerId: UUID, targetId: UUID) {
-    const taggedLocal = targetId === this.localPlayerId;
-    const taggingLocal = taggerId === this.localPlayerId;
+    const taggedLocal = this.playing && targetId === this.localPlayerId;
+    const taggingLocal = this.playing && taggerId === this.localPlayerId;
 
     // Tagger swings their arm toward whoever they tagged. (If we already
     // started the swing optimistically on E, playTag() ignores the repeat.)
@@ -524,7 +536,9 @@ class GameScene extends Phaser.Scene {
       this.audio?.playSfx("hit");
     } else if (target) {
       // Other kids' tags: quieter the further away they happen.
-      const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, target.x, target.y);
+      const origin = this.player ?? [...this.remotePlayers.values()][0]?.avatar;
+      if (!origin) return;
+      const d = Phaser.Math.Distance.Between(origin.x, origin.y, target.x, target.y);
       this.audio?.playSfx("hit", 0.7 * (1 - d / 900));
     }
   }
@@ -550,8 +564,85 @@ class GameScene extends Phaser.Scene {
   setSkin(skin: Skin) {
     const changed = skin !== this.localSkin;
     this.localSkin = skin;
-    this.player?.setSkin(skin); // not created yet before create()
-    if (changed && this.connected) this.socket.send({ type: "SetSkin", data: { skin } });
+    this.player?.setSkin(skin);
+    // Only players (post-Start) can change skin on the server.
+    if (changed && this.connected && this.playing) {
+      this.socket.send({ type: "SetSkin", data: { skin } });
+    }
+  }
+
+  /**
+   * Title-screen Start: Join the room. Welcome creates the local kid and
+   * dismisses the overlay (see spawnLocalPlayer).
+   */
+  /** True once the user has pressed Start (Join may still be in flight). */
+  private startRequested = false;
+
+  startPlaying() {
+    if (this.playing || this.startRequested) return;
+    this.startRequested = true;
+    if (!this.connected) return; // Join as soon as onOpen fires
+    this.socket.send({
+      type: "Join",
+      data: { room_id: ROOM_ID, skin: this.localSkin },
+    });
+  }
+
+  /** After Welcome: spawn our kid, follow the camera, leave the title screen. */
+  private spawnLocalPlayer(name: string) {
+    if (this.playing && this.player) {
+      this.player.setLabels({ name, you: true, it: false });
+      return;
+    }
+    const x = this.localTargetX ?? 400;
+    const y = this.localTargetY ?? 300;
+    this.player = new KidAvatar(this, x, y, PLAYER_RADIUS, name);
+    this.player.setLabels({ name, you: true, it: false });
+    this.player.setRole("self");
+    this.player.setSkin(this.localSkin);
+    this.cameras.main.startFollow(this.player.shadow, true, 0.12, 0.12);
+    this.playing = true;
+    this.setStatus("Connected");
+    document.body.classList.remove("title-mode");
+    this.title?.dismiss();
+    this.title = null;
+    this.audio?.playSfx("join");
+  }
+
+  private title: TitleScreen | null = null;
+
+  setTitle(title: TitleScreen) {
+    this.title = title;
+  }
+
+  /** Ease the camera toward nearby kids while watching from the title screen. */
+  private updateSpectatorCamera() {
+    const cam = this.cameras.main;
+    // Anchor near the human spawn so the blacktop / yard stays in frame;
+    // prefer the closest kids to that spot so far-away bots don't yank the view.
+    const anchorX = 900;
+    const anchorY = 700;
+    const remotes = [...this.remotePlayers.values()].map(r => ({
+      x: r.avatar.x,
+      y: r.avatar.y,
+      d: Math.hypot(r.avatar.x - anchorX, r.avatar.y - anchorY),
+    }));
+    remotes.sort((a, b) => a.d - b.d);
+    const near = remotes.filter(r => r.d < 1600).slice(0, 4);
+    let tx = anchorX;
+    let ty = anchorY;
+    if (near.length) {
+      tx = near.reduce((s, r) => s + r.x, 0) / near.length;
+      ty = near.reduce((s, r) => s + r.y, 0) / near.length;
+    } else if (remotes.length) {
+      tx = remotes[0].x;
+      ty = remotes[0].y;
+    }
+    const cx = cam.scrollX + cam.width / 2;
+    const cy = cam.scrollY + cam.height / 2;
+    const far = Math.hypot(tx - cx, ty - cy) > 600;
+    const k = far ? 0.25 : 0.06;
+    cam.centerOn(Phaser.Math.Linear(cx, tx, k), Phaser.Math.Linear(cy, ty, k));
   }
 
   /** Tap mode Run button: same `running` flag as SHIFT. */
@@ -592,7 +683,7 @@ class GameScene extends Phaser.Scene {
     // Phaser only reports presses on the canvas itself, so clicks on the
     // HUD, the cog or the modal never reach these handlers.
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
-      if (this.controlMode !== "tap" || this.uiOpen) return;
+      if (!this.playing || this.controlMode !== "tap" || this.uiOpen) return;
       const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
       const kid = this.remoteAt(world.x, world.y);
       if (kid && this.distanceToPlayer(kid) < TAG_DISTANCE) {
@@ -647,7 +738,7 @@ class GameScene extends Phaser.Scene {
 
   /** Steer toward the tap target from the server position; stop on arrival. */
   private updateTapTarget() {
-    if (!this.tapTarget) return;
+    if (!this.tapTarget || !this.player) return;
     const x = this.localTargetX ?? this.player.x;
     const y = this.localTargetY ?? this.player.y;
     const dx = this.tapTarget.x - x;
@@ -717,7 +808,7 @@ class GameScene extends Phaser.Scene {
    * Make whichever one covers the kid (body + labels) see-through.
    */
   private fadeHudOverPlayer() {
-    if (this.hudOverlays.length === 0 || !this.player) return;
+    if (!this.playing || this.hudOverlays.length === 0 || !this.player) return;
     const cam = this.cameras.main;
     const view = cam.worldView;
     const b = this.player.bounds;
@@ -743,8 +834,9 @@ class GameScene extends Phaser.Scene {
 
     const energy = Phaser.Math.Clamp(this.localEnergy, 0, 100);
     this.hudEnergy.style.transform = `scaleX(${energy / 100})`;
-    this.hudPlayers.textContent =
-      `${this.remotePlayers.size + 1} player${this.remotePlayers.size === 0 ? "" : "s"}`;
+    // Spectator: remotes only. Playing: remotes + you.
+    const count = this.remotePlayers.size + (this.playing ? 1 : 0);
+    this.hudPlayers.textContent = `${count} player${count === 1 ? "" : "s"}`;
   }
 }
 
@@ -815,6 +907,13 @@ const audio = new GameAudio(settings);
 audio.installGestureUnlock();
 scene.setAudio(audio);
 scene.setSkin(settings.skin);
+
+document.body.classList.add("title-mode");
+const title = new TitleScreen({
+  onStart: () => scene.startPlaying(),
+  onSound: () => audio.playSfx("click"),
+});
+scene.setTitle(title);
 
 const controls = hud.querySelector(".controls") as HTMLElement;
 const runButton = new RunButton(hud, held => scene.setRunHeld(held));
