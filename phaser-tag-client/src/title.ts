@@ -1,5 +1,5 @@
 /**
- * Title screen: "James Game" + Start, over the live schoolyard. Plain DOM
+ * Title screen: "James World" + Start, over the live schoolyard. Plain DOM
  * (same cartoony look as Settings). The game stays in spectator mode until
  * Start is pressed; see GameScene.startPlaying().
  */
@@ -20,10 +20,9 @@ export class TitleScreen {
     this.el.innerHTML = `
       <div class="title-card" role="dialog" aria-labelledby="title-heading">
         <p class="title-kicker">Welcome to</p>
-        <h1 id="title-heading" class="title-heading">James Game</h1>
+        <h1 id="title-heading" class="title-heading">James World</h1>
         <p class="title-blurb">Run around, play tag, and have fun!</p>
         <button type="button" class="title-start">Start</button>
-        <p class="title-hint">Pick a skin in Settings before you jump in</p>
       </div>`;
     document.body.appendChild(this.el);
 

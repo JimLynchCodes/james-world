@@ -4,7 +4,7 @@ import { GameSocket } from "./network";
 import type { ServerMessage, PlayerSnapshot } from "./protocol";
 import type { UUID } from "./types";
 import { KidAvatar, createKidAnimations, preloadKid } from "./kid";
-import { createSchoolyard } from "./schoolyard";
+import { createSchoolyard, type Occluder } from "./schoolyard";
 import { PLAYER_RADIUS, PLAY_AREA, WORLD_HEIGHT, WORLD_WIDTH } from "./world";
 import { GameAudio } from "./audio";
 import { DEFAULT_SKIN, toSkin, type Skin } from "./skins";
@@ -203,6 +203,8 @@ class GameScene extends Phaser.Scene {
           REMOTE_MOVE_EPSILON || this.time.now - remote.lastMovedAt < REMOTE_MOVE_GRACE_MS;
       avatar.update();
     }
+
+    this.updateOcclusion?.(this.occlusionFeet());
   }
 
   private updateLocalMovement(delta: number) {
@@ -610,6 +612,10 @@ class GameScene extends Phaser.Scene {
   }
 
   private title: TitleScreen | null = null;
+  /** Fade tall props that are covering a kid (trees / bushes / fence). */
+  private updateOcclusion: ((feet: ReadonlyArray<{ x: number; y: number; top: number }>) => void) | null = null;
+  /** Tall props (trees / bushes / fence); used by occlusion + screenshot tests. */
+  occluders: Occluder[] = [];
 
   setTitle(title: TitleScreen) {
     this.title = title;
@@ -762,7 +768,20 @@ class GameScene extends Phaser.Scene {
   private createWorld() {
     // Decorative schoolyard (grass, blacktop courts, track, diamond,
     // playground, trees, fence on the world edge). Visual only.
-    createSchoolyard(this, WORLD_WIDTH, WORLD_HEIGHT);
+    const yard = createSchoolyard(this, WORLD_WIDTH, WORLD_HEIGHT);
+    this.updateOcclusion = yard.updateOcclusion;
+    this.occluders = yard.occluders;
+  }
+
+  /** Feet + head-top of every on-screen kid, for schoolyard occlusion. */
+  private occlusionFeet() {
+    const out: { x: number; y: number; top: number }[] = [];
+    const add = (avatar: KidAvatar) => {
+      out.push({ x: avatar.x, y: avatar.feetY, top: avatar.labelTop });
+    };
+    if (this.player) add(this.player);
+    for (const remote of this.remotePlayers.values()) add(remote.avatar);
+    return out;
   }
 
   private setStatus(status: string) {

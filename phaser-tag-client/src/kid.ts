@@ -321,6 +321,11 @@ export class KidAvatar {
     return this.tagging;
   }
 
+  /** World Y of the feet (ground contact), used for depth / occlusion. */
+  get feetY(): number {
+    return this.y + this.feetOffset;
+  }
+
   private endTag() {
     this.tagging = false;
     this.tagFacing = null;
@@ -365,15 +370,20 @@ export class KidAvatar {
     this.shadow.setPosition(this.x, feetY);
     this.sprite.setPosition(this.x + lx, feetY + ly);
     // Lower on screen = drawn in front.
-    this.sprite.setDepth(10 + feetY / 10);
-    // Stack the visible label lines upward from just above the head.
+    // Same depth band as schoolyard props (trees / bushes / fence), so a
+    // kid north of a trunk sorts behind it. Labels sit just above the
+    // sprite so a translucent canopy can cover them too (still readable).
+    const depth = 10 + feetY / 10;
+    this.sprite.setDepth(depth);
     let labelY = feetY - this.artHeight - LABEL_GAP;
+    let labelDepth = depth + 0.05;
     for (const line of LABEL_LINES) {
       const text = this.labels[line];
       text.setVisible(this.showLabel[line]);
       if (!this.showLabel[line]) continue;
       text.setPosition(this.x, labelY);
-      text.setDepth(1000 + feetY / 10);
+      text.setDepth(labelDepth);
+      labelDepth += 0.01;
       labelY -= text.height - LABEL_TIGHTEN;
     }
   }
