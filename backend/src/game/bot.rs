@@ -23,7 +23,7 @@ use uuid::Uuid;
 use super::{
     energy,
     player::Player,
-    world::{PlayerInput, WORLD_HEIGHT, WORLD_WIDTH},
+    world::{PlayerInput, MAX_X, MAX_Y, MIN_X, MIN_Y, WORLD_HEIGHT, WORLD_WIDTH},
 };
 
 pub const BOT_COUNT: usize = 3;
@@ -154,12 +154,13 @@ fn predicted_position(
     let t = (d / my_speed).min(1.0);
 
     (
-        (target.position.x + v.0 * t).clamp(0.0, WORLD_WIDTH),
-        (target.position.y + v.1 * t).clamp(0.0, WORLD_HEIGHT),
+        (target.position.x + v.0 * t).clamp(MIN_X, MAX_X),
+        (target.position.y + v.1 * t).clamp(MIN_Y, MAX_Y),
     )
 }
 
-/// Pushes away from nearby walls; magnitude grows quadratically as a wall nears.
+/// Pushes away from nearby walls (the fence, not the world edge); magnitude
+/// grows quadratically as a wall nears.
 fn wall_push(x: f32, y: f32) -> Vec2 {
     let f = |d: f32| {
         let k = ((WALL_MARGIN - d) / WALL_MARGIN).clamp(0.0, 1.0);
@@ -167,8 +168,8 @@ fn wall_push(x: f32, y: f32) -> Vec2 {
     };
 
     (
-        f(x) - f(WORLD_WIDTH - x),
-        f(y) - f(WORLD_HEIGHT - y),
+        f(x - MIN_X) - f(MAX_X - x),
+        f(y - MIN_Y) - f(MAX_Y - y),
     )
 }
 

@@ -27,16 +27,19 @@ pub fn move_player(
         normalized_y * speed * dt;
 }
 
-/// Keep a circle of `radius` fully inside the `[0, width] x [0, height]` world.
-pub fn clamp_to_bounds(
+/// Keep a circle of `radius` fully inside the `[left, right] x [top, bottom]`
+/// rectangle (the fenced playing area).
+pub fn clamp_to_area(
     position: &mut Position,
     radius: f32,
-    width: f32,
-    height: f32,
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
 ) {
     position.x =
-        position.x.clamp(radius, width - radius);
+        position.x.clamp(left + radius, right - radius);
 
     position.y =
-        position.y.clamp(radius, height - radius);
+        position.y.clamp(top + radius, bottom - radius);
 }

@@ -5,6 +5,7 @@ import type { ServerMessage, PlayerSnapshot } from "./protocol";
 import type { UUID } from "./types";
 import { KidAvatar, createKidAnimations, preloadKid } from "./kid";
 import { createSchoolyard } from "./schoolyard";
+import { PLAYER_RADIUS, PLAY_AREA, WORLD_HEIGHT, WORLD_WIDTH } from "./world";
 import { GameAudio } from "./audio";
 import { RunButton } from "./runButton";
 import {
@@ -21,11 +22,6 @@ const WS_URL =
 
 const ROOM_ID = import.meta.env.VITE_ROOM_ID ?? "default";
 
-const WORLD_WIDTH = 5000;
-const WORLD_HEIGHT = 5000;
-
-// Server collision radius; the kid sprite (~64px tall) is sized around it.
-const PLAYER_RADIUS = 18;
 
 /** Remote players count as "moving" while this far from their target (px). */
 const REMOTE_MOVE_EPSILON = 1.5;
@@ -90,6 +86,8 @@ class GameScene extends Phaser.Scene {
   private hudEnergy!: HTMLElement;
   private hudPlayers!: HTMLElement;
   private hudEvents: HTMLElement | null = null;
+  /** HUD bits that turn see-through while the local kid is behind them. */
+  private hudOverlays: HTMLElement[] = [];
 
   constructor() {
     super("GameScene");
@@ -104,7 +102,9 @@ class GameScene extends Phaser.Scene {
     createKidAnimations(this);
 
     // The sprite's facing direction replaces the old white pointer dot.
-    this.player = new KidAvatar(this, WORLD_WIDTH / 2, WORLD_HEIGHT / 2, PLAYER_RADIUS, "YOU");
+    // Name arrives with Welcome; until then the stack is just "YOU".
+    this.player = new KidAvatar(this, WORLD_WIDTH / 2, WORLD_HEIGHT / 2, PLAYER_RADIUS, "");
+    this.player.setLabels({ name: "", you: true, it: false });
     this.player.setRole("self");
 
     this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
@@ -243,6 +243,7 @@ class GameScene extends Phaser.Scene {
     this.player.update();
 
     this.updateHud();
+    this.fadeHudOverPlayer();
   }
 
   /**
@@ -301,23 +302,26 @@ class GameScene extends Phaser.Scene {
         // Sent only to us, before anything else: this is our own player id.
         this.localPlayerId = message.data.player_id;
         this.removeRemotePlayer(message.data.player_id);
-        this.logEvent(`You joined as ${message.data.player_id.slice(0, 8)}`);
+        this.player.setLabels({ name: message.data.name, you: true, it: false });
+        this.logEvent(`You joined as ${message.data.name}`);
         break;
 
       case "PlayerJoined":
         if (message.data.player_id === this.localPlayerId) break;
-        this.ensureRemotePlayer(message.data.player_id);
+        this.ensureRemotePlayer(message.data.player_id, message.data.name);
         this.audio?.playSfx("join");
-        this.logEvent(`Player ${message.data.player_id.slice(0, 8)} joined`);
+        this.logEvent(`${message.data.name} joined`);
         this.updateHud();
         break;
 
-      case "PlayerLeft":
+      case "PlayerLeft": {
+        const name = this.remotePlayers.get(message.data.player_id)?.snapshot.name;
         this.removeRemotePlayer(message.data.player_id);
         this.audio?.playSfx("leave");
-        this.logEvent(`Player ${message.data.player_id.slice(0, 8)} left`);
+        this.logEvent(`${name || "A player"} left`);
         this.updateHud();
         break;
+      }
 
       case "PlayerTagged":
         this.flashTag(message.data.tagger_id, message.data.target_id);
@@ -361,7 +365,7 @@ class GameScene extends Phaser.Scene {
     this.localTargetX = player.x;
     this.localTargetY = player.y;
 
-    this.player.setLabel(player.is_it ? "YOU • IT" : "YOU");
+    this.player.setLabels({ name: player.name, you: true, it: player.is_it });
     this.player.setRole(player.is_it ? "it" : "self");
 
     // Energy comes straight from our entry in the server snapshot.
@@ -389,18 +393,17 @@ class GameScene extends Phaser.Scene {
     // Ring under the feet: bots purple, other humans amber, IT red.
     remote.avatar.setRole(player.is_it ? "it" : player.is_bot ? "bot" : "human");
 
-    remote.avatar.setLabel(
-      `${player.is_it ? "IT • " : ""}${player.is_bot ? "BOT" : player.id.slice(0, 8)}`
-    );
+    // Bots have no "BOT" text any more; their purple ring says it.
+    remote.avatar.setLabels({ name: player.name, you: false, it: player.is_it });
   }
 
-  private ensureRemotePlayer(id: UUID): RemoteSprite {
+  private ensureRemotePlayer(id: UUID, name = ""): RemoteSprite {
     const existing = this.remotePlayers.get(id);
     if (existing) return existing;
 
     const x = WORLD_WIDTH / 2;
     const y = WORLD_HEIGHT / 2;
-    const avatar = new KidAvatar(this, x, y, PLAYER_RADIUS, id.slice(0, 8), "12px");
+    const avatar = new KidAvatar(this, x, y, PLAYER_RADIUS, name);
     avatar.setRole("human");
 
     const remote: RemoteSprite = {
@@ -410,6 +413,7 @@ class GameScene extends Phaser.Scene {
       lastMovedAt: -Infinity,
       snapshot: {
         id,
+        name,
         x,
         y,
         energy: 100,
@@ -601,10 +605,11 @@ class GameScene extends Phaser.Scene {
   }
 
   private setTapTarget(x: number, y: number) {
-    const m = PLAYER_RADIUS + 2; // stay off the wall so we can actually arrive
+    // Stay just inside the fence so we can actually arrive.
+    const m = 2;
     this.tapTarget = {
-      x: Phaser.Math.Clamp(x, m, WORLD_WIDTH - m),
-      y: Phaser.Math.Clamp(y, m, WORLD_HEIGHT - m),
+      x: Phaser.Math.Clamp(x, PLAY_AREA.minX + m, PLAY_AREA.maxX - m),
+      y: Phaser.Math.Clamp(y, PLAY_AREA.minY + m, PLAY_AREA.maxY - m),
     };
     this.tapDir = null;
     this.tapMarker.setPosition(this.tapTarget.x, this.tapTarget.y).setVisible(true);
@@ -677,6 +682,38 @@ class GameScene extends Phaser.Scene {
     this.hudEnergy = energy;
     this.hudPlayers = players;
     this.updateHud();
+  }
+
+  /** HUD elements to fade when the local kid walks under them (corners). */
+  setHudOverlays(elements: HTMLElement[]) {
+    this.hudOverlays = elements;
+  }
+
+  /**
+   * Near the world edges the camera stops scrolling, so the local kid can
+   * end up under the status panel, the cog, the hint or the Run button.
+   * Make whichever one covers the kid (body + labels) see-through.
+   */
+  private fadeHudOverPlayer() {
+    if (this.hudOverlays.length === 0 || !this.player) return;
+    const cam = this.cameras.main;
+    const view = cam.worldView;
+    const b = this.player.bounds;
+    const canvas = this.game.canvas.getBoundingClientRect();
+    const kid = {
+      left: canvas.left + (b.left - view.x) * cam.zoom,
+      right: canvas.left + (b.right - view.x) * cam.zoom,
+      top: canvas.top + (b.top - view.y) * cam.zoom,
+      bottom: canvas.top + (b.bottom - view.y) * cam.zoom,
+    };
+    // Read every rect first, then write classes (no layout thrash).
+    const hits = this.hudOverlays.map(el => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.left < kid.right && kid.left < r.right && r.top < kid.bottom && kid.top < r.bottom;
+    });
+    this.hudOverlays.forEach((el, i) => {
+      if (el.classList.contains("see-through") !== hits[i]) el.classList.toggle("see-through", hits[i]);
+    });
   }
 
   private updateHud() {
@@ -770,7 +807,7 @@ const applyControls = (s: Readonly<Settings>) => {
 };
 applyControls(settings);
 
-new SettingsPanel(hud, settings, saved, {
+const settingsPanel = new SettingsPanel(hud, settings, saved, {
   onChange: s => {
     audio.apply(s);
     applyControls(s);
@@ -778,6 +815,12 @@ new SettingsPanel(hud, settings, saved, {
   onOpenChange: open => scene.setUiOpen(open),
   onSound: kind => audio.playSfx(kind === "preview" ? "join" : "click"),
 });
+scene.setHudOverlays([
+  hud.querySelector(".status") as HTMLElement,
+  controls,
+  settingsPanel.cog,
+  runButton.el,
+]);
 
 window.addEventListener("resize", () => game.scale.resize(window.innerWidth, window.innerHeight));
 

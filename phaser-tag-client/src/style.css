@@ -123,7 +123,7 @@ canvas {
   pointer-events: auto;
   -webkit-tap-highlight-color: transparent;
   filter: drop-shadow(0 4px 0 var(--ink)) drop-shadow(0 8px 10px rgba(0, 0, 0, .35));
-  transition: transform .45s cubic-bezier(.34, 1.8, .5, 1), filter .2s;
+  transition: transform .45s cubic-bezier(.34, 1.8, .5, 1), filter .2s, opacity .2s;
 }
 
 .settings-cog svg {
@@ -492,7 +492,7 @@ canvas {
   -webkit-user-select: none;
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
-  transition: transform .18s cubic-bezier(.34, 1.8, .5, 1), box-shadow .12s, filter .12s;
+  transition: transform .18s cubic-bezier(.34, 1.8, .5, 1), box-shadow .12s, filter .12s, opacity .2s;
 }
 .run-button[hidden] { display: none; }
 .run-button.left {
@@ -556,3 +556,8 @@ canvas {
 @media (prefers-reduced-motion: reduce) {
   .run-button, .run-button.held .run-lines { animation: none; transition: none; }
 }
+
+/* The local kid is behind this HUD element (near a world corner): let it
+   show through. Still clickable. */
+.status, .controls { transition: opacity .2s; }
+.see-through { opacity: .18; }

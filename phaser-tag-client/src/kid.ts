@@ -97,6 +97,26 @@ export function directionFromAngle(angle: number): KidDirection {
 
 export type KidRole = "self" | "it" | "bot" | "human";
 
+/** Lines of the label stack above the head, bottom to top. */
+const LABEL_LINES = ["name", "you", "it"] as const;
+type LabelLine = (typeof LABEL_LINES)[number];
+
+const LABEL_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: "system-ui, sans-serif",
+  fontStyle: "bold",
+  stroke: "#10131a",
+  strokeThickness: 4,
+};
+const LABEL_LOOK: Record<LabelLine, { text: string; style: Phaser.Types.GameObjects.Text.TextStyle }> = {
+  name: { text: "", style: { ...LABEL_STYLE, fontSize: "13px", color: "#ffffff" } },
+  you: { text: "YOU", style: { ...LABEL_STYLE, fontSize: "12px", color: "#7dd3fc" } },
+  it: { text: "IT", style: { ...LABEL_STYLE, fontSize: "14px", color: "#ff5c5c" } },
+};
+/** Lines overlap by this much (their stroke padding) for a tight stack. */
+const LABEL_TIGHTEN = 5;
+/** Gap between the top of the head and the bottom label (px). */
+const LABEL_GAP = 2;
+
 const ROLE_COLORS: Record<KidRole, number> = {
   self: 0x38bdf8, // blue
   it: 0xef4444, // red
@@ -105,7 +125,9 @@ const ROLE_COLORS: Record<KidRole, number> = {
 };
 
 /**
- * One on-screen kid: sprite + coloured ground ring + name label.
+ * One on-screen kid: sprite + coloured ground ring + a label stack above
+ * the head (top to bottom: IT if it, YOU for the local player, name; lines
+ * that don't apply collapse).
  * `x`/`y` are the logical (server) position; the sprite is drawn with its
  * feet slightly below that point and depth-sorted by y.
  */
@@ -113,7 +135,8 @@ export class KidAvatar {
   readonly sprite: Phaser.GameObjects.Sprite;
   /** Coloured ellipse under the feet; stays at the logical position (camera target). */
   readonly shadow: Phaser.GameObjects.Ellipse;
-  readonly label: Phaser.GameObjects.Text;
+  private readonly labels: Record<LabelLine, Phaser.GameObjects.Text>;
+  private readonly showLabel: Record<LabelLine, boolean> = { name: true, you: false, it: false };
 
   x: number;
   y: number;
@@ -137,8 +160,7 @@ export class KidAvatar {
     x: number,
     y: number,
     radius: number,
-    labelText: string,
-    labelSize = "13px"
+    name: string
   ) {
     this.x = x;
     this.y = y;
@@ -158,15 +180,10 @@ export class KidAvatar {
     this.sprite.setOrigin(0.5, BASELINE_Y / FRAME_H);
     this.sprite.setScale(KID_SCALE);
 
-    this.label = scene.add
-      .text(x, y, labelText, {
-        fontFamily: "system-ui, sans-serif",
-        fontSize: labelSize,
-        color: "#ffffff",
-        stroke: "#10131a",
-        strokeThickness: 4,
-      })
-      .setOrigin(0.5, 1);
+    const label = (line: LabelLine) =>
+      scene.add.text(x, y, LABEL_LOOK[line].text, LABEL_LOOK[line].style).setOrigin(0.5, 1);
+    this.labels = { name: label("name"), you: label("you"), it: label("it") };
+    this.labels.name.setText(name);
 
     this.sprite.on(
       Phaser.Animations.Events.ANIMATION_COMPLETE,
@@ -189,8 +206,37 @@ export class KidAvatar {
     else this.sprite.clearTint();
   }
 
-  setLabel(text: string) {
-    if (this.label.text !== text) this.label.setText(text);
+  /** Label stack contents: name, plus the YOU / IT lines when they apply. */
+  setLabels(labels: { name: string; you: boolean; it: boolean }) {
+    if (this.labels.name.text !== labels.name) this.labels.name.setText(labels.name);
+    this.showLabel.name = labels.name !== "";
+    this.showLabel.you = labels.you;
+    this.showLabel.it = labels.it;
+  }
+
+  /** World-space box around the visible kid: body, ring and label stack. */
+  get bounds(): Phaser.Geom.Rectangle {
+    const feetY = this.y + this.feetOffset;
+    let left = this.x - FRAME_W * KID_SCALE * 0.3;
+    let right = this.x + FRAME_W * KID_SCALE * 0.3;
+    for (const line of LABEL_LINES) {
+      if (!this.showLabel[line]) continue;
+      const half = this.labels[line].width / 2;
+      left = Math.min(left, this.x - half);
+      right = Math.max(right, this.x + half);
+    }
+    const top = Math.min(this.labelTop, feetY - FRAME_H * KID_SCALE * 0.9);
+    const bottom = feetY + this.shadow.height / 2;
+    return new Phaser.Geom.Rectangle(left, top, right - left, bottom - top);
+  }
+
+  /** World-space top of the label stack (for tests / layout checks). */
+  get labelTop(): number {
+    let top = this.labels.name.y;
+    for (const line of LABEL_LINES) {
+      if (this.showLabel[line]) top = Math.min(top, this.labels[line].y - this.labels[line].height);
+    }
+    return top;
   }
 
   /**
@@ -274,14 +320,22 @@ export class KidAvatar {
     this.sprite.setPosition(this.x + lx, feetY + ly);
     // Lower on screen = drawn in front.
     this.sprite.setDepth(10 + feetY / 10);
-    this.label.setPosition(this.x, feetY - FRAME_H * KID_SCALE * 0.9 - 2);
-    this.label.setDepth(1000 + feetY / 10);
+    // Stack the visible label lines upward from just above the head.
+    let labelY = feetY - FRAME_H * KID_SCALE * 0.9 - LABEL_GAP;
+    for (const line of LABEL_LINES) {
+      const text = this.labels[line];
+      text.setVisible(this.showLabel[line]);
+      if (!this.showLabel[line]) continue;
+      text.setPosition(this.x, labelY);
+      text.setDepth(1000 + feetY / 10);
+      labelY -= text.height - LABEL_TIGHTEN;
+    }
   }
 
   destroy() {
     this.lungeTween?.stop();
     this.sprite.destroy();
     this.shadow.destroy();
-    this.label.destroy();
+    for (const line of LABEL_LINES) this.labels[line].destroy();
   }
 }

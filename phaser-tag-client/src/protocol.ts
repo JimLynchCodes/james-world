@@ -16,6 +16,8 @@ export type ClientMessage =
 
 export type PlayerSnapshot = {
   id: UUID;
+  /** Display name from the server, e.g. "James 3". */
+  name: string;
   x: number;
   y: number;
   energy: number;
@@ -28,9 +30,9 @@ export type PlayerSnapshot = {
 };
 
 export type ServerMessage =
-  | { type: "Welcome"; data: { player_id: UUID } }
+  | { type: "Welcome"; data: { player_id: UUID; name: string } }
   | { type: "Snapshot"; data: { players: PlayerSnapshot[] } }
-  | { type: "PlayerJoined"; data: { player_id: UUID } }
+  | { type: "PlayerJoined"; data: { player_id: UUID; name: string } }
   | { type: "PlayerLeft"; data: { player_id: UUID } }
   | {
       type: "PlayerTagged";

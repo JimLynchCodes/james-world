@@ -28,4 +28,8 @@ async fn websocket_sends_welcome() {
     let text = message.into_text().unwrap();
 
     assert!(text.contains("Welcome"));
+
+    // First player on a fresh server: "James 1".
+    let welcome: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(welcome["data"]["name"], "James 1");
 }

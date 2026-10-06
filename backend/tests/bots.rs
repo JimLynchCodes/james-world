@@ -142,3 +142,29 @@ fn non_it_bot_runs_away_from_it() {
     }
     assert!(dist(&world, fleer, human) > before + 100.0);
 }
+
+#[test]
+fn every_join_is_named_james_with_a_server_wide_counter() {
+    let mut world = World::new();
+    let h1 = Uuid::new_v4();
+    let spawned = world.add_player(h1);
+    assert_eq!(world.players[&h1].name, "James 1");
+    // Bots spawned by that join are numbered right after the human.
+    let mut bot_names = spawned.iter().map(|id| world.players[id].name.clone()).collect::<Vec<_>>();
+    bot_names.sort();
+    assert_eq!(bot_names, ["James 2", "James 3", "James 4"]);
+
+    let h2 = Uuid::new_v4();
+    world.add_player(h2);
+    assert_eq!(world.players[&h2].name, "James 5");
+
+    // Leaving doesn't free up numbers: the counter only goes up.
+    world.remove_player(h2);
+    let h3 = Uuid::new_v4();
+    world.add_player(h3);
+    assert_eq!(world.players[&h3].name, "James 6");
+
+    // Names are in the snapshot.
+    let snap = world.snapshot();
+    assert_eq!(snap.iter().find(|p| p.id == h3).unwrap().name, "James 6");
+}

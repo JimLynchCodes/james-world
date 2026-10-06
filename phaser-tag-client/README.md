@@ -17,8 +17,10 @@ A minimal fullscreen Phaser client for the Rust WebSocket protocol.
 - Other players rendered in world coordinates
 - Camera follows the local player, keeping them centered
 - `is_it` visual state
+- Server-assigned player names ("James 1", "James 2", ...) and a label
+  stack above every head: IT / YOU / name
 - Energy bar
-- Join / leave handling
+- Join / leave handling (the event feed uses player names)
 - Configurable WebSocket URL and room
 
 ## Protocol mapping
@@ -145,7 +147,13 @@ This is a small change but makes the protocol unambiguous.
 
 ## Coordinate model
 
-The game uses a 5000 x 5000 world.
+The game uses a 5000 x 5000 world. The play area is fenced in by wall
+insets (`WALL_LEFT/RIGHT/BOTTOM = 40`, `WALL_TOP = 110`): the server clamps
+player centres to `[wall + PLAYER_RADIUS, size - wall - PLAYER_RADIUS]`.
+The top inset is larger so the label stack above a kid at the top wall
+stays on screen (the camera cannot scroll above y = 0). The constants live
+in `src/world.ts` and mirror `backend/src/game/world.rs`;
+`backend/tests/bounds.rs` parses `src/world.ts` and fails if they drift.
 
 The local player is drawn as a kid sprite (see "Character sprites")
 at their authoritative world coordinate. Phaser's camera follows that object, so the player
@@ -172,6 +180,15 @@ from the snapshot for everyone else.
   server sends `PlayerTagged`, and immediately when you press E
 - coloured ring under the feet: blue = you, red = IT, purple = bot,
   amber = other human; IT also gets a light red tint
+- label stack above the head, top to bottom: **IT** (red, only on the IT
+  player), **YOU** (blue, local player only), then the player's name
+  (white with a dark stroke). Lines that don't apply collapse with no gap,
+  and the labels draw above all sprites
+- names come from the server: every join (humans and bots) bumps a
+  server-wide counter and the player is named "James N". The name is in
+  `Welcome`, `PlayerJoined` and every `PlayerSnapshot`
+- near a world corner the camera stops scrolling, so the local kid can walk
+  under a HUD panel; whichever panel covers the kid turns see-through
 - sprites are depth-sorted by y so lower players draw in front
 
 `public/assets/kid.png` (80x100 frames, 30 per row, rows E, SE, S, SW, W,
@@ -269,8 +286,9 @@ or key press (autoplay policy) and is suspended while the tab is hidden.
 assets): grass with subtle patches, a blacktop with basketball courts,
 four-square, hopscotch and other painted games, a running track around a
 soccer field, a baseball diamond, a wood-chip playground, sidewalks, trees,
-bushes, benches, picnic tables, and a chain-link fence along the world edge
-(which is the server's boundary wall). It is decoration only (no
+bushes, benches, picnic tables, and a chain-link fence that sits exactly on
+the server's walls (see "Coordinate model"), with a street and sidewalk
+outside the top fence. It is decoration only (no
 collision). For performance everything is baked once into canvas textures:
 the grass layers are camera-sized TileSprites that follow the view, each
 area is a single image, and props reuse a few small textures. The layout is

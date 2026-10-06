@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { PLAYER_RADIUS, WALL_BOTTOM, WALL_LEFT, WALL_RIGHT, WALL_TOP } from "./world";
 
 /**
  * Procedural schoolyard background for the 5000x5000 world.
@@ -1055,6 +1056,17 @@ export function createSchoolyard(scene: Phaser.Scene, worldW: number, worldH: nu
   };
   alignGround();
   scene.events.on(Phaser.Scenes.Events.POST_UPDATE, alignGround);
+
+  // --- the fenced yard (see world.ts). Kids stop with their collision
+  // circle against these lines. A kid's feet are at the bottom of its
+  // circle, so the top fence is drawn with its base on the foot line of a
+  // kid pressed against the top wall: the fence is exactly where they stop.
+  const yard = {
+    left: WALL_LEFT,
+    top: WALL_TOP + 2 * PLAYER_RADIUS,
+    right: worldW - WALL_RIGHT,
+    bottom: worldH - WALL_BOTTOM,
+  };
   scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () =>
     scene.events.off(Phaser.Scenes.Events.POST_UPDATE, alignGround)
   );
@@ -1075,22 +1087,44 @@ export function createSchoolyard(scene: Phaser.Scene, worldW: number, worldH: nu
   // --- ground: mulch strip along the fence + concrete sidewalks
   const g = scene.add.graphics().setDepth(DEPTH.ground);
   const strip = 64;
+  const yw = yard.right - yard.left;
+  const yh = yard.bottom - yard.top;
   g.fillStyle(0x5a4733, 0.55);
-  g.fillRect(0, 0, worldW, strip);
-  g.fillRect(0, worldH - strip, worldW, strip);
-  g.fillRect(0, strip, strip, worldH - 2 * strip);
-  g.fillRect(worldW - strip, strip, strip, worldH - 2 * strip);
+  g.fillRect(yard.left, yard.top, yw, strip);
+  g.fillRect(yard.left, yard.bottom - strip, yw, strip);
+  g.fillRect(yard.left, yard.top + strip, strip, yh - 2 * strip);
+  g.fillRect(yard.right - strip, yard.top + strip, strip, yh - 2 * strip);
   g.fillStyle(0x3e3124, 0.35);
-  g.fillRect(strip, strip, worldW - 2 * strip, 4);
-  g.fillRect(strip, worldH - strip - 4, worldW - 2 * strip, 4);
-  g.fillRect(strip, strip, 4, worldH - 2 * strip);
-  g.fillRect(worldW - strip - 4, strip, 4, worldH - 2 * strip);
+  g.fillRect(yard.left + strip, yard.top + strip, yw - 2 * strip, 4);
+  g.fillRect(yard.left + strip, yard.bottom - strip - 4, yw - 2 * strip, 4);
+  g.fillRect(yard.left + strip, yard.top + strip, 4, yh - 2 * strip);
+  g.fillRect(yard.right - strip - 4, yard.top + strip, 4, yh - 2 * strip);
+
+  // Outside the fence: a street and sidewalk along the top (the deep
+  // margin that keeps labels on screen), plain pavement on the other sides.
+  const outTop = yard.top - FENCE_T;
+  g.fillStyle(0xa3a29a, 1); // pavement everywhere outside
+  g.fillRect(0, 0, worldW, outTop);
+  g.fillRect(0, yard.bottom + FENCE_T, worldW, worldH - yard.bottom - FENCE_T);
+  g.fillRect(0, 0, yard.left - FENCE_T, worldH);
+  g.fillRect(yard.right + FENCE_T, 0, worldW - yard.right - FENCE_T, worldH);
+  const road = Math.round(outTop * 0.42);
+  g.fillStyle(0x4d5055, 1);
+  g.fillRect(0, 0, worldW, road);
+  g.fillStyle(0xd9c25a, 0.8); // dashed centre line
+  for (let x = 20; x < worldW; x += 90) g.fillRect(x, Math.round(road / 2) - 2, 46, 4);
+  g.fillStyle(0xc4c1b7, 1); // curb
+  g.fillRect(0, road, worldW, 5);
+  g.fillStyle(0x58744a, 1); // grass verge along the fence
+  g.fillRect(0, outTop - 10, worldW, 10);
+  g.lineStyle(2, 0x8a8981, 0.9); // sidewalk joints
+  for (let x = 0; x < worldW; x += 56) g.lineBetween(x, road + 5, x, outTop - 10);
 
   const PATH_W = 44;
   const paths: Rect[] = [
-    { x: 378, y: strip, w: PATH_W, h: areas.blacktop.y - strip }, // from the north gate to the blacktop
-    { x: strip, y: 2030, w: worldW - 2 * strip, h: PATH_W }, // main east-west walk
-    { x: 2480, y: strip, w: PATH_W, h: worldH - 2 * strip }, // main north-south walk
+    { x: 378, y: yard.top + strip, w: PATH_W, h: areas.blacktop.y - yard.top - strip }, // north gate to blacktop
+    { x: yard.left + strip, y: 2030, w: yw - 2 * strip, h: PATH_W }, // main east-west walk
+    { x: 2480, y: yard.top + strip, w: PATH_W, h: yh - 2 * strip }, // main north-south walk
     { x: areas.blacktop.x + areas.blacktop.w, y: 960, w: areas.track.x - (areas.blacktop.x + areas.blacktop.w), h: PATH_W },
     { x: 1040, y: areas.blacktop.y + areas.blacktop.h, w: PATH_W, h: 2030 - (areas.blacktop.y + areas.blacktop.h) },
     { x: 3740, y: areas.track.y + areas.track.h, w: PATH_W, h: areas.playground.y - (areas.track.y + areas.track.h) },
@@ -1131,13 +1165,13 @@ export function createSchoolyard(scene: Phaser.Scene, worldW: number, worldH: nu
 
   // a row of trees and bushes just inside the fence
   const edgeSpots: [number, number][] = [];
-  for (let t = 150; t < worldW - 150; t += 210 + rnd() * 120) {
-    const inset = 110 + rnd() * 50;
-    edgeSpots.push([t, inset], [t + 60, worldH - inset]);
+  for (let t = yard.left + 120; t < yard.right - 120; t += 210 + rnd() * 120) {
+    const inset = 80 + rnd() * 50;
+    edgeSpots.push([t, yard.top + inset], [t + 60, yard.bottom - inset]);
   }
-  for (let t = 150; t < worldH - 150; t += 210 + rnd() * 120) {
-    const inset = 110 + rnd() * 50;
-    edgeSpots.push([inset, t], [worldW - inset, t + 60]);
+  for (let t = yard.top + 120; t < yard.bottom - 120; t += 210 + rnd() * 120) {
+    const inset = 80 + rnd() * 50;
+    edgeSpots.push([yard.left + inset, t], [yard.right - inset, t + 60]);
   }
   for (const [x, y] of edgeSpots) {
     if (!free(x, y, 70)) continue;
@@ -1184,27 +1218,26 @@ export function createSchoolyard(scene: Phaser.Scene, worldW: number, worldH: nu
   outside.fillRect(-far, 0, far, worldH);
   outside.fillRect(worldW, 0, far, worldH);
 
-  // --- fence along the world edge (the server's boundary wall)
-  // Split into segments so no TileSprite canvas/texture gets huge.
+  // --- fence: the server's boundary wall, just outside the yard lines
+  // (top band sits on the kids' foot line, see `yard`). Split into segments
+  // so no TileSprite canvas/texture gets huge.
   const fenceH = fenceTile(scene, false);
   const fenceV = fenceTile(scene, true);
   const SEG = 1024;
-  for (let t = 0; t < worldW; t += SEG) {
-    const len = Math.min(SEG, worldW - t);
-    scene.add.tileSprite(t, 0, len, FENCE_T, fenceH).setOrigin(0).setDepth(DEPTH.fence).setTilePosition(t, 0);
-    scene.add
-      .tileSprite(t, worldH - FENCE_T, len, FENCE_T, fenceH)
-      .setOrigin(0)
-      .setDepth(DEPTH.fence)
-      .setTilePosition(t, 0);
+  const x0 = yard.left - FENCE_T;
+  const x1 = yard.right + FENCE_T;
+  const y0 = yard.top - FENCE_T;
+  const y1 = yard.bottom + FENCE_T;
+  for (let t = x0; t < x1; t += SEG) {
+    const len = Math.min(SEG, x1 - t);
+    for (const y of [y0, yard.bottom]) {
+      scene.add.tileSprite(t, y, len, FENCE_T, fenceH).setOrigin(0).setDepth(DEPTH.fence).setTilePosition(t, 0);
+    }
   }
-  for (let t = 0; t < worldH; t += SEG) {
-    const len = Math.min(SEG, worldH - t);
-    scene.add.tileSprite(0, t, FENCE_T, len, fenceV).setOrigin(0).setDepth(DEPTH.fence).setTilePosition(0, t);
-    scene.add
-      .tileSprite(worldW - FENCE_T, t, FENCE_T, len, fenceV)
-      .setOrigin(0)
-      .setDepth(DEPTH.fence)
-      .setTilePosition(0, t);
+  for (let t = y0; t < y1; t += SEG) {
+    const len = Math.min(SEG, y1 - t);
+    for (const x of [x0, yard.right]) {
+      scene.add.tileSprite(x, t, FENCE_T, len, fenceV).setOrigin(0).setDepth(DEPTH.fence).setTilePosition(0, t);
+    }
   }
 }
