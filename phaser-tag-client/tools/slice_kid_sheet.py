@@ -63,38 +63,46 @@ GROUPS = [
 #    idle/walk/breathing columns (the sheet's own note says to mirror the
 #    west-facing rows to get the east-facing ones);
 #      - row "E"  = clean left profile            -> W  (mirrored: E)
-#      - row "W"  = left profile, face a bit more  -> SW (mirrored: SE)
-#        towards the viewer (closest thing to a front-3/4 view)
 #      - row "SW" = back-3/4, facing left          -> NW (mirrored: NE)
-#    (rows "NE" and "SE" have frames that flip facing mid-walk, so unused);
+#  * there is NO front-three-quarter view anywhere in the sheet: every frame
+#    in the rows labelled SE / SW / W (and the few right-facing frames in the
+#    SE row) is a pure profile.  So SE / SW are built from the S (front)
+#    frames with a "head turn" warp (see turn_warp) that slides the face and
+#    body towards the facing side, then mirrored for SW.  This reads as a
+#    kid facing down-right / down-left toward the camera instead of a profile;
 #  * in the TAG columns the arm always swings out to the viewer's RIGHT and
 #    the body faces RIGHT in the arm-out frames, while the first/last frames
 #    of several rows face the other way.  So each direction gets a hand-picked
 #    frame sequence (sheet tag-frame indices 0..5) whose body faces the same
 #    way as the arm; west-facing directions are mirrored so the arm always
-#    reaches out in FRONT of the kid.
+#    reaches out in FRONT of the kid.  For SE/SW the front-view S tag frames
+#    are used (arm out to the facing side), with the same turn warp.
 #    Sequence shape: neutral, bent (wind-up), extended, MOST extended, extended, bent.
+#
+# The optional 3rd/4th value is the turn-warp strength (+ = turn towards the
+# viewer's right, applied before mirroring).
+TURN = 0.32
 BODY_SOURCES = {
-    # dir: (sheet row, mirror)
-    "E": ("E", True),
-    "SE": ("W", True),
-    "S": ("S", False),
-    "SW": ("W", False),
-    "W": ("E", False),
-    "NW": ("SW", False),
-    "N": ("N", False),
-    "NE": ("SW", True),
+    # dir: (sheet row, mirror, turn)
+    "E": ("E", True, 0.0),
+    "SE": ("S", False, TURN),
+    "S": ("S", False, 0.0),
+    "SW": ("S", True, TURN),
+    "W": ("E", False, 0.0),
+    "NW": ("SW", False, 0.0),
+    "N": ("N", False, 0.0),
+    "NE": ("SW", True, 0.0),
 }
 TAG_SOURCES = {
-    # dir: (sheet row, [tag frame indices], mirror)
-    "E": ("E", [0, 2, 1, 3, 1, 2], False),
-    "SE": ("SE", [0, 2, 3, 1, 4, 2], False),
-    "S": ("S", [0, 2, 1, 3, 1, 2], False),
-    "SW": ("SE", [0, 2, 3, 1, 4, 2], True),
-    "W": ("E", [0, 2, 1, 3, 1, 2], True),
-    "NW": ("NW", [0, 2, 3, 1, 4, 2], True),
-    "N": ("N", [0, 2, 3, 1, 4, 2], False),
-    "NE": ("NW", [0, 2, 3, 1, 4, 2], False),
+    # dir: (sheet row, [tag frame indices], mirror, turn)
+    "E": ("E", [0, 2, 1, 3, 1, 2], False, 0.0),
+    "SE": ("S", [0, 2, 1, 3, 1, 2], False, TURN),
+    "S": ("S", [0, 2, 1, 3, 1, 2], False, 0.0),
+    "SW": ("S", [0, 2, 1, 3, 1, 2], True, TURN),
+    "W": ("E", [0, 2, 1, 3, 1, 2], True, 0.0),
+    "NW": ("NW", [0, 2, 3, 1, 4, 2], True, 0.0),
+    "N": ("N", [0, 2, 3, 1, 4, 2], False, 0.0),
+    "NE": ("NW", [0, 2, 3, 1, 4, 2], False, 0.0),
 }
 DIRECTIONS = ["E", "SE", "S", "SW", "W", "NW", "N", "NE"]
 
@@ -291,7 +299,41 @@ def extract_frames(img: np.ndarray, debug: Path | None):
     return result
 
 
-def place(crop: np.ndarray, anchor_x: float, mirror: bool, scale: float) -> Image.Image:
+TURN_RADIUS = 24.0   # px (source scale) around the head centre affected by the warp
+TURN_BODY = 0.55     # warp strength at the feet relative to the head
+
+
+def turn_warp(crop: np.ndarray, anchor_x: float, k: float) -> np.ndarray:
+    """Fake a slight head/body turn towards +x on a front-view frame.
+
+    Each row is remapped with x' = x + k*R*(1-u^2), u = (x-anchor)/R, |u|<1:
+    the edges of the figure stay put while the middle (face, shirt front)
+    slides toward the facing side, compressing the near side and widening
+    the far side, like a three-quarter view.  Strength fades from the head
+    (k) to the feet (k*TURN_BODY).  Resampled with premultiplied alpha.
+    """
+    h, w = crop.shape[:2]
+    f = crop.astype(np.float64) / 255.0
+    f[..., :3] *= f[..., 3:4]
+    out = np.zeros_like(f)
+    xs = np.arange(w, dtype=np.float64)
+    dense = np.linspace(-1.0, w, (w + 1) * 8)
+    for y in range(h):
+        t = y / max(1, h - 1)
+        ky = k * (1.0 if t < 0.45 else 1.0 - (1.0 - TURN_BODY) * (t - 0.45) / 0.55)
+        u = (dense - anchor_x) / TURN_RADIUS
+        fwd = dense + np.where(np.abs(u) < 1, ky * TURN_RADIUS * (1 - u * u), 0.0)
+        src = np.interp(xs, fwd, dense)
+        for ch in range(4):
+            out[y, :, ch] = np.interp(src, xs, f[y, :, ch], left=0.0, right=0.0)
+    a = out[..., 3:4]
+    out[..., :3] = np.where(a > 1e-6, out[..., :3] / np.maximum(a, 1e-6), 0.0)
+    return np.clip(out * 255.0 + 0.5, 0, 255).astype(np.uint8)
+
+
+def place(crop: np.ndarray, anchor_x: float, mirror: bool, scale: float, turn: float = 0.0) -> Image.Image:
+    if turn:
+        crop = turn_warp(crop, anchor_x, turn)
     im = Image.fromarray(crop)
     if abs(scale - 1.0) > 0.01:
         w0, h0 = im.size
@@ -332,18 +374,18 @@ def main():
     sheet = Image.new("RGBA", (FRAME_W * ncols, FRAME_H * len(DIRECTIONS)))
     for r, direction in enumerate(DIRECTIONS):
         c = 0
-        body_row, body_mirror = BODY_SOURCES[direction]
-        tag_row, tag_idx, tag_mirror = TAG_SOURCES[direction]
+        body_row, body_mirror, body_turn = BODY_SOURCES[direction]
+        tag_row, tag_idx, tag_mirror, tag_turn = TAG_SOURCES[direction]
         for gname in order:
             if gname == "tag":
                 src = frames[tag_row]["tag"]
-                seq, mirror = [src[i] for i in tag_idx], tag_mirror
+                seq, mirror, turn = [src[i] for i in tag_idx], tag_mirror, tag_turn
             else:
                 src = frames[body_row][gname]
-                seq, mirror = src, body_mirror
+                seq, mirror, turn = src, body_mirror, body_turn
             scale = group_scale(src)
             for crop, ax, _h in seq:
-                frame = place(crop.astype(np.uint8), ax, mirror, scale)
+                frame = place(crop.astype(np.uint8), ax, mirror, scale, turn)
                 sheet.paste(frame, (c * FRAME_W, r * FRAME_H))
                 c += 1
     OUT_DIR.mkdir(parents=True, exist_ok=True)

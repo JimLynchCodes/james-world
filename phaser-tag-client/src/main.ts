@@ -4,6 +4,7 @@ import { GameSocket } from "./network";
 import type { ServerMessage, PlayerSnapshot } from "./protocol";
 import type { UUID } from "./types";
 import { KidAvatar, createKidAnimations, preloadKid } from "./kid";
+import { createSchoolyard } from "./schoolyard";
 
 const WS_URL =
   import.meta.env.VITE_WS_URL ??
@@ -48,7 +49,6 @@ class GameScene extends Phaser.Scene {
   private tagCooldown = 0;
 
   private connected = false;
-  private worldGraphics!: Phaser.GameObjects.Graphics;
 
   private hudStatus!: HTMLElement;
   private hudEnergy!: HTMLElement;
@@ -418,31 +418,9 @@ class GameScene extends Phaser.Scene {
   }
 
   private createWorld() {
-    this.worldGraphics = this.add.graphics();
-
-    this.worldGraphics.fillStyle(0x171b24, 1);
-    this.worldGraphics.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-
-    this.worldGraphics.lineStyle(1, 0x242a36, 1);
-
-    const grid = 100;
-    for (let x = 0; x <= WORLD_WIDTH; x += grid) {
-      this.worldGraphics.lineBetween(x, 0, x, WORLD_HEIGHT);
-    }
-
-    for (let y = 0; y <= WORLD_HEIGHT; y += grid) {
-      this.worldGraphics.lineBetween(0, y, WORLD_WIDTH, y);
-    }
-
-    this.worldGraphics.lineStyle(4, 0x475569, 1);
-    this.worldGraphics.strokeRect(
-      0,
-      0,
-      WORLD_WIDTH,
-      WORLD_HEIGHT
-    );
-
-    this.worldGraphics.setDepth(-10);
+    // Decorative schoolyard (grass, blacktop courts, track, diamond,
+    // playground, trees, fence on the world edge). Visual only.
+    createSchoolyard(this, WORLD_WIDTH, WORLD_HEIGHT);
   }
 
   private setStatus(status: string) {
