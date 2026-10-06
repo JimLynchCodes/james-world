@@ -5,7 +5,9 @@ A minimal fullscreen Phaser client for the Rust WebSocket protocol.
 ## Features
 
 - Fullscreen Phaser game
-- WASD / arrow-key movement
+- WASD / arrow-key movement, or Tap mode (tap/click where to walk)
+- Settings panel (cog, top right): controls mode, volumes, music mood
+- Procedural music and sound effects (Web Audio, no audio assets)
 - SHIFT to request running
 - E to attempt tagging the nearest player
 - Periodic `Ping` messages
@@ -201,6 +203,42 @@ have it (see the "Procedural animation" comments in the script):
 - run, all directions: the same front/back generator with bigger amplitudes
   for S/SE/SW/N, and an exaggerated version of the sheet's side/back-3/4
   stride frames (wider stride, ~2.4x arm swing, lean, hop) for E/W/NE/NW.
+
+Kids are drawn at 0.84 scale (~75px tall on screen); the ground ring,
+feet offset and tag lunge grow with them. Display only: the server
+collision radius (`PLAYER_RADIUS` = 18) is unchanged.
+
+## Settings, Tap mode and audio
+
+The cog in the top-right corner opens the Settings modal (`src/settings.ts`,
+styles in `src/style.css`). Close it with the X, a click on the backdrop,
+or Escape. While it is open the game ignores the keyboard (Phaser's key
+capture is released so the sliders, dropdown and Tab work) and the local
+player stops.
+
+- **Controls**: a Keyboard / Tap switch. Keyboard is WASD / arrows + SHIFT
+  + E. In Tap mode, tapping or clicking the ground sets a destination
+  (white marker) and the client sends `MoveInput` toward it from the
+  server-reported position, stopping within 10px (drag to steer; SHIFT
+  still runs if you have a keyboard). Tapping a kid within tag range tags
+  them, tapping one further away walks toward them. Clicks on the HUD,
+  cog or modal are ignored. Touch-first devices default to Tap.
+- **Sound**: Master volume, Background music, Sound effects (0-100), and
+  a Mood dropdown (Happy, Spooky, Chillin) that picks the music.
+
+Everything is saved in `localStorage` (`tag26.settings`) and applied on
+load.
+
+`src/audio.ts` synthesises everything with the Web Audio API: a small
+look-ahead step sequencer plays three looping tracks (Happy: bouncy
+C-major chiptune at 132 bpm; Spooky: slow minor/diminished pads, drone,
+heartbeat, music-box bells and a theremin wail at 70 bpm; Chillin: swung
+lo-fi 7th chords, soft drums and vinyl crackle at 76 bpm). Changing the
+mood crossfades over 1.5s. Effects (tag whoosh / hit, player joined / left
+blips, footsteps, UI clicks) go to their own bus:
+`track -> music bus -> master`, `sfx -> sfx bus -> master`, then a gentle
+limiter. The AudioContext is only created/resumed on the first click, tap
+or key press (autoplay policy) and is suspended while the tab is hidden.
 
 ## Schoolyard background
 

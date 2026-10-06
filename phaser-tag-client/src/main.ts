@@ -5,6 +5,13 @@ import type { ServerMessage, PlayerSnapshot } from "./protocol";
 import type { UUID } from "./types";
 import { KidAvatar, createKidAnimations, preloadKid } from "./kid";
 import { createSchoolyard } from "./schoolyard";
+import { GameAudio } from "./audio";
+import {
+  SettingsPanel,
+  controlsHint,
+  loadSettings,
+  type ControlMode,
+} from "./settings";
 
 const WS_URL =
   import.meta.env.VITE_WS_URL ??
@@ -26,6 +33,12 @@ const REMOTE_MOVE_GRACE_MS = 120;
 const REMOTE_SNAPSHOT_MOVE_PX = 0.5;
 /** Keep a diagonal facing if the keys are let go within this window (ms). */
 const DIAGONAL_RELEASE_MS = 120;
+/** Max distance (px, between centres) for a client tag attempt. */
+const TAG_DISTANCE = 70;
+/** Tap mode: stop once the server position is this close to the target (px). */
+const TAP_ARRIVE_PX = 10;
+/** Footstep sound interval while walking / running (ms). */
+const STEP_MS = { walk: 300, run: 190 };
 
 type RemoteSprite = {
   avatar: KidAvatar;
@@ -55,6 +68,17 @@ class GameScene extends Phaser.Scene {
   private tagCooldown = 0;
 
   private connected = false;
+
+  private audio: GameAudio | null = null;
+  private controlMode: ControlMode = "keyboard";
+  /** Settings modal open: game input is paused. */
+  private uiOpen = false;
+  /** Tap mode destination (world px) and the last direction walked toward it. */
+  private tapTarget: { x: number; y: number } | null = null;
+  private tapDir: { x: number; y: number } | null = null;
+  private tapDragging = false;
+  private tapMarker!: Phaser.GameObjects.Container;
+  private stepTimer = 0;
 
   private hudStatus!: HTMLElement;
   private hudEnergy!: HTMLElement;
@@ -87,6 +111,9 @@ class GameScene extends Phaser.Scene {
       string,
       Phaser.Input.Keyboard.Key
     >;
+
+    this.createTapControls();
+    this.setUiOpen(this.uiOpen);
 
     this.socket = new GameSocket(WS_URL, {
       onOpen: () => {
@@ -137,9 +164,7 @@ class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number) {
-    const dt = delta / 1000;
-
-    this.updateLocalMovement(dt);
+    this.updateLocalMovement(delta);
 
     this.inputTimer -= delta;
     if (this.inputTimer <= 0) {
@@ -166,11 +191,13 @@ class GameScene extends Phaser.Scene {
     }
   }
 
-  private updateLocalMovement(_dt: number) {
+  private updateLocalMovement(delta: number) {
     // The server is authoritative: we only send inputs (see sendMovement)
     // and ease toward the position it reports in each Snapshot.
-    // Animation state comes from the keys held *now*, never from the eased
-    // position (which keeps drifting toward the server for a few frames).
+    // Animation state comes from the input held *now* (keys, or an active
+    // tap target), never from the eased position (which keeps drifting
+    // toward the server for a few frames).
+    this.updateTapTarget();
     const { dx, dy, running } = this.readInput();
     const moving = dx !== 0 || dy !== 0;
     if (moving) {
@@ -189,6 +216,16 @@ class GameScene extends Phaser.Scene {
     }
     this.wasMoving = moving;
 
+    if (moving) {
+      this.stepTimer -= delta;
+      if (this.stepTimer <= 0) {
+        this.audio?.playSfx("step");
+        this.stepTimer = running ? STEP_MS.run : STEP_MS.walk;
+      }
+    } else {
+      this.stepTimer = 0;
+    }
+
     if (this.localTargetX !== null && this.localTargetY !== null) {
       this.player.x = Phaser.Math.Linear(this.player.x, this.localTargetX, 0.35);
       this.player.y = Phaser.Math.Linear(this.player.y, this.localTargetY, 0.35);
@@ -202,10 +239,19 @@ class GameScene extends Phaser.Scene {
     this.updateHud();
   }
 
-  /** Current movement keys: dx/dy in {-1, 0, 1}; running = SHIFT while moving. */
+  /**
+   * Current movement input. Keyboard mode: dx/dy in {-1, 0, 1} from the keys.
+   * Tap mode: unit vector toward the tap target (zero once arrived).
+   * running = SHIFT while moving. Nothing moves while Settings is open.
+   */
   private readInput() {
     let dx = 0;
     let dy = 0;
+    if (this.uiOpen) return { dx, dy, running: false };
+    if (this.controlMode === "tap") {
+      if (this.tapDir) ({ x: dx, y: dy } = this.tapDir);
+      return { dx, dy, running: this.keys.SHIFT.isDown && (dx !== 0 || dy !== 0) };
+    }
     if (this.cursors.left.isDown || this.keys.A.isDown) dx -= 1;
     if (this.cursors.right.isDown || this.keys.D.isDown) dx += 1;
     if (this.cursors.up.isDown || this.keys.W.isDown) dy -= 1;
@@ -254,12 +300,14 @@ class GameScene extends Phaser.Scene {
       case "PlayerJoined":
         if (message.data.player_id === this.localPlayerId) break;
         this.ensureRemotePlayer(message.data.player_id);
+        this.audio?.playSfx("join");
         this.logEvent(`Player ${message.data.player_id.slice(0, 8)} joined`);
         this.updateHud();
         break;
 
       case "PlayerLeft":
         this.removeRemotePlayer(message.data.player_id);
+        this.audio?.playSfx("leave");
         this.logEvent(`Player ${message.data.player_id.slice(0, 8)} left`);
         this.updateHud();
         break;
@@ -345,7 +393,7 @@ class GameScene extends Phaser.Scene {
 
     const x = WORLD_WIDTH / 2;
     const y = WORLD_HEIGHT / 2;
-    const avatar = new KidAvatar(this, x, y, PLAYER_RADIUS, id.slice(0, 8), "11px");
+    const avatar = new KidAvatar(this, x, y, PLAYER_RADIUS, id.slice(0, 8), "12px");
     avatar.setRole("human");
 
     const remote: RemoteSprite = {
@@ -377,27 +425,33 @@ class GameScene extends Phaser.Scene {
     this.remotePlayers.delete(id);
   }
 
-  private tryTagNearest() {
-    if (!this.connected || this.tagCooldown > 0 || !this.localPlayerId) {
-      return;
-    }
+  private distanceToPlayer(remote: RemoteSprite) {
+    return Phaser.Math.Distance.Between(
+      this.player.x,
+      this.player.y,
+      remote.avatar.x,
+      remote.avatar.y
+    );
+  }
 
-    const TAG_DISTANCE = 70;
+  private tryTagNearest() {
     let closest: RemoteSprite | null = null;
     let closestDistance = TAG_DISTANCE;
 
     for (const remote of this.remotePlayers.values()) {
-      const distance = Phaser.Math.Distance.Between(
-        this.player.x,
-        this.player.y,
-        remote.avatar.x,
-        remote.avatar.y
-      );
-
+      const distance = this.distanceToPlayer(remote);
       if (distance < closestDistance) {
         closest = remote;
         closestDistance = distance;
       }
+    }
+    this.tryTag(closest);
+  }
+
+  /** Swing at `closest` (a remote within TAG_DISTANCE), or at the air if null. */
+  private tryTag(closest: RemoteSprite | null) {
+    if (!this.connected || this.tagCooldown > 0 || !this.localPlayerId) {
+      return;
     }
 
     // Optimistic: swing the arm right away (toward the target if there is
@@ -409,6 +463,7 @@ class GameScene extends Phaser.Scene {
       );
     }
     this.player.facing = this.playerFacingAngle;
+    if (!this.player.isTagging) this.audio?.playSfx("swing");
     this.player.playTag(this.playerFacingAngle);
 
     if (!closest) return;
@@ -444,7 +499,127 @@ class GameScene extends Phaser.Scene {
 
     if (taggedLocal || taggingLocal) {
       this.cameras.main.flash(180, 255, 255, 255);
+      this.audio?.playSfx("hit");
+    } else if (target) {
+      // Other kids' tags: quieter the further away they happen.
+      const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, target.x, target.y);
+      this.audio?.playSfx("hit", 0.7 * (1 - d / 900));
     }
+  }
+
+  // --- Settings hooks -------------------------------------------------------
+
+  setAudio(audio: GameAudio) {
+    this.audio = audio;
+  }
+
+  setControlMode(mode: ControlMode) {
+    this.controlMode = mode;
+    if (mode !== "tap") this.clearTapTarget();
+  }
+
+  /** Pause game input while the Settings modal is open. */
+  setUiOpen(open: boolean) {
+    this.uiOpen = open;
+    this.tapDragging = false;
+    const keyboard = this.input?.keyboard;
+    if (!keyboard) return; // not created yet; create() applies it
+    keyboard.enabled = !open;
+    keyboard.resetKeys();
+    // Phaser preventDefault()s captured keys (arrows, WASD, Space...) on the
+    // window; release them so sliders, the dropdown and Tab work in the modal.
+    if (open) keyboard.disableGlobalCapture();
+    else keyboard.enableGlobalCapture();
+  }
+
+  // --- Tap-to-move ------------------------------------------------------------
+
+  private createTapControls() {
+    const ring = this.add.ellipse(0, 0, 30, 13).setStrokeStyle(3, 0xffffff, 0.95);
+    const dot = this.add.ellipse(0, 0, 8, 4, 0xffffff, 0.95);
+    this.tapMarker = this.add.container(0, 0, [ring, dot]).setDepth(2).setVisible(false);
+    this.tweens.add({
+      targets: ring,
+      scale: 1.35,
+      alpha: 0.35,
+      duration: 520,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
+
+    // Phaser only reports presses on the canvas itself, so clicks on the
+    // HUD, the cog or the modal never reach these handlers.
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
+      if (this.controlMode !== "tap" || this.uiOpen) return;
+      const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+      const kid = this.remoteAt(world.x, world.y);
+      if (kid && this.distanceToPlayer(kid) < TAG_DISTANCE) {
+        this.tryTag(kid); // tap a nearby kid: tag them
+        return;
+      }
+      // Tap the ground (or a far-away kid): walk there; drag to steer.
+      this.tapDragging = true;
+      this.setTapTarget(kid ? kid.avatar.x : world.x, kid ? kid.avatar.y : world.y);
+    });
+    this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
+      if (!this.tapDragging || !pointer.isDown || this.controlMode !== "tap" || this.uiOpen) return;
+      const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+      this.setTapTarget(world.x, world.y);
+    });
+    const stopDrag = () => (this.tapDragging = false);
+    this.input.on(Phaser.Input.Events.POINTER_UP, stopDrag);
+    this.input.on(Phaser.Input.Events.POINTER_UP_OUTSIDE, stopDrag);
+  }
+
+  /** Topmost remote kid whose sprite covers world point (x, y). */
+  private remoteAt(x: number, y: number): RemoteSprite | null {
+    let best: RemoteSprite | null = null;
+    for (const remote of this.remotePlayers.values()) {
+      if (remote.avatar.hitTest(x, y) && (!best || remote.avatar.y > best.avatar.y)) best = remote;
+    }
+    return best;
+  }
+
+  private setTapTarget(x: number, y: number) {
+    const m = PLAYER_RADIUS + 2; // stay off the wall so we can actually arrive
+    this.tapTarget = {
+      x: Phaser.Math.Clamp(x, m, WORLD_WIDTH - m),
+      y: Phaser.Math.Clamp(y, m, WORLD_HEIGHT - m),
+    };
+    this.tapDir = null;
+    this.tapMarker.setPosition(this.tapTarget.x, this.tapTarget.y).setVisible(true);
+    this.updateTapTarget();
+  }
+
+  private clearTapTarget() {
+    this.tapTarget = null;
+    this.tapDir = null;
+    this.tapDragging = false;
+    this.tapMarker?.setVisible(false);
+  }
+
+  /** Steer toward the tap target from the server position; stop on arrival. */
+  private updateTapTarget() {
+    if (!this.tapTarget) return;
+    const x = this.localTargetX ?? this.player.x;
+    const y = this.localTargetY ?? this.player.y;
+    const dx = this.tapTarget.x - x;
+    const dy = this.tapTarget.y - y;
+    const d = Math.hypot(dx, dy);
+    const dir = d > 0 ? { x: dx / d, y: dy / d } : null;
+    // Arrived, or stepped past it (direction flipped): stop, don't jitter.
+    if (
+      !dir ||
+      d <= TAP_ARRIVE_PX ||
+      (this.tapDir && dir.x * this.tapDir.x + dir.y * this.tapDir.y < 0)
+    ) {
+      if (!this.tapDragging) this.clearTapTarget();
+      else this.tapDir = null;
+      this.inputTimer = 0; // send the stop now, not up to 50ms later
+      return;
+    }
+    this.tapDir = dir;
   }
 
   private createWorld() {
@@ -538,11 +713,7 @@ hud.innerHTML = `
     <div id="events" class="events"></div>
   </div>
 
-  <div class="controls">
-    <strong>WASD / Arrow Keys</strong> move ·
-    <strong>SHIFT</strong> run ·
-    <strong>E</strong> tag
-  </div>
+  <div class="controls"></div>
 `;
 
 document.body.appendChild(hud);
@@ -555,6 +726,26 @@ const connection = document.querySelector("#connection") as HTMLElement;
 const events = document.querySelector("#events") as HTMLElement;
 
 scene.setHudElements(status, energy, players, events);
+
+// Settings (cog + modal) and procedural audio; all prefs live in localStorage.
+const settings = loadSettings();
+const audio = new GameAudio(settings);
+audio.installGestureUnlock();
+scene.setAudio(audio);
+scene.setControlMode(settings.controlMode);
+
+const controls = hud.querySelector(".controls") as HTMLElement;
+controls.innerHTML = controlsHint(settings.controlMode);
+
+new SettingsPanel(hud, settings, {
+  onChange: s => {
+    audio.apply(s);
+    scene.setControlMode(s.controlMode);
+    controls.innerHTML = controlsHint(s.controlMode);
+  },
+  onOpenChange: open => scene.setUiOpen(open),
+  onSound: kind => audio.playSfx(kind === "preview" ? "join" : "click"),
+});
 
 window.addEventListener("resize", () => game.scale.resize(window.innerWidth, window.innerHeight));
 
