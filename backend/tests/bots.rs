@@ -168,3 +168,29 @@ fn every_join_is_named_james_with_a_server_wide_counter() {
     let snap = world.snapshot();
     assert_eq!(snap.iter().find(|p| p.id == h3).unwrap().name, "James 6");
 }
+
+#[test]
+fn skins_default_to_james_and_unknown_values_fall_back() {
+    use taggame_backend::game::skin::Skin;
+
+    let mut world = World::new();
+    let human = Uuid::new_v4();
+    world.add_player(human);
+    // Everyone (bots included) starts as plain James.
+    assert!(world.players.values().all(|p| p.skin == Skin::James));
+
+    assert!(world.set_skin(human, Skin::parse("banana")));
+    assert_eq!(world.skin_of(&human), Skin::Banana);
+    let snap = world.snapshot();
+    let me = snap.iter().find(|p| p.id == human).unwrap();
+    assert_eq!(me.skin, Skin::Banana);
+    assert_eq!(serde_json::to_value(me).unwrap()["skin"], "banana");
+    // Bots keep the default.
+    assert!(snap.iter().filter(|p| p.is_bot).all(|p| p.skin == Skin::James));
+
+    for bad in ["", "pineapple", "BANANA2", "James 1"] {
+        assert_eq!(Skin::parse(bad), Skin::James, "{bad:?}");
+    }
+    assert_eq!(Skin::parse(" Banana "), Skin::Banana);
+    assert!(!world.set_skin(Uuid::new_v4(), Skin::Banana));
+}

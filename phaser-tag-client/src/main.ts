@@ -7,6 +7,7 @@ import { KidAvatar, createKidAnimations, preloadKid } from "./kid";
 import { createSchoolyard } from "./schoolyard";
 import { PLAYER_RADIUS, PLAY_AREA, WORLD_HEIGHT, WORLD_WIDTH } from "./world";
 import { GameAudio } from "./audio";
+import { DEFAULT_SKIN, toSkin, type Skin } from "./skins";
 import { RunButton } from "./runButton";
 import {
   SettingsPanel,
@@ -81,6 +82,8 @@ class GameScene extends Phaser.Scene {
   private runHeld = false;
   private tapMarker!: Phaser.GameObjects.Container;
   private stepTimer = 0;
+  /** Our chosen skin (Settings > Skins); sent on Join and with SetSkin. */
+  private localSkin: Skin = DEFAULT_SKIN;
 
   private hudStatus!: HTMLElement;
   private hudEnergy!: HTMLElement;
@@ -106,6 +109,7 @@ class GameScene extends Phaser.Scene {
     this.player = new KidAvatar(this, WORLD_WIDTH / 2, WORLD_HEIGHT / 2, PLAYER_RADIUS, "");
     this.player.setLabels({ name: "", you: true, it: false });
     this.player.setRole("self");
+    this.player.setSkin(this.localSkin);
 
     this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
     // Follow the ground ring (logical position), not the sprite, so the
@@ -127,7 +131,7 @@ class GameScene extends Phaser.Scene {
         this.setStatus("Connected");
         this.socket.send({
           type: "Join",
-          data: { room_id: ROOM_ID },
+          data: { room_id: ROOM_ID, skin: this.localSkin },
         });
       },
       onClose: () => {
@@ -225,7 +229,8 @@ class GameScene extends Phaser.Scene {
     if (moving) {
       this.stepTimer -= delta;
       if (this.stepTimer <= 0) {
-        this.audio?.playSfx("step");
+        // Banana James has squeaky costume shoes.
+        this.audio?.playSfx(this.localSkin === "banana" ? "bananaStep" : "step");
         this.stepTimer = running ? STEP_MS.run : STEP_MS.walk;
       }
     } else {
@@ -308,7 +313,9 @@ class GameScene extends Phaser.Scene {
 
       case "PlayerJoined":
         if (message.data.player_id === this.localPlayerId) break;
-        this.ensureRemotePlayer(message.data.player_id, message.data.name);
+        this.ensureRemotePlayer(message.data.player_id, message.data.name).avatar.setSkin(
+          toSkin(message.data.skin)
+        );
         this.audio?.playSfx("join");
         this.logEvent(`${message.data.name} joined`);
         this.updateHud();
@@ -393,6 +400,9 @@ class GameScene extends Phaser.Scene {
     // Ring under the feet: bots purple, other humans amber, IT red.
     remote.avatar.setRole(player.is_it ? "it" : player.is_bot ? "bot" : "human");
 
+    // Outfit: switches live when that player changes skin.
+    remote.avatar.setSkin(toSkin(player.skin));
+
     // Bots have no "BOT" text any more; their purple ring says it.
     remote.avatar.setLabels({ name: player.name, you: false, it: player.is_it });
   }
@@ -414,6 +424,7 @@ class GameScene extends Phaser.Scene {
       snapshot: {
         id,
         name,
+        skin: DEFAULT_SKIN,
         x,
         y,
         energy: 100,
@@ -530,6 +541,17 @@ class GameScene extends Phaser.Scene {
       this.clearTapTarget();
       this.runHeld = false;
     }
+  }
+
+  /**
+   * Our skin: shown on our kid right away and sent to the server, which
+   * puts it in the snapshots so everyone else sees it.
+   */
+  setSkin(skin: Skin) {
+    const changed = skin !== this.localSkin;
+    this.localSkin = skin;
+    this.player?.setSkin(skin); // not created yet before create()
+    if (changed && this.connected) this.socket.send({ type: "SetSkin", data: { skin } });
   }
 
   /** Tap mode Run button: same `running` flag as SHIFT. */
@@ -792,6 +814,7 @@ const { settings, saved } = loadSettings();
 const audio = new GameAudio(settings);
 audio.installGestureUnlock();
 scene.setAudio(audio);
+scene.setSkin(settings.skin);
 
 const controls = hud.querySelector(".controls") as HTMLElement;
 const runButton = new RunButton(hud, held => scene.setRunHeld(held));
@@ -808,9 +831,10 @@ const applyControls = (s: Readonly<Settings>) => {
 applyControls(settings);
 
 const settingsPanel = new SettingsPanel(hud, settings, saved, {
-  onChange: s => {
+  onChange: (s, key) => {
     audio.apply(s);
     applyControls(s);
+    if (key === "skin") scene.setSkin(s.skin);
   },
   onOpenChange: open => scene.setUiOpen(open),
   onSound: kind => audio.playSfx(kind === "preview" ? "join" : "click"),

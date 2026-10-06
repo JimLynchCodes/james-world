@@ -13,6 +13,7 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::{
+    game::skin::Skin,
     rooms::room::RoomManager,
     ws::protocol::{
         ClientMessage,
@@ -193,8 +194,29 @@ async fn handle_client_message(
                 .await;
         }
 
+        // The player is already in the world (added when the socket
+        // connected); Join just carries their chosen skin.
         ClientMessage::Join {
             room_id: _,
-        } => {}
+            skin,
+        } => {
+            if let Some(skin) = skin {
+                rooms
+                    .world
+                    .lock()
+                    .await
+                    .set_skin(player_id, Skin::parse(&skin));
+            }
+        }
+
+        ClientMessage::SetSkin {
+            skin,
+        } => {
+            rooms
+                .world
+                .lock()
+                .await
+                .set_skin(player_id, Skin::parse(&skin));
+        }
     }
 }

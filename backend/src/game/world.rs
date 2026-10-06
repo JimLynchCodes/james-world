@@ -8,6 +8,7 @@ use super::{
     energy,
     movement,
     player::Player,
+    skin::Skin,
 };
 
 pub const TICK_RATE: u32 = 30;
@@ -91,6 +92,25 @@ impl World {
             .get(id)
             .map(|p| p.name.clone())
             .unwrap_or_default()
+    }
+
+    /// Skin of a player (the default if unknown).
+    pub fn skin_of(&self, id: &Uuid) -> Skin {
+        self.players
+            .get(id)
+            .map(|p| p.skin)
+            .unwrap_or_default()
+    }
+
+    /// Change a player's skin. Returns false if there is no such player.
+    pub fn set_skin(&mut self, id: Uuid, skin: Skin) -> bool {
+        match self.players.get_mut(&id) {
+            Some(player) => {
+                player.skin = skin;
+                true
+            }
+            None => false,
+        }
     }
 
     pub fn human_count(&self) -> usize {
@@ -516,6 +536,7 @@ impl World {
                 crate::ws::protocol::PlayerSnapshot {
                     id: player.id,
                     name: player.name.clone(),
+                    skin: player.skin,
                     x: player.position.x,
                     y: player.position.y,
                     energy: player.energy,

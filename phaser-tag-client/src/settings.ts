@@ -1,8 +1,9 @@
 /**
  * Settings: persisted preferences (localStorage) plus the cog button and
- * the Settings modal (vertical tabs: Controls, Sound). Plain DOM on top of
- * the Phaser canvas; styles live in style.css under "Settings".
+ * the Settings modal (vertical tabs: Controls, Sound, Skins). Plain DOM on
+ * top of the Phaser canvas; styles live in style.css under "Settings".
  */
+import { DEFAULT_SKIN, SKINS, SKIN_IDS, type Skin } from "./skins";
 
 export type ControlMode = "keyboard" | "tap";
 export type RunSide = "left" | "right";
@@ -31,6 +32,8 @@ export interface Settings {
   /** 0-100 */
   sfxVolume: number;
   mood: Mood;
+  /** Which outfit your kid wears (everyone else sees it too). */
+  skin: Skin;
 }
 
 export const STORAGE_KEY = "tag26.settings";
@@ -65,6 +68,7 @@ function defaultSettings(): Settings {
     musicVolume: 60,
     sfxVolume: 80,
     mood: "happy",
+    skin: DEFAULT_SKIN,
   };
 }
 
@@ -115,6 +119,7 @@ export function loadSettings(): LoadedSettings {
   take("musicVolume", vol(raw.musicVolume));
   take("sfxVolume", vol(raw.sfxVolume));
   take("mood", oneOf(raw.mood, MOODS.map(m => m.value)));
+  take("skin", oneOf(raw.skin, SKIN_IDS));
   return { settings, saved };
 }
 
@@ -147,7 +152,7 @@ export interface SettingsPanelOptions {
   onSound?(kind: "click" | "preview"): void;
 }
 
-type Tab = "controls" | "sound";
+type Tab = "controls" | "sound" | "skins";
 
 const SVG_NS = 'xmlns="http://www.w3.org/2000/svg"';
 
@@ -176,6 +181,7 @@ function cogSvg(): string {
 const ICONS = {
   controls: `<svg ${SVG_NS} viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="7" width="19" height="11" rx="5.5"/><path d="M7.5 10.5v4M5.5 12.5h4"/><circle cx="15.5" cy="11.5" r="1.1"/><circle cx="18" cy="14" r="1.1"/></svg>`,
   sound: `<svg ${SVG_NS} viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11"/></svg>`,
+  skins: `<svg ${SVG_NS} viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 3.5 5 5.5 2.5 9.5l3 2 1.5-1.5V20.5h10V10l1.5 1.5 3-2L19 5.5l-3.5-2a3.5 3.5 0 0 1-7 0z"/></svg>`,
   close: `<svg ${SVG_NS} viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>`,
 };
 
@@ -281,6 +287,23 @@ export class SettingsPanel {
         </div>`
     ).join("");
     const moods = MOODS.map(m => `<option value="${m.value}">${m.label}</option>`).join("");
+    // A card per skin with a live preview: the kid facing the camera,
+    // straight from the skin's spritesheet (breathing idle; walking when picked).
+    const skinCards = SKIN_IDS.map(id => {
+      const s = SKINS[id];
+      const vars = [
+        `--sheet:url('${s.url}')`,
+        `--fw:${s.frameWidth}`,
+        `--fh:${s.frameHeight}`,
+        `--base:${s.baselineY}`,
+      ].join(";");
+      return `
+        <button type="button" class="skin-card" role="radio" aria-checked="false" data-skin="${id}">
+          <span class="skin-stage"><span class="skin-preview" style="${vars}"></span></span>
+          <span class="skin-name">${s.label}</span>
+          ${id === DEFAULT_SKIN ? '<span class="skin-note">Default</span>' : '<span class="skin-note">Squeaky shoes</span>'}
+        </button>`;
+    }).join("");
 
     return `
       <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
@@ -292,6 +315,8 @@ export class SettingsPanel {
                     data-tab="controls" aria-controls="pane-controls">${ICONS.controls}<span>Controls</span></button>
             <button type="button" class="settings-tab" role="tab" id="tab-sound"
                     data-tab="sound" aria-controls="pane-sound">${ICONS.sound}<span>Sound</span></button>
+            <button type="button" class="settings-tab" role="tab" id="tab-skins"
+                    data-tab="skins" aria-controls="pane-skins">${ICONS.skins}<span>Skins</span></button>
           </div>
 
           <section class="settings-pane" role="tabpanel" id="pane-controls"
@@ -329,6 +354,13 @@ export class SettingsPanel {
               </div>
             </div>
             <p class="setting-help">The mood picks the background music.</p>
+          </section>
+
+          <section class="settings-pane" role="tabpanel" id="pane-skins"
+                   aria-labelledby="tab-skins" data-pane="skins">
+            <h3>Skins</h3>
+            <div class="skin-cards" role="radiogroup" aria-label="Skin">${skinCards}</div>
+            <p class="setting-help">Everyone in the game sees your kid in the skin you pick.</p>
           </section>
         </div>
       </div>`;
@@ -401,6 +433,25 @@ export class SettingsPanel {
 
     const mood = this.q<HTMLSelectElement>(".settings-select");
     mood.addEventListener("change", () => this.set("mood", mood.value as Mood));
+
+    const cards = [...this.backdrop.querySelectorAll<HTMLButtonElement>(".skin-card")];
+    cards.forEach((card, i) => {
+      card.addEventListener("click", () => {
+        this.options.onSound?.("click");
+        this.set("skin", card.dataset.skin as Skin);
+      });
+      // Radio group keys: arrows move (and pick) between the cards.
+      card.addEventListener("keydown", event => {
+        const step =
+          event.key === "ArrowRight" || event.key === "ArrowDown" ? 1
+          : event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 0;
+        if (!step) return;
+        event.preventDefault();
+        const next = cards[(i + step + cards.length) % cards.length];
+        this.set("skin", next.dataset.skin as Skin);
+        next.focus();
+      });
+    });
   }
 
   private onDocumentKey = (event: KeyboardEvent) => {
@@ -487,5 +538,12 @@ export class SettingsPanel {
     }
     const mood = this.q<HTMLSelectElement>(".settings-select");
     if (mood.value !== this.values.mood) mood.value = this.values.mood;
+
+    this.backdrop.querySelectorAll<HTMLButtonElement>(".skin-card").forEach(card => {
+      const picked = card.dataset.skin === this.values.skin;
+      card.setAttribute("aria-checked", String(picked));
+      card.classList.toggle("picked", picked);
+      card.tabIndex = picked ? 0 : -1;
+    });
   }
 }

@@ -6,7 +6,8 @@ A minimal fullscreen Phaser client for the Rust WebSocket protocol.
 
 - Fullscreen Phaser game
 - WASD / arrow-key movement, or Tap mode (tap/click where to walk)
-- Settings panel (cog, top right): controls mode, volumes, music mood
+- Settings panel (cog, top right): controls mode, volumes, music mood, skin
+- Skins: James (default) or Banana James, seen by every player
 - Music and sound effects: procedural (Web Audio) plus one CC0 lo-fi loop
 - SHIFT to request running
 - E to attempt tagging the nearest player
@@ -31,10 +32,13 @@ The client sends exactly the protocol's JSON shape:
 {
   "type": "Join",
   "data": {
-    "room_id": "default"
+    "room_id": "default",
+    "skin": "banana"
   }
 }
 ```
+
+Changing skin mid-game: `{"type": "SetSkin", "data": {"skin": "james"}}`.
 
 Movement:
 
@@ -253,6 +257,10 @@ player stops.
   mobile UA, iPadOS touch points, coarse primary pointer without hover).
 - **Sound**: Master volume, Background music, Sound effects (0-100), and
   a Mood dropdown (Happy, Spooky, Relaxed, Chillin) that picks the music.
+- **Skins**: two cards with a live preview of each kid: **James** (default)
+  and **Banana James** (the same kid in a banana costume, with squeaky
+  costume shoes: a squishy "boing" footstep on the SFX bus instead of the
+  normal step). See "Skins" below.
 
 Only settings the user has actually chosen are saved in `localStorage`
 (`tag26.settings`), and they are applied on load. Invalid or unknown saved
@@ -279,6 +287,30 @@ joined / left blips, footsteps, UI clicks) go to their own bus:
 `track -> music bus -> master`, `sfx -> sfx bus -> master`, then a gentle
 limiter. The AudioContext is only created/resumed on the first click, tap
 or key press (autoplay policy) and is suspended while the tab is hidden.
+
+## Skins
+
+`src/skins.ts` lists the skins. Each one is a spritesheet with the same
+layout as `kid.png` (same columns, rows and animation ranges), so the same
+animation code drives both. Animation keys are `<texture>-<anim>-<dir>`.
+
+- `james`: `public/assets/kid.png` (80x100 frames).
+- `banana`: `public/assets/kid_banana.png` (80x120 frames, feet on y = 116;
+  the extra 20px on top hold the banana tip and stem). It is generated
+  from `kid.png` by `tools/make_banana_skin.py`, so every animation and
+  direction keeps the kid's own motion. The tool turns the outfit black
+  (long sleeves, leggings; hands, face and shoes stay), draws a shaded
+  yellow banana tube from a pointed tip with a brown stem above the head
+  down to the knees (brown end), cuts an oval opening for the face in the
+  front and side views (back views are all banana), and puts the arms
+  back on top. Re-run it after regenerating `kid.png`:
+  `python3 tools/make_banana_skin.py [--preview /tmp/banana.png]`.
+
+Multiplayer: the client sends its skin in `Join` (`skin`, optional) and
+`SetSkin { skin }` when it changes in Settings. The server stores it on the
+player and includes it in every `PlayerSnapshot` (and in `PlayerJoined`),
+so other clients switch that kid's sheet live, keeping the current
+animation. Unknown values become `james`; bots always wear `james`.
 
 ## Schoolyard background
 

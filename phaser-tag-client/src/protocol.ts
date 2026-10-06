@@ -1,7 +1,12 @@
 import type { UUID } from "./types";
+import type { Skin } from "./skins";
+export type { Skin } from "./skins";
 
 export type ClientMessage =
-  | { type: "Join"; data: { room_id: string } }
+  /** `skin` is optional on the server (older clients); unknown values become "james". */
+  | { type: "Join"; data: { room_id: string; skin?: Skin } }
+  /** Change skin mid-game (Settings > Skins). */
+  | { type: "SetSkin"; data: { skin: Skin } }
   | {
       type: "MoveInput";
       data: {
@@ -18,6 +23,8 @@ export type PlayerSnapshot = {
   id: UUID;
   /** Display name from the server, e.g. "James 3". */
   name: string;
+  /** Outfit to draw this player in. */
+  skin: Skin;
   x: number;
   y: number;
   energy: number;
@@ -32,7 +39,8 @@ export type PlayerSnapshot = {
 export type ServerMessage =
   | { type: "Welcome"; data: { player_id: UUID; name: string } }
   | { type: "Snapshot"; data: { players: PlayerSnapshot[] } }
-  | { type: "PlayerJoined"; data: { player_id: UUID; name: string } }
+  /** `skin` is the player's skin at join time; live changes come in snapshots. */
+  | { type: "PlayerJoined"; data: { player_id: UUID; name: string; skin: Skin } }
   | { type: "PlayerLeft"; data: { player_id: UUID } }
   | {
       type: "PlayerTagged";
