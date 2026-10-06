@@ -24,9 +24,33 @@ const DEPTH = {
   patches: -99,
   ground: -95, // edge strip + sidewalks
   areas: -90,
-  props: -60, // + y / 100000 for y-sorting among props
-  fence: -50,
+  // Tall props (trees, bushes, fence) share the kid depth band:
+  //   10 + baseY / 10
+  // so a kid whose feet are north of a trunk sorts behind it. Short props
+  // (benches, picnic tables) stay under the kids.
+  props: -60, // + y / 100000 for y-sorting among short props
+  fenceBehind: -50, // unused; fence segments use the kid depth band
 };
+
+/** Depth shared with KidAvatar sprites (see kid.ts). */
+export function propDepth(baseY: number) {
+  return 10 + baseY / 10;
+}
+
+/** A tall schoolyard prop that can occlude kids (trees, bushes, fence). */
+export type Occluder = {
+  /** Drawn image / tile sprite. */
+  view: Phaser.GameObjects.Image | Phaser.GameObjects.TileSprite;
+  /** Ground / trunk base Y — compared to a kid's feetY for sorting. */
+  baseY: number;
+  /** Axis-aligned canopy (or mesh) footprint in world space. */
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+};
+
+const OCCLUDE_ALPHA = 0.58;
 
 // Muted palette.
 const C = {
@@ -1152,16 +1176,48 @@ export function createSchoolyard(scene: Phaser.Scene, worldW: number, worldH: nu
   const blocked: Rect[] = [...Object.values(areas), ...paths];
   const free = (x: number, y: number, pad: number) =>
     !blocked.some(r => overlaps(r, x, y, pad)) && Math.hypot(x - 400, y - 300) > 160; // keep the spawn point clear
-  const prop = (key: string, x: number, y: number) =>
+
+  const occluders: Occluder[] = [];
+
+  /** Short props (benches, picnic): stay under kids, no occlusion. */
+  const shortProp = (key: string, x: number, y: number) =>
     scene.add
       .image(x, y, key)
       .setOrigin(0.5, 0.85)
       .setDepth(DEPTH.props + y / 100000);
 
+  /**
+   * Tall foliage: Y-sorted with kids. `canopy` is the leafy footprint relative
+   * to the ground point (x, y) — kids whose feet are north of `y` and overlap
+   * it see the prop go translucent so they can't fully hide.
+   */
+  const tallProp = (
+    key: string,
+    x: number,
+    y: number,
+    canopy: { halfW: number; up: number; down: number }
+  ) => {
+    const img = scene.add.image(x, y, key).setOrigin(0.5, 0.85).setDepth(propDepth(y));
+    occluders.push({
+      view: img,
+      baseY: y,
+      left: x - canopy.halfW,
+      right: x + canopy.halfW,
+      top: y - canopy.up,
+      bottom: y - canopy.down,
+    });
+    return img;
+  };
+
   const trees = [0, 1, 2].map(v => treeTexture(scene, v));
   const bushes = [0, 1].map(v => bushTexture(scene, v));
   const bench = benchTexture(scene);
   const picnic = picnicTexture(scene);
+
+  const placeTree = (x: number, y: number) =>
+    tallProp(trees[(rnd() * 3) | 0], x, y, { halfW: 58, up: 145, down: 18 });
+  const placeBush = (x: number, y: number) =>
+    tallProp(bushes[(rnd() * 2) | 0], x, y, { halfW: 38, up: 55, down: 8 });
 
   // a row of trees and bushes just inside the fence
   const edgeSpots: [number, number][] = [];
@@ -1175,8 +1231,8 @@ export function createSchoolyard(scene: Phaser.Scene, worldW: number, worldH: nu
   }
   for (const [x, y] of edgeSpots) {
     if (!free(x, y, 70)) continue;
-    if (rnd() < 0.62) prop(trees[(rnd() * 3) | 0], x, y);
-    else prop(bushes[(rnd() * 2) | 0], x, y);
+    if (rnd() < 0.62) placeTree(x, y);
+    else placeBush(x, y);
   }
   // scattered trees and bush clumps in the open lawns
   let placed = 0;
@@ -1185,8 +1241,8 @@ export function createSchoolyard(scene: Phaser.Scene, worldW: number, worldH: nu
     const y = 300 + rnd() * (worldH - 600);
     if (!free(x, y, 110)) continue;
     placed++;
-    if (rnd() < 0.55) prop(trees[(rnd() * 3) | 0], x, y);
-    else for (let k = 0; k < 3; k++) prop(bushes[(rnd() * 2) | 0], x + (k - 1) * 46, y + (rnd() - 0.5) * 20);
+    if (rnd() < 0.55) placeTree(x, y);
+    else for (let k = 0; k < 3; k++) placeBush(x + (k - 1) * 46, y + (rnd() - 0.5) * 20);
   }
 
   // benches by the blacktop, the track and the playground
@@ -1204,13 +1260,13 @@ export function createSchoolyard(scene: Phaser.Scene, worldW: number, worldH: nu
     [1300, 3900],
     [800, 3900],
   ];
-  for (const [x, y] of benchSpots) prop(bench, x, y);
+  for (const [x, y] of benchSpots) shortProp(bench, x, y);
   // picnic lawn
-  for (let i = 0; i < 6; i++) prop(picnic, 2700 + (i % 3) * 230, 4440 + Math.floor(i / 3) * 190);
+  for (let i = 0; i < 6; i++) shortProp(picnic, 2700 + (i % 3) * 230, 4440 + Math.floor(i / 3) * 190);
 
   // --- cover everything outside the world (only visible if the camera is
   // zoomed out past the world bounds, since the ground layers follow the view)
-  const outside = scene.add.graphics().setDepth(DEPTH.fence - 1);
+  const outside = scene.add.graphics().setDepth(DEPTH.fenceBehind - 1);
   const far = 20000;
   outside.fillStyle(0x171b24, 1);
   outside.fillRect(-far, -far, worldW + 2 * far, far);
@@ -1218,26 +1274,85 @@ export function createSchoolyard(scene: Phaser.Scene, worldW: number, worldH: nu
   outside.fillRect(-far, 0, far, worldH);
   outside.fillRect(worldW, 0, far, worldH);
 
-  // --- fence: the server's boundary wall, just outside the yard lines
-  // (top band sits on the kids' foot line, see `yard`). Split into segments
-  // so no TileSprite canvas/texture gets huge.
+  // --- fence: Y-sorted with kids. Horizontal bands are one baseY; vertical
+  // runs are split into short segments so a kid north of a section sorts
+  // behind it. Visual only — walls / bounds are unchanged.
   const fenceH = fenceTile(scene, false);
   const fenceV = fenceTile(scene, true);
   const SEG = 1024;
+  const FENCE_SEG_Y = 64; // vertical fence chunk height for depth sorting
   const x0 = yard.left - FENCE_T;
   const x1 = yard.right + FENCE_T;
   const y0 = yard.top - FENCE_T;
   const y1 = yard.bottom + FENCE_T;
+
+  const addFenceH = (x: number, y: number, w: number) => {
+    // Horizontal band: base is the bottom edge of the mesh.
+    const baseY = y + FENCE_T;
+    const tile = scene.add
+      .tileSprite(x, y, w, FENCE_T, fenceH)
+      .setOrigin(0)
+      .setDepth(propDepth(baseY))
+      .setTilePosition(x, 0);
+    occluders.push({
+      view: tile,
+      baseY,
+      left: x,
+      right: x + w,
+      top: y,
+      bottom: baseY,
+    });
+  };
+  const addFenceV = (x: number, y: number, h: number) => {
+    const tile = scene.add
+      .tileSprite(x, y, FENCE_T, h, fenceV)
+      .setOrigin(0)
+      .setDepth(propDepth(y + h))
+      .setTilePosition(0, y);
+    occluders.push({
+      view: tile,
+      baseY: y + h,
+      left: x,
+      right: x + FENCE_T,
+      top: y,
+      bottom: y + h,
+    });
+  };
+
   for (let t = x0; t < x1; t += SEG) {
     const len = Math.min(SEG, x1 - t);
-    for (const y of [y0, yard.bottom]) {
-      scene.add.tileSprite(t, y, len, FENCE_T, fenceH).setOrigin(0).setDepth(DEPTH.fence).setTilePosition(t, 0);
-    }
+    addFenceH(t, y0, len);
+    addFenceH(t, yard.bottom, len);
   }
-  for (let t = y0; t < y1; t += SEG) {
-    const len = Math.min(SEG, y1 - t);
-    for (const x of [x0, yard.right]) {
-      scene.add.tileSprite(x, t, FENCE_T, len, fenceV).setOrigin(0).setDepth(DEPTH.fence).setTilePosition(0, t);
-    }
+  for (let t = y0; t < y1; t += FENCE_SEG_Y) {
+    const len = Math.min(FENCE_SEG_Y, y1 - t);
+    addFenceV(x0, t, len);
+    addFenceV(yard.right, t, len);
   }
+
+  /**
+   * Each frame: if any kid's feet are north of an occluder's base and their
+   * body overlaps its canopy/mesh, fade that prop so the kid (and labels)
+   * stay visible. Feet south of the base → prop stays opaque and sorts
+   * behind the kid via depth.
+   */
+  const updateOcclusion = (feet: ReadonlyArray<{ x: number; y: number; top: number }>) => {
+    for (const o of occluders) {
+      let hide = false;
+      for (const k of feet) {
+        // Feet at/below the base → in front (no fade).
+        if (k.y >= o.baseY - 4) continue;
+        // Rough body/label box vs canopy footprint.
+        const half = 22;
+        if (k.x + half < o.left || k.x - half > o.right) continue;
+        if (k.top > o.bottom || k.y + 8 < o.top) continue;
+        hide = true;
+        break;
+      }
+      const a = hide ? OCCLUDE_ALPHA : 1;
+      if (o.view.alpha !== a) o.view.setAlpha(a);
+    }
+  };
+
+  return { occluders, updateOcclusion };
 }

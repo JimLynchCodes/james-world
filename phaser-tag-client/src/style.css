@@ -744,12 +744,6 @@ canvas {
   outline: 3px dashed var(--tangerine);
   outline-offset: 4px;
 }
-.title-hint {
-  margin: 16px 0 0;
-  font-size: 13px;
-  font-weight: 700;
-  color: #5b4f73;
-}
 
 @media (prefers-reduced-motion: reduce) {
   .title-heading { animation: none; }
