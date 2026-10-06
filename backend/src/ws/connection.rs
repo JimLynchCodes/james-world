@@ -194,19 +194,12 @@ async fn handle_client_message(
                 .await;
         }
 
-        // The player is already in the world (added when the socket
-        // connected); Join just carries their chosen skin.
+        // Spectator → player. Carries the chosen skin.
         ClientMessage::Join {
             room_id: _,
             skin,
         } => {
-            if let Some(skin) = skin {
-                rooms
-                    .world
-                    .lock()
-                    .await
-                    .set_skin(player_id, Skin::parse(&skin));
-            }
+            rooms.join(player_id, skin).await;
         }
 
         ClientMessage::SetSkin {

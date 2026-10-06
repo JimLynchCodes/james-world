@@ -49,128 +49,155 @@ impl RoomManager {
         }
     }
 
-    pub async fn register(
+    /// Socket connected: register as a spectator (receive snapshots, no player
+    /// yet). Bots may spawn so a lone title-screen visitor sees activity.
+    pub async fn register_spectator(
         &self,
-        player_id: Uuid,
+        connection_id: Uuid,
         sender: mpsc::Sender<ServerMessage>,
     ) {
-        // Add to the world first: that's where the player's name comes from.
-        let (name, skin, existing_players, spawned_bots) = {
-            let mut world =
-                self.world
-                    .lock()
-                    .await;
-
+        let (existing_players, spawned_bots) = {
+            let mut world = self.world.lock().await;
             let existing = world
                 .players
                 .values()
                 .map(|p| (p.id, p.name.clone(), p.skin))
                 .collect::<Vec<_>>();
-
-            // Joining may also spawn the bot players.
             let spawned_bots = world
+                .add_spectator()
+                .into_iter()
+                .map(|id| (id, world.name_of(&id), world.skin_of(&id)))
+                .collect::<Vec<_>>();
+            (existing, spawned_bots)
+        };
+
+        // Hello before the connection is listed so it arrives first.
+        let _ = sender.send(ServerMessage::Hello {}).await;
+
+        {
+            let mut connections = self.connections.lock().await;
+            connections.insert(connection_id, sender.clone());
+        }
+
+        for (id, name, skin) in existing_players {
+            let _ = sender
+                .send(ServerMessage::PlayerJoined {
+                    player_id: id,
+                    name,
+                    skin,
+                })
+                .await;
+        }
+
+        for (bot_id, bot_name, bot_skin) in spawned_bots {
+            self.broadcast(ServerMessage::PlayerJoined {
+                player_id: bot_id,
+                name: bot_name,
+                skin: bot_skin,
+            })
+            .await;
+        }
+    }
+
+    /// Promote a spectator to a player. Sends Welcome to them and announces
+    /// the join to everyone else. Idempotent if they already joined.
+    pub async fn join(
+        &self,
+        player_id: Uuid,
+        skin: Option<String>,
+    ) {
+        use crate::game::skin::Skin;
+
+        let already = {
+            let world = self.world.lock().await;
+            world.players.contains_key(&player_id)
+        };
+        if already {
+            if let Some(skin) = skin {
+                self.world
+                    .lock()
+                    .await
+                    .set_skin(player_id, Skin::parse(&skin));
+            }
+            return;
+        }
+
+        // Leaving spectator status before becoming a human so bot presence
+        // stays continuous (spectators→humans never dips to zero).
+        let (name, player_skin, spawned_bots) = {
+            let mut world = self.world.lock().await;
+            // Spectator → human: drop the spectator seat first so presence
+            // never dips to zero (bots stay).
+            world.release_spectator_seat();
+            let spawned = world
                 .add_player(player_id)
                 .into_iter()
                 .map(|id| (id, world.name_of(&id), world.skin_of(&id)))
                 .collect::<Vec<_>>();
-
-            (world.name_of(&player_id), world.skin_of(&player_id), existing, spawned_bots)
+            if let Some(skin) = skin {
+                world.set_skin(player_id, Skin::parse(&skin));
+            }
+            (world.name_of(&player_id), world.skin_of(&player_id), spawned)
         };
 
-        // The connection's channel is ordered and snapshots only reach
-        // registered connections, so queueing the Welcome before registering
-        // means the client always learns its own id before any snapshot or join.
-        let _ = sender
-            .send(ServerMessage::Welcome {
+        self.send_to(
+            player_id,
+            ServerMessage::Welcome {
                 player_id,
                 name: name.clone(),
-            })
-            .await;
+            },
+        )
+        .await;
 
-        {
-            let mut connections =
-                self.connections
-                    .lock()
-                    .await;
-
-            connections.insert(
-                player_id,
-                sender.clone(),
-            );
-        }
-
-        // Tell the new player about everyone already here...
-        for (existing_id, existing_name, existing_skin) in existing_players {
-            let _ = sender
-                .send(
-                    ServerMessage::PlayerJoined {
-                        player_id: existing_id,
-                        name: existing_name,
-                        skin: existing_skin,
-                    },
-                )
-                .await;
-        }
-
-        // ...and tell everyone else about the new player.
         self.broadcast_except(
             player_id,
             ServerMessage::PlayerJoined {
                 player_id,
                 name,
-                skin,
+                skin: player_skin,
             },
         )
         .await;
 
         for (bot_id, bot_name, bot_skin) in spawned_bots {
-            self.broadcast(
-                ServerMessage::PlayerJoined {
-                    player_id: bot_id,
-                    name: bot_name,
-                    skin: bot_skin,
-                },
-            )
+            self.broadcast(ServerMessage::PlayerJoined {
+                player_id: bot_id,
+                name: bot_name,
+                skin: bot_skin,
+            })
             .await;
         }
     }
 
     pub async fn unregister(
         &self,
-        player_id: Uuid,
+        connection_id: Uuid,
     ) {
         {
-            let mut connections =
-                self.connections
-                    .lock()
-                    .await;
-
-            connections.remove(
-                &player_id
-            );
+            let mut connections = self.connections.lock().await;
+            connections.remove(&connection_id);
         }
 
-        let removed_bots = self
-            .world
-            .lock()
-            .await
-            .remove_player(
-                player_id
-            );
+        let (was_player, removed_bots) = {
+            let mut world = self.world.lock().await;
+            if world.players.contains_key(&connection_id) {
+                (true, world.remove_player(connection_id))
+            } else {
+                (false, world.remove_spectator())
+            }
+        };
 
-        self.broadcast(
-            ServerMessage::PlayerLeft {
-                player_id,
-            },
-        )
-        .await;
+        if was_player {
+            self.broadcast(ServerMessage::PlayerLeft {
+                player_id: connection_id,
+            })
+            .await;
+        }
 
         for bot_id in removed_bots {
-            self.broadcast(
-                ServerMessage::PlayerLeft {
-                    player_id: bot_id,
-                },
-            )
+            self.broadcast(ServerMessage::PlayerLeft {
+                player_id: bot_id,
+            })
             .await;
         }
     }

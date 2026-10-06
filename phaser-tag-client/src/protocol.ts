@@ -37,6 +37,8 @@ export type PlayerSnapshot = {
 };
 
 export type ServerMessage =
+  /** Spectator connected; Join to become a player. */
+  | { type: "Hello"; data?: Record<string, never> }
   | { type: "Welcome"; data: { player_id: UUID; name: string } }
   | { type: "Snapshot"; data: { players: PlayerSnapshot[] } }
   /** `skin` is the player's skin at join time; live changes come in snapshots. */
