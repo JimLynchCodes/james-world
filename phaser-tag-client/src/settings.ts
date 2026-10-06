@@ -5,16 +5,25 @@
  */
 
 export type ControlMode = "keyboard" | "tap";
-export type Mood = "happy" | "spooky" | "chillin";
+export type RunSide = "left" | "right";
+/**
+ * Background music moods. "relaxed" is the procedural lo-fi track that used
+ * to be called "chillin"; "chillin" is now a CC0 lo-fi recording
+ * (public/audio/CREDITS.md). A value saved by an older build is kept as-is.
+ */
+export type Mood = "happy" | "spooky" | "relaxed" | "chillin";
 
 export const MOODS: ReadonlyArray<{ value: Mood; label: string }> = [
   { value: "happy", label: "Happy" },
   { value: "spooky", label: "Spooky" },
+  { value: "relaxed", label: "Relaxed" },
   { value: "chillin", label: "Chillin" },
 ];
 
 export interface Settings {
   controlMode: ControlMode;
+  /** Tap mode: which bottom corner the Run button sits in. */
+  runSide: RunSide;
   /** 0-100 */
   masterVolume: number;
   /** 0-100 */
@@ -26,12 +35,32 @@ export interface Settings {
 
 export const STORAGE_KEY = "tag26.settings";
 
-/** Touch-first devices start in Tap mode; everything else on the keyboard. */
+/**
+ * Is this a phone / tablet (touch-first) rather than a desktop or laptop?
+ * Any one strong signal is enough: Client Hints `mobile`, a mobile UA,
+ * iPadOS (desktop Safari UA + touch points), or a primary pointer that is
+ * coarse with no hover. Touchscreen laptops (fine primary pointer that can
+ * hover) stay on the keyboard.
+ */
+export function isTouchFirstDevice(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const nav = navigator as Navigator & { userAgentData?: { mobile?: boolean } };
+  if (nav.userAgentData?.mobile === true) return true;
+  const ua = nav.userAgent ?? "";
+  const touchPoints = nav.maxTouchPoints ?? 0;
+  if (/Android|iPhone|iPad|iPod|Mobile|Silk|Kindle|Opera Mini|IEMobile/i.test(ua)) return true;
+  if (/Macintosh/.test(ua) && touchPoints > 1) return true; // iPadOS
+  const media = (query: string) =>
+    typeof matchMedia === "function" && matchMedia(query).matches;
+  if (media("(pointer: coarse)") && media("(hover: none)")) return true;
+  return touchPoints > 0 && media("(pointer: coarse)") && !media("(any-pointer: fine)");
+}
+
+/** Phones / tablets start in Tap mode, desktops on the keyboard. */
 function defaultSettings(): Settings {
-  const coarse =
-    typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
   return {
-    controlMode: coarse ? "tap" : "keyboard",
+    controlMode: isTouchFirstDevice() ? "tap" : "keyboard",
+    runSide: "right",
     masterVolume: 80,
     musicVolume: 60,
     sfxVolume: 80,
@@ -45,31 +74,56 @@ function volume(value: unknown, fallback: number): number {
     : fallback;
 }
 
-/** Saved settings merged over the defaults; bad or missing fields fall back. */
-export function loadSettings(): Settings {
+export interface LoadedSettings {
+  settings: Settings;
+  /** Keys the user has actually chosen (present and valid in storage). */
+  saved: Set<keyof Settings>;
+}
+
+/**
+ * Saved settings merged over the defaults. Missing, invalid or unknown
+ * (e.g. from an older build) values fall back to the default and don't
+ * count as saved, so e.g. the control mode keeps being auto-detected until
+ * the user picks one.
+ */
+export function loadSettings(): LoadedSettings {
   const defaults = defaultSettings();
-  let saved: Partial<Record<keyof Settings, unknown>> = {};
+  let raw: Record<string, unknown> = {};
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) saved = JSON.parse(raw) ?? {};
+    const json = localStorage.getItem(STORAGE_KEY);
+    const parsed: unknown = json ? JSON.parse(json) : null;
+    if (parsed && typeof parsed === "object") raw = parsed as Record<string, unknown>;
   } catch {
     // Storage disabled or corrupt JSON: just use the defaults.
   }
-  return {
-    controlMode:
-      saved.controlMode === "tap" || saved.controlMode === "keyboard"
-        ? saved.controlMode
-        : defaults.controlMode,
-    masterVolume: volume(saved.masterVolume, defaults.masterVolume),
-    musicVolume: volume(saved.musicVolume, defaults.musicVolume),
-    sfxVolume: volume(saved.sfxVolume, defaults.sfxVolume),
-    mood: MOODS.some(m => m.value === saved.mood) ? (saved.mood as Mood) : defaults.mood,
+
+  const settings: Settings = { ...defaults };
+  const saved = new Set<keyof Settings>();
+  const take = <K extends keyof Settings>(key: K, value: Settings[K] | undefined) => {
+    if (value === undefined) return;
+    settings[key] = value;
+    saved.add(key);
   };
+  const oneOf = <T extends string>(value: unknown, options: readonly T[]) =>
+    options.includes(value as T) ? (value as T) : undefined;
+  const vol = (value: unknown) =>
+    typeof value === "number" && Number.isFinite(value) ? volume(value, 0) : undefined;
+
+  take("controlMode", oneOf(raw.controlMode, ["keyboard", "tap"] as const));
+  take("runSide", oneOf(raw.runSide, ["left", "right"] as const));
+  take("masterVolume", vol(raw.masterVolume));
+  take("musicVolume", vol(raw.musicVolume));
+  take("sfxVolume", vol(raw.sfxVolume));
+  take("mood", oneOf(raw.mood, MOODS.map(m => m.value)));
+  return { settings, saved };
 }
 
-export function saveSettings(settings: Settings) {
+/** Persist only the settings the user has chosen (`keys`). */
+export function saveSettings(settings: Settings, keys: Iterable<keyof Settings>) {
+  const out: Partial<Settings> = {};
+  for (const key of keys) (out as Record<string, unknown>)[key] = settings[key];
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(out));
   } catch {
     // Private mode / quota: settings still apply for this session.
   }
@@ -78,8 +132,8 @@ export function saveSettings(settings: Settings) {
 /** Bottom-left controls hint for each mode (HTML). */
 export function controlsHint(mode: ControlMode): string {
   return mode === "tap"
-    ? "<strong>Tap / click</strong> the ground to walk there · " +
-        "<strong>Tap a kid</strong> nearby to tag · <strong>SHIFT</strong> run"
+    ? "<strong>Tap</strong> the ground to walk · <strong>Tap a kid</strong> nearby to tag · " +
+        "hold <strong>RUN</strong> to run"
     : "<strong>WASD / Arrow Keys</strong> move · <strong>SHIFT</strong> run · " +
         "<strong>E</strong> tag";
 }
@@ -136,15 +190,18 @@ export class SettingsPanel {
   private readonly backdrop: HTMLElement;
   private readonly modal: HTMLElement;
   private readonly values: Settings;
+  private readonly chosen: Set<keyof Settings>;
   private opened = false;
   private returnFocus: HTMLElement | null = null;
 
   constructor(
     hud: HTMLElement,
     initial: Settings,
+    saved: Iterable<keyof Settings>,
     private readonly options: SettingsPanelOptions
   ) {
     this.values = { ...initial };
+    this.chosen = new Set(saved);
 
     this.cog = document.createElement("button");
     this.cog.type = "button";
@@ -245,8 +302,17 @@ export class SettingsPanel {
               <div class="mode-switch">
                 <button type="button" class="mode-option" data-mode="keyboard">Keyboard</button>
                 <button type="button" class="switch" role="switch" aria-labelledby="mode-label"
-                        aria-checked="false"><span class="switch-knob"></span></button>
+                        data-toggle="mode" aria-checked="false"><span class="switch-knob"></span></button>
                 <button type="button" class="mode-option" data-mode="tap">Tap</button>
+              </div>
+            </div>
+            <div class="setting-row" data-tap-only>
+              <span class="setting-label" id="side-label">Run button side</span>
+              <div class="mode-switch">
+                <button type="button" class="mode-option" data-side="left">Left</button>
+                <button type="button" class="switch side-switch" role="switch" aria-labelledby="side-label"
+                        data-toggle="side" aria-checked="true"><span class="switch-knob"></span></button>
+                <button type="button" class="mode-option" data-side="right">Right</button>
               </div>
             </div>
             <p class="setting-help" data-help></p>
@@ -303,14 +369,24 @@ export class SettingsPanel {
       });
     });
 
-    this.q<HTMLButtonElement>(".switch").addEventListener("click", () => {
+    this.q<HTMLButtonElement>('.switch[data-toggle="mode"]').addEventListener("click", () => {
       this.options.onSound?.("click");
       this.set("controlMode", this.values.controlMode === "tap" ? "keyboard" : "tap");
     });
-    this.backdrop.querySelectorAll<HTMLButtonElement>(".mode-option").forEach(option =>
+    this.backdrop.querySelectorAll<HTMLButtonElement>(".mode-option[data-mode]").forEach(option =>
       option.addEventListener("click", () => {
         this.options.onSound?.("click");
         this.set("controlMode", option.dataset.mode as ControlMode);
+      })
+    );
+    this.q<HTMLButtonElement>('.switch[data-toggle="side"]').addEventListener("click", () => {
+      this.options.onSound?.("click");
+      this.set("runSide", this.values.runSide === "right" ? "left" : "right");
+    });
+    this.backdrop.querySelectorAll<HTMLButtonElement>(".mode-option[data-side]").forEach(option =>
+      option.addEventListener("click", () => {
+        this.options.onSound?.("click");
+        this.set("runSide", option.dataset.side as RunSide);
       })
     );
 
@@ -367,9 +443,13 @@ export class SettingsPanel {
   }
 
   private set<K extends keyof Settings>(key: K, value: Settings[K]) {
-    if (this.values[key] === value) return;
+    // Picking a value is an explicit choice even if it equals the default
+    // (e.g. confirming the auto-detected control mode), so always save.
+    const changed = this.values[key] !== value;
     this.values[key] = value;
-    saveSettings(this.values);
+    this.chosen.add(key);
+    saveSettings(this.values, this.chosen);
+    if (!changed) return;
     this.render();
     this.options.onChange(this.values, key);
   }
@@ -377,17 +457,25 @@ export class SettingsPanel {
   /** Reflect the current values in the controls. */
   private render() {
     const tap = this.values.controlMode === "tap";
-    const sw = this.q<HTMLButtonElement>(".switch");
-    sw.setAttribute("aria-checked", String(tap));
-    sw.classList.toggle("on", tap);
+    const right = this.values.runSide === "right";
+    const modeSwitch = this.q<HTMLButtonElement>('.switch[data-toggle="mode"]');
+    modeSwitch.setAttribute("aria-checked", String(tap));
+    modeSwitch.classList.toggle("on", tap);
+    const sideSwitch = this.q<HTMLButtonElement>('.switch[data-toggle="side"]');
+    sideSwitch.setAttribute("aria-checked", String(right));
+    sideSwitch.classList.toggle("on", right);
     this.backdrop.querySelectorAll<HTMLButtonElement>(".mode-option").forEach(option => {
-      const active = option.dataset.mode === this.values.controlMode;
+      const active = option.dataset.mode
+        ? option.dataset.mode === this.values.controlMode
+        : option.dataset.side === this.values.runSide;
       option.classList.toggle("active", active);
       option.setAttribute("aria-pressed", String(active));
     });
+    this.q<HTMLElement>("[data-tap-only]").hidden = !tap;
     this.q<HTMLElement>("[data-help]").textContent = tap
-      ? "Tap or click anywhere on the ground and your kid walks there. " +
-        "Tap a kid close by to tag them. Great for phones and tablets!"
+      ? "Tap anywhere on the ground and your kid walks there (drag to steer). " +
+        "Hold the RUN button to run, and tap a kid close by to tag them. " +
+        "Great for phones and tablets!"
       : "Move with WASD or the arrow keys, hold SHIFT to run, press E to tag.";
 
     for (const { key } of SLIDERS) {

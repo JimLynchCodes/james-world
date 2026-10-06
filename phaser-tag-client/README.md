@@ -7,7 +7,7 @@ A minimal fullscreen Phaser client for the Rust WebSocket protocol.
 - Fullscreen Phaser game
 - WASD / arrow-key movement, or Tap mode (tap/click where to walk)
 - Settings panel (cog, top right): controls mode, volumes, music mood
-- Procedural music and sound effects (Web Audio, no audio assets)
+- Music and sound effects: procedural (Web Audio) plus one CC0 lo-fi loop
 - SHIFT to request running
 - E to attempt tagging the nearest player
 - Periodic `Ping` messages
@@ -219,23 +219,46 @@ player stops.
 - **Controls**: a Keyboard / Tap switch. Keyboard is WASD / arrows + SHIFT
   + E. In Tap mode, tapping or clicking the ground sets a destination
   (white marker) and the client sends `MoveInput` toward it from the
-  server-reported position, stopping within 10px (drag to steer; SHIFT
-  still runs if you have a keyboard). Tapping a kid within tag range tags
-  them, tapping one further away walks toward them. Clicks on the HUD,
-  cog or modal are ignored. Touch-first devices default to Tap.
+  server-reported position, stopping within 10px (drag to steer). Tapping
+  a kid within tag range tags them, tapping one further away walks toward
+  them. Clicks on the HUD, cog, Run button or modal are ignored.
+- **Run button** (Tap mode only): a big hold-to-run button in the bottom
+  corner (respects phone safe-area insets). It's held while any pointer is
+  down on it, so one thumb can hold RUN while the other taps / drags to
+  steer (multi-touch; Phaser tracks 3 pointers). It sets the same
+  `running` flag in `MoveInput` as SHIFT and never sets a destination.
+  With Tap selected the Controls tab shows a **Run button side** switch
+  (Left / Right, default Right). The controls hint moves so it doesn't
+  sit under the button.
+- **Default control mode**: auto-detected only while the user hasn't
+  picked one: phones / tablets get Tap, desktops / laptops get Keyboard
+  (`isTouchFirstDevice()` in `src/settings.ts`: Client Hints `mobile`,
+  mobile UA, iPadOS touch points, coarse primary pointer without hover).
 - **Sound**: Master volume, Background music, Sound effects (0-100), and
-  a Mood dropdown (Happy, Spooky, Chillin) that picks the music.
+  a Mood dropdown (Happy, Spooky, Relaxed, Chillin) that picks the music.
 
-Everything is saved in `localStorage` (`tag26.settings`) and applied on
-load.
+Only settings the user has actually chosen are saved in `localStorage`
+(`tag26.settings`), and they are applied on load. Invalid or unknown saved
+values fall back to the defaults. A `chillin` mood saved before Relaxed
+existed simply stays Chillin.
 
-`src/audio.ts` synthesises everything with the Web Audio API: a small
-look-ahead step sequencer plays three looping tracks (Happy: bouncy
-C-major chiptune at 132 bpm; Spooky: slow minor/diminished pads, drone,
-heartbeat, music-box bells and a theremin wail at 70 bpm; Chillin: swung
-lo-fi 7th chords, soft drums and vinyl crackle at 76 bpm). Changing the
-mood crossfades over 1.5s. Effects (tag whoosh / hit, player joined / left
-blips, footsteps, UI clicks) go to their own bus:
+`src/audio.ts` plays four looping tracks.
+
+- Three are synthesised with the Web Audio API by a small look-ahead step
+  sequencer:
+  - Happy: bouncy C-major chiptune, 132 bpm.
+  - Spooky: slow minor / diminished pads, drone, heartbeat, music-box bells
+    and a theremin wail, 70 bpm.
+  - Relaxed: swung lo-fi 7th chords, soft drums and vinyl crackle, 76 bpm.
+- Chillin is a CC0 recording, "Lofi Hip Hop Loop" by omfgdude
+  (`public/audio/`, see `public/audio/CREDITS.md`). It's fetched the first
+  time it's selected (Ogg Vorbis, or MP3 where Ogg isn't supported),
+  decoded into an AudioBuffer and looped. It goes through the same
+  per-track gain and music bus, so the sliders and the crossfade work the
+  same way.
+
+Changing the mood crossfades over 1.5s. Effects (tag whoosh / hit, player
+joined / left blips, footsteps, UI clicks) go to their own bus:
 `track -> music bus -> master`, `sfx -> sfx bus -> master`, then a gentle
 limiter. The AudioContext is only created/resumed on the first click, tap
 or key press (autoplay policy) and is suspended while the tab is hidden.
