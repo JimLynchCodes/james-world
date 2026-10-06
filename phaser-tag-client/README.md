@@ -161,16 +161,21 @@ Every player (you, other humans and bots) is an 8-direction kid sprite
 0 = east, +PI/2 = south): your own input for the local player, `facing`
 from the snapshot for everyone else.
 
-- walk loop while moving (faster while running), breathing loop when still
+- walk loop while moving, a separate run loop while running (SHIFT locally,
+  `is_running` for others: bigger strides, much bigger arm swing, lean and
+  hop), a calm breathing idle as soon as you stop
+- local "moving" comes from the keys held right now; remote players count
+  as moving while their snapshot position changes (with a short grace time)
 - tag (arm reach + small forward lunge) plays once on the tagger when the
   server sends `PlayerTagged`, and immediately when you press E
 - coloured ring under the feet: blue = you, red = IT, purple = bot,
   amber = other human; IT also gets a light red tint
 - sprites are depth-sorted by y so lower players draw in front
 
-`public/assets/kid.png` (80x100 frames, 22 per row, rows E, SE, S, SW, W,
-NW, N, NE; columns idle 0-3, walk 4-11, breathing 12-15, tag 16-21) is
-generated from the original presentation sheet `tools/kid_sheet_source.png`:
+`public/assets/kid.png` (80x100 frames, 30 per row, rows E, SE, S, SW, W,
+NW, N, NE; columns idle 0-3, walk 4-11, breathing 12-15, tag 16-21,
+run 22-29) is generated from the original presentation sheet
+`tools/kid_sheet_source.png`:
 
 ```bash
 python3 tools/slice_kid_sheet.py --preview /tmp/kid_preview.png
@@ -182,6 +187,20 @@ front-three-quarter frames (its SE/SW rows are side profiles), so SE and SW
 are built from the S (front) frames with a small "head turn" warp, mirrored
 for SW, so diagonal-down movement shows a kid facing the camera rather than
 a profile.
+
+Some animation is generated rather than sliced, because the sheet doesn't
+have it (see the "Procedural animation" comments in the script):
+
+- idle/breathing: one standing frame per direction with a 1px chest rise
+  (the sheet's "breathing" frames shift stance from frame to frame, so the
+  idle looked like walking on the spot);
+- front walk (S, and SE/SW derived from it): the standing frame is cut into
+  legs and arms that are re-posed per frame (alternating lifted/forward
+  foot, arms swinging opposite, 1px bob) because the sheet's S walk frames
+  barely differ;
+- run, all directions: the same front/back generator with bigger amplitudes
+  for S/SE/SW/N, and an exaggerated version of the sheet's side/back-3/4
+  stride frames (wider stride, ~2.4x arm swing, lean, hop) for E/W/NE/NW.
 
 ## Schoolyard background
 

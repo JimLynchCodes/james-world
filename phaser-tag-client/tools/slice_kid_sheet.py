@@ -5,11 +5,12 @@ Source: tools/kid_sheet_source.png (1536x1024 presentation sheet with labels,
 cell panels, borders and a notes footer).
 
 Output: public/assets/kid.png - a grid of FRAME_W x FRAME_H frames,
-22 columns x 8 rows. Column layout (per row):
-    0-3   idle      (4)
+30 columns x 8 rows. Column layout (per row):
+    0-3   idle      (4)  one clean standing frame (static)
     4-11  walk      (8)
-    12-15 breathing (4)
+    12-15 breathing (4)  standing frame with a 1px chest rise (runtime idle)
     16-21 tag       (6)
+    22-29 run       (8)  generated (the sheet has no run frames)
 Row layout (runtime direction order, matching angle buckets from atan2 in
 screen space, 0 = east, increasing clockwise):
     0 E, 1 SE, 2 S, 3 SW, 4 W, 5 NW, 6 N, 7 NE
@@ -104,6 +105,11 @@ TAG_SOURCES = {
     "N": ("N", [0, 2, 3, 1, 4, 2], False, 0.0),
     "NE": ("NW", [0, 2, 3, 1, 4, 2], False, 0.0),
 }
+# Output columns per row (the sheet has no run frames; they are generated).
+OUT_GROUPS = [("idle", 4), ("walk", 8), ("breathe", 4), ("tag", 6), ("run", 8)]
+# Sheet rows whose walk / run are generated with front_cycle (see below).
+FRONT_WALK_ROWS = {"S"}
+FRONT_RUN_ROWS = {"S", "N"}
 DIRECTIONS = ["E", "SE", "S", "SW", "W", "NW", "N", "NE"]
 
 FRAME_W = 80
@@ -331,9 +337,401 @@ def turn_warp(crop: np.ndarray, anchor_x: float, k: float) -> np.ndarray:
     return np.clip(out * 255.0 + 0.5, 0, 255).astype(np.uint8)
 
 
-def place(crop: np.ndarray, anchor_x: float, mirror: bool, scale: float, turn: float = 0.0) -> Image.Image:
-    if turn:
-        crop = turn_warp(crop, anchor_x, turn)
+# ---------------------------------------------------------------------------
+# Procedural animation helpers.  These work on placed (unmirrored, unturned)
+# FRAME_W x FRAME_H RGBA frames whose head centre is at ANCHOR_X and whose
+# feet rest on BASELINE_Y.
+#
+# The sheet's own walk frames for the front view barely differ from each
+# other, and its breathing frames shift pose from frame to frame (so the
+# idle loop looked like walking on the spot).  So:
+#   * idle/breathing = one clean standing frame per direction with a 1px
+#     chest rise (breathe_loop);
+#   * front-facing walk (S, and SE/SW which are warped from S) and the
+#     front/back run (S, N) are generated from that standing frame by
+#     cutting it into legs (below the shorts hem, split between the legs)
+#     and arms (skin below the sleeves, beside the torso) and re-posing
+#     them per frame (front_cycle);
+#   * side / back-three-quarter runs exaggerate the stride frames of the
+#     sheet's walk: wider stride, ~2.4x arm swing, forward lean and a
+#     flight-phase hop (profile_run).
+
+def _alpha(f: np.ndarray) -> np.ndarray:
+    return f[..., 3] > 40
+
+
+def _skin(f: np.ndarray) -> np.ndarray:
+    r, g, b = (f[..., i].astype(np.int32) for i in range(3))
+    return _alpha(f) & (r > 150) & (r - b > 60) & (g > 80) & (g < r)
+
+
+def _cloth(f: np.ndarray) -> np.ndarray:
+    """Shirt / shorts pixels: low saturation, not near-black outline or skin."""
+    rgb = f[..., :3].astype(np.int32)
+    mx, mn = rgb.max(axis=2), rgb.min(axis=2)
+    return _alpha(f) & (mx - mn < 45) & (mx > 38) & (mx < 170)
+
+
+def find_hem(f: np.ndarray) -> int:
+    """First row of the bare legs below the shorts.
+
+    Found from the feet up: the first skin rows above the shoes are the
+    shins; their top is the shorts hem.  (Clamped so a hand touching the
+    shins can't drag it up into the torso.)
+    """
+    sk = _skin(f)
+    sk[:, :ANCHOR_X - 16] = False
+    sk[:, ANCHOR_X + 17:] = False
+    rows = sk.sum(axis=1) >= 2
+    bottom = _bottom(f)
+    y = bottom
+    while y > bottom - 25 and not rows[y]:
+        y -= 1
+    while y > bottom - 16 and rows[y - 1]:
+        y -= 1
+    return y
+
+
+def _bottom(f: np.ndarray) -> int:
+    rows = np.nonzero(_alpha(f).any(axis=1))[0]
+    return int(rows[-1])
+
+
+def _premul(f: np.ndarray) -> np.ndarray:
+    x = f.astype(np.float64) / 255.0
+    x[..., :3] *= x[..., 3:4]
+    return x
+
+
+def _unpremul(x: np.ndarray) -> np.ndarray:
+    out = x.copy()
+    a = out[..., 3:4]
+    out[..., :3] = np.where(a > 1e-6, out[..., :3] / np.maximum(a, 1e-6), 0.0)
+    return np.clip(out * 255.0 + 0.5, 0, 255).astype(np.uint8)
+
+
+def _over(dst: np.ndarray, src: np.ndarray) -> np.ndarray:
+    return src + dst * (1.0 - src[..., 3:4])
+
+
+def _sample(img: np.ndarray, sx: np.ndarray, sy: np.ndarray) -> np.ndarray:
+    """Bilinear sample a premultiplied image at float coords (0 outside)."""
+    h, w = img.shape[:2]
+    x0 = np.floor(sx).astype(int)
+    y0 = np.floor(sy).astype(int)
+    fx = (sx - x0)[..., None]
+    fy = (sy - y0)[..., None]
+    out = np.zeros(sx.shape + (4,))
+    for dy, wy in ((0, 1 - fy), (1, fy)):
+        for dx, wx in ((0, 1 - fx), (1, fx)):
+            xi = x0 + dx
+            yi = y0 + dy
+            ok = (xi >= 0) & (xi < w) & (yi >= 0) & (yi < h)
+            v = np.zeros(sx.shape + (4,))
+            v[ok] = img[yi[ok], xi[ok]]
+            out += v * wx * wy
+    return out
+
+
+def _remap(layer: np.ndarray, t0: float, t1: float, u0: float, u1: float,
+           cx: float = 0.0, sx: float = 1.0, d0: float = 0.0, d1: float = 0.0) -> np.ndarray:
+    """Move rows [t0, t1) of a premultiplied layer to [u0, u1) (stretching),
+    scale horizontally by sx around cx and shear by d0 (top) .. d1 (bottom)."""
+    h, w = layer.shape[:2]
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float64)
+    t = (yy + 0.5 - u0) / max(1e-6, (u1 - u0))
+    src_y = t0 + t * (t1 - t0) - 0.5
+    shift = d0 + (d1 - d0) * np.clip(t, 0, 1)
+    src_x = cx + (xx - shift - cx) / sx
+    out = _sample(layer, src_x, src_y)
+    inside = (t >= 0) & (t < 1)
+    out[~inside] = 0.0
+    return out
+
+
+def _shift_rows(layer: np.ndarray, dy: int) -> np.ndarray:
+    out = np.zeros_like(layer)
+    if dy < 0:
+        out[:dy] = layer[-dy:]
+    elif dy > 0:
+        out[dy:] = layer[:-dy]
+    else:
+        out[:] = layer
+    return out
+
+
+def _components8(mask: np.ndarray) -> list[np.ndarray]:
+    h, w = mask.shape
+    seen = np.zeros_like(mask, dtype=bool)
+    comps = []
+    for y, x in zip(*np.nonzero(mask)):
+        if seen[y, x]:
+            continue
+        comp = np.zeros_like(mask, dtype=bool)
+        q = deque([(y, x)])
+        seen[y, x] = True
+        while q:
+            cy, cx = q.popleft()
+            comp[cy, cx] = True
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    ny, nx = cy + dy, cx + dx
+                    if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] and not seen[ny, nx]:
+                        seen[ny, nx] = True
+                        q.append((ny, nx))
+        comps.append(comp)
+    return comps
+
+
+def _grow(mask: np.ndarray, within: np.ndarray, r: int = 1) -> np.ndarray:
+    m = mask.copy()
+    for _ in range(r):
+        g = m.copy()
+        g[1:] |= m[:-1]
+        g[:-1] |= m[1:]
+        g[:, 1:] |= m[:, :-1]
+        g[:, :-1] |= m[:, 1:]
+        m = g & within
+    return m
+
+
+def front_parts(f: np.ndarray):
+    """Split a front (or back) view standing frame into body, legs and arms."""
+    a = _alpha(f)
+    hem = find_hem(f)
+    bottom = _bottom(f)
+    xs = np.arange(FRAME_W)
+    # the gap between the legs: darkest / emptiest column near the centre
+    region = _premul(f)[hem:bottom + 1]
+    score = (region[..., :3].mean(axis=2) * region[..., 3]).sum(axis=0)
+    cand = range(ANCHOR_X - 5, ANCHOR_X + 6)
+    gap = min(cand, key=lambda x: score[x])
+    legs = np.zeros_like(a)
+    legs[hem:] = a[hem:]
+    left_leg = legs & (xs[None, :] <= gap)
+    right_leg = legs & (xs[None, :] > gap)
+    # arms: skin under the sleeves beside the torso, plus their dark outline
+    skin = _skin(f)
+    zone = np.zeros_like(a)
+    zone[48:hem] = True
+    zone &= np.abs(xs[None, :] - ANCHOR_X) >= 8
+    arms = []
+    for side in (-1, 1):
+        cand_m = skin & zone & ((xs[None, :] - ANCHOR_X) * side > 0)
+        comps = sorted(_components8(cand_m), key=lambda c: -c.sum())
+        if not comps:
+            arms.append(np.zeros_like(a))
+            continue
+        arm = comps[0]
+        # grow into the hand's outline and shading (anything that isn't cloth)
+        arm = arm | _grow(arm, a & ~_cloth(f) & zone, 3)
+        arms.append(arm)
+    body = a & ~legs & ~arms[0] & ~arms[1]
+    return dict(hem=hem, bottom=bottom, gap=gap, body=body, legs=(left_leg, right_leg), arms=tuple(arms))
+
+
+WALK_FRONT = dict(lift=3.5, fwd=1.5, grow=0.06, bob=1, arm_up=0.3, arm_in=1.5, arm_out=2.0, arm_bend=0.0)
+RUN_FRONT = dict(lift=7.0, fwd=3.0, grow=0.12, bob=2, arm_up=0.5, arm_in=3.0, arm_out=5.0, arm_bend=0.15)
+
+
+def front_cycle(base: np.ndarray, p: dict, n: int = 8) -> list[np.ndarray]:
+    """Alternating stride for a front/back view built from one standing frame.
+
+    phase 0: left leg forward (lower, a bit bigger), right leg back;
+    then the back leg lifts (shorter) as it passes; arms swing opposite to
+    the legs (the forward arm foreshortens upward and in, the back arm swings
+    out); the body is highest while a leg passes.
+    """
+    parts = front_parts(base)
+    pm = _premul(base)
+    hem, bottom = parts["hem"], parts["bottom"]
+    layer = lambda m: pm * m[..., None]
+    body = layer(parts["body"])
+    legs = [layer(m) for m in parts["legs"]]
+    arms = [layer(m) for m in parts["arms"]]
+    leg_cx = [np.nonzero(m.any(axis=0))[0].mean() if m.any() else ANCHOR_X for m in parts["legs"]]
+    frames = []
+    for i in range(n):
+        ph = 2 * np.pi * i / n
+        fwd = [np.cos(ph), -np.cos(ph)]                      # +1 = forward (toward camera)
+        lift = [p["lift"] * max(0.0, -np.sin(ph)), p["lift"] * max(0.0, np.sin(ph))]
+        bob = -int(round(p["bob"] * abs(np.sin(ph))))
+        out = np.zeros_like(pm)
+        order = sorted(range(2), key=lambda k: fwd[k])        # back leg first
+        for k in order:
+            u1 = bottom + 1 - lift[k] + p["fwd"] * fwd[k]
+            out = _over(out, _remap(legs[k], hem, bottom + 1, hem + bob, u1,
+                                    cx=leg_cx[k], sx=1 + p["grow"] * fwd[k]))
+        out = _over(out, _shift_rows(body, bob))
+        for k, side in enumerate((-1, 1)):
+            m = parts["arms"][k]
+            if not m.any():
+                continue
+            rows = np.nonzero(m.any(axis=1))[0]
+            a0, a1 = rows[0], rows[-1] + 1
+            s = -fwd[k]                                       # arms opposite to legs
+            length = a1 - a0
+            if s >= 0:
+                u1 = a1 - length * (p["arm_up"] * s + p["arm_bend"])
+                d1 = -side * p["arm_in"] * s
+            else:
+                u1 = a1 - length * (0.3 * p["arm_up"] * -s + p["arm_bend"])
+                d1 = side * p["arm_out"] * -s
+            cx = np.nonzero(m.any(axis=0))[0].mean()
+            out = _over(out, _remap(arms[k], a0, a1, a0 + bob, u1 + bob, cx=cx, d0=0.0, d1=d1))
+        frames.append(clean_specks(_unpremul(out)))
+    return frames
+
+
+def breathe_loop(base: np.ndarray) -> list[np.ndarray]:
+    """Calm idle: the upper body rises 1px and settles, legs stay planted."""
+    hem, bottom = find_hem(base), _bottom(base)
+    pm = _premul(base)
+    a = _alpha(base)
+    upper = np.zeros_like(a)
+    upper[:hem] = a[:hem]
+    out = []
+    for bob in (0, -1, -1, 0):
+        legs = _remap(pm * (~upper)[..., None], hem, bottom + 1, hem + bob, bottom + 1)
+        frame = _over(legs, _shift_rows(pm * upper[..., None], bob))
+        out.append(_unpremul(frame))
+    return out
+
+
+def medoid(frames: list[np.ndarray]) -> np.ndarray:
+    """The frame most similar to all the others (a neutral standing pose)."""
+    al = [_alpha(f) for f in frames]
+    cost = [sum(np.sum(x ^ y) for y in al) for x in al]
+    return frames[int(np.argmin(cost))]
+
+
+def _inpaint_rows(layer: np.ndarray, hole: np.ndarray, src: np.ndarray) -> np.ndarray:
+    """Fill the hole a moved arm leaves in the torso.
+
+    Each hole pixel gets the median cloth colour of its row (plain shirt or
+    shorts, no smears); pixels outside the torso become transparent.
+    """
+    out = layer.copy()
+    cloth = _cloth(src) & ~hole
+    keep_a = (layer[..., 3] > 0.15) & ~hole
+    outline = np.array([0.08, 0.07, 0.09, 1.0])
+    for y in np.nonzero(hole.any(axis=1))[0]:
+        kx = np.nonzero(keep_a[y])[0]
+        if not len(kx):
+            continue
+        near = cloth[max(0, y - 2):y + 3]
+        if cloth[y].any():
+            col = np.median(layer[y][cloth[y]], axis=0)
+        elif near.any():
+            col = np.median(layer[max(0, y - 2):y + 3][near], axis=0)
+        else:
+            col = outline
+        for x in np.nonzero(hole[y])[0]:
+            if kx.min() < x < kx.max():
+                out[y, x] = col
+            else:
+                out[y, x] = 0
+    return out
+
+
+PROFILE_RUN = dict(stride=0.9, arm=1.4, lean=3.0, hop=2)
+# The sheet's side / back-3/4 walk rows are one stride plus standing frames,
+# so the run loops the stride frames only (hand-picked, sheet walk indices).
+RUN_FROM_WALK = {
+    "E": [2, 3, 4, 5, 2, 3, 4, 5],
+    "SW": [2, 3, 4, 5, 2, 3, 4, 5],
+}
+
+
+def _row_segments(row_alpha: np.ndarray):
+    segs = []
+    x = 0
+    w = len(row_alpha)
+    while x < w:
+        if row_alpha[x]:
+            x0 = x
+            while x < w and row_alpha[x]:
+                x += 1
+            segs.append((x0, x))
+        else:
+            x += 1
+    return segs
+
+
+def profile_run(walk: list[np.ndarray], facing: int, p: dict = PROFILE_RUN) -> list[np.ndarray]:
+    """Run frames from side / back-3/4 walk frames (facing -1 = left).
+
+    Exaggerates each walk frame: every row segment of the legs is pushed away
+    from the hip (more toward the feet) for a wider stride, the near arm
+    (skin under the sleeve) is sheared about the shoulder so the hand swings
+    ~2.4x as far, the upper body leans into the run, and the narrowest
+    (passing) frames hop up as the flight phase.
+    """
+    widths = []
+    for f in walk:
+        hem, bottom = find_hem(f), _bottom(f)
+        m = _alpha(f)[hem - 4:bottom + 1]
+        xs_ = np.nonzero(m)[1]
+        widths.append(float(xs_.std()) if len(xs_) else 0.0)
+    wmin, wmax = min(widths), max(widths)
+    out = []
+    for f, wdt in zip(walk, widths):
+        f = clean_specks(f)
+        a = _alpha(f)
+        hem, bottom = find_hem(f), _bottom(f)
+        pm = _premul(f)
+        res = np.zeros_like(pm)
+        # --- legs: push each row segment away from the hip, more toward the feet
+        hip_cols = np.nonzero(a[hem])[0]
+        hip = hip_cols.mean() if len(hip_cols) else ANCHOR_X
+        for y in range(hem, bottom + 1):
+            t = (y - hem) / max(1, bottom - hem)
+            for x0, x1 in _row_segments(a[y]):
+                c = (x0 + x1 - 1) / 2
+                dx = int(round(p["stride"] * (c - hip) * t))
+                lo, hi = max(0, x0 + dx), min(FRAME_W, x1 + dx)
+                res[y, lo:hi] = pm[y, lo - dx:hi - dx]
+        # --- upper body: bigger arm swing, then lean forward
+        upper = pm.copy()
+        upper[hem:] = 0
+        zone = np.zeros_like(a)
+        zone[52:min(FRAME_H, hem + 6)] = True
+        comps = sorted(_components8(_skin(f) & zone), key=lambda c: -c.sum())
+        if comps and comps[0].sum() >= 6:
+            arm = comps[0] | _grow(comps[0], a & ~_cloth(f) & zone, 1)
+            rows = np.nonzero(arm.any(axis=1))[0]
+            a0, a1 = rows[0], rows[-1]
+            tcols = np.nonzero(a[a0:hem].any(axis=0))[0]
+            shoulder = (tcols[0] + tcols[-1]) / 2 if len(tcols) else ANCHOR_X
+            swing = np.nonzero(arm[a1])[0].mean() - shoulder
+            arm_layer = pm * arm[..., None]
+            upper = _inpaint_rows(upper * (~arm)[..., None], arm & (np.arange(FRAME_H)[:, None] < hem), f)
+            yy, xx = np.mgrid[0:FRAME_H, 0:FRAME_W].astype(np.float64)
+            t = np.clip((yy - a0) / max(1, a1 - a0), 0, 1)
+            moved = _sample(arm_layer, xx - p["arm"] * swing * t, yy)
+            moved[min(FRAME_H, a1 + 2):] = 0
+            upper = _over(upper, moved)
+        top = np.nonzero(a.any(axis=1))[0][0]
+        yy, xx = np.mgrid[0:FRAME_H, 0:FRAME_W].astype(np.float64)
+        lean = facing * p["lean"] * np.clip((hem - yy) / max(1, hem - top), 0, 1)
+        res = _over(res, _sample(upper, xx - lean, yy))
+        k = 0 if wmax == wmin else (wmax - wdt) / (wmax - wmin)
+        res = _shift_rows(res, -int(round(p["hop"] * k)))
+        out.append(clean_specks(_unpremul(res), 30))
+    return out
+
+
+def clean_specks(f: np.ndarray, min_size: int = 15) -> np.ndarray:
+    """Drop tiny detached bits (sheet residue) so they don't get animated."""
+    out = f.copy()
+    for comp in _components8(_alpha(f)):
+        if comp.sum() < min_size:
+            out[comp] = 0
+    out[f[..., 3] <= 40] = 0
+    return out
+
+
+def place(crop: np.ndarray, anchor_x: float, mirror: bool, scale: float) -> Image.Image:
     im = Image.fromarray(crop)
     if abs(scale - 1.0) > 0.01:
         w0, h0 = im.size
@@ -369,24 +767,45 @@ def main():
     img = np.asarray(Image.open(SRC).convert("RGB")).astype(np.int32)
     frames = extract_frames(img, args.debug)
 
-    order = [g[0] for g in GROUPS]
-    ncols = sum(g[3] for g in GROUPS)
+    ncols = sum(n for _g, n in OUT_GROUPS)
     sheet = Image.new("RGBA", (FRAME_W * ncols, FRAME_H * len(DIRECTIONS)))
+
+    def placed(row: str, group: str) -> list[np.ndarray]:
+        src = frames[row][group]
+        scale = group_scale(src)
+        return [np.asarray(place(c.astype(np.uint8), ax, False, scale)) for c, ax, _h in src]
+
+    def finish(f: np.ndarray, mirror: bool, turn: float) -> Image.Image:
+        if turn:
+            f = turn_warp(f, ANCHOR_X, turn)
+        im = Image.fromarray(f)
+        return im.transpose(Image.FLIP_LEFT_RIGHT) if mirror else im
+
     for r, direction in enumerate(DIRECTIONS):
-        c = 0
         body_row, body_mirror, body_turn = BODY_SOURCES[direction]
         tag_row, tag_idx, tag_mirror, tag_turn = TAG_SOURCES[direction]
-        for gname in order:
-            if gname == "tag":
-                src = frames[tag_row]["tag"]
-                seq, mirror, turn = [src[i] for i in tag_idx], tag_mirror, tag_turn
-            else:
-                src = frames[body_row][gname]
-                seq, mirror, turn = src, body_mirror, body_turn
-            scale = group_scale(src)
-            for crop, ax, _h in seq:
-                frame = place(crop.astype(np.uint8), ax, mirror, scale, turn)
-                sheet.paste(frame, (c * FRAME_W, r * FRAME_H))
+        base = clean_specks(medoid(placed(body_row, "breathe")))
+        sheet_walk = placed(body_row, "walk")
+        walk = front_cycle(base, WALK_FRONT) if body_row in FRONT_WALK_ROWS else sheet_walk
+        if body_row in FRONT_RUN_ROWS:
+            run = front_cycle(base, RUN_FRONT)
+        else:
+            pick = RUN_FROM_WALK[body_row]
+            run = profile_run([sheet_walk[i] for i in pick], facing=-1)  # these sources face left
+        tag = placed(tag_row, "tag")
+        seqs = {
+            "idle": ([base] * 4, body_mirror, body_turn),
+            "walk": (walk, body_mirror, body_turn),
+            "breathe": (breathe_loop(base), body_mirror, body_turn),
+            "tag": ([tag[i] for i in tag_idx], tag_mirror, tag_turn),
+            "run": (run, body_mirror, body_turn),
+        }
+        c = 0
+        for gname, count in OUT_GROUPS:
+            seq, mirror, turn = seqs[gname]
+            assert len(seq) == count, (direction, gname, len(seq))
+            for f in seq:
+                sheet.paste(finish(f, mirror, turn), (c * FRAME_W, r * FRAME_H))
                 c += 1
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     sheet.save(OUT_DIR / "kid.png", optimize=True)
@@ -402,7 +821,7 @@ def main():
         "animations": {},
     }
     c = 0
-    for gname, _x0, _x1, count in GROUPS:
+    for gname, count in OUT_GROUPS:
         meta["animations"][gname] = {"start": c, "count": count}
         c += count
     (OUT_DIR / "kid.json").write_text(json.dumps(meta, indent=2) + "\n")
@@ -428,7 +847,7 @@ def main():
                 pv.paste(cell.resize((FRAME_W * scale, FRAME_H * scale), Image.NEAREST), (x, y))
             d.text((4, pad + r * FRAME_H * scale + 10), DIRECTIONS[r], fill="white")
         c = 0
-        for gname, _a, _b, count in GROUPS:
+        for gname, count in OUT_GROUPS:
             d.text((pad + c * FRAME_W * scale + 4, 12), gname, fill="white")
             c += count
         pv.convert("RGB").save(args.preview)

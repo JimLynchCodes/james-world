@@ -4,7 +4,7 @@
   "frameHeight": 100,
   "baselineY": 96,
   "anchorX": 40,
-  "columns": 22,
+  "columns": 30,
   "directions": [
     "E",
     "SE",
@@ -31,6 +31,10 @@
     "tag": {
       "start": 16,
       "count": 6
+    },
+    "run": {
+      "start": 22,
+      "count": 8
     }
   }
 }
