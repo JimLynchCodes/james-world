@@ -3,6 +3,7 @@ import "./style.css";
 import { GameSocket } from "./network";
 import type { ServerMessage, PlayerSnapshot } from "./protocol";
 import type { UUID } from "./types";
+import { KidAvatar, createKidAnimations, preloadKid } from "./kid";
 
 const WS_URL =
   import.meta.env.VITE_WS_URL ??
@@ -13,14 +14,20 @@ const ROOM_ID = import.meta.env.VITE_ROOM_ID ?? "default";
 const WORLD_WIDTH = 5000;
 const WORLD_HEIGHT = 5000;
 
+// Server collision radius; the kid sprite (~64px tall) is sized around it.
 const PLAYER_RADIUS = 18;
 
+/** Remote players count as "moving" while this far from their target (px). */
+const REMOTE_MOVE_EPSILON = 1.5;
+/** ...or for this long after their snapshot position last changed (ms). */
+const REMOTE_MOVE_GRACE_MS = 120;
+
 type RemoteSprite = {
-  body: Phaser.GameObjects.Arc;
-  pointer: Phaser.GameObjects.Arc;
-  label: Phaser.GameObjects.Text;
+  avatar: KidAvatar;
   targetX: number;
   targetY: number;
+  /** scene time (ms) when the snapshot position last changed */
+  lastMovedAt: number;
   snapshot: PlayerSnapshot;
 };
 
@@ -28,10 +35,8 @@ class GameScene extends Phaser.Scene {
   private socket!: GameSocket;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
-  private playerBody!: Phaser.GameObjects.Arc;
-  private playerPointer!: Phaser.GameObjects.Arc;
-  private playerLabel!: Phaser.GameObjects.Text;
-  private playerFacingAngle = 0; // In radians
+  private player!: KidAvatar;
+  private playerFacingAngle = Math.PI / 2; // In radians; start facing the camera
 
   private remotePlayers = new Map<UUID, RemoteSprite>();
   private localPlayerId: UUID | null = null;
@@ -54,39 +59,22 @@ class GameScene extends Phaser.Scene {
     super("GameScene");
   }
 
+  preload() {
+    preloadKid(this);
+  }
+
   create() {
     this.createWorld();
+    createKidAnimations(this);
 
-    this.playerBody = this.add.circle(
-      WORLD_WIDTH / 2,
-      WORLD_HEIGHT / 2,
-      PLAYER_RADIUS,
-      0x38bdf8
-    );
-    this.playerBody.setDepth(20);
-
-    // Facing direction dot attached to local player
-    this.playerPointer = this.add.circle(
-      WORLD_WIDTH / 2 + PLAYER_RADIUS - 2,
-      WORLD_HEIGHT / 2,
-      4,
-      0xffffff
-    );
-    this.playerPointer.setDepth(21);
-
-    this.playerLabel = this.add
-      .text(WORLD_WIDTH / 2, WORLD_HEIGHT / 2 - 34, "YOU", {
-        fontFamily: "system-ui, sans-serif",
-        fontSize: "12px",
-        color: "#ffffff",
-        stroke: "#10131a",
-        strokeThickness: 4,
-      })
-      .setOrigin(0.5)
-      .setDepth(21);
+    // The sprite's facing direction replaces the old white pointer dot.
+    this.player = new KidAvatar(this, WORLD_WIDTH / 2, WORLD_HEIGHT / 2, PLAYER_RADIUS, "YOU");
+    this.player.setRole("self");
 
     this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-    this.cameras.main.startFollow(this.playerBody, true, 0.12, 0.12);
+    // Follow the ground ring (logical position), not the sprite, so the
+    // tag lunge doesn't shake the camera.
+    this.cameras.main.startFollow(this.player.shadow, true, 0.12, 0.12);
 
     this.cursors = this.input.keyboard!.createCursorKeys();
     this.keys = this.input.keyboard!.addKeys("W,A,S,D,SHIFT,E") as Record<
@@ -149,10 +137,15 @@ class GameScene extends Phaser.Scene {
     }
 
     for (const remote of this.remotePlayers.values()) {
-      remote.body.x = Phaser.Math.Linear(remote.body.x, remote.targetX, 0.25);
-      remote.body.y = Phaser.Math.Linear(remote.body.y, remote.targetY, 0.25);
-      remote.label.setPosition(remote.body.x, remote.body.y - 34);
-      this.positionPointer(remote.pointer, remote.body.x, remote.body.y, remote.snapshot.facing);
+      const avatar = remote.avatar;
+      avatar.x = Phaser.Math.Linear(avatar.x, remote.targetX, 0.25);
+      avatar.y = Phaser.Math.Linear(avatar.y, remote.targetY, 0.25);
+      avatar.facing = remote.snapshot.facing;
+      avatar.running = remote.snapshot.is_running;
+      avatar.moving =
+        Phaser.Math.Distance.Between(avatar.x, avatar.y, remote.targetX, remote.targetY) >
+          REMOTE_MOVE_EPSILON || this.time.now - remote.lastMovedAt < REMOTE_MOVE_GRACE_MS;
+      avatar.update();
     }
   }
 
@@ -167,36 +160,22 @@ class GameScene extends Phaser.Scene {
     if (this.cursors.up.isDown || this.keys.W.isDown) dy -= 1;
     if (this.cursors.down.isDown || this.keys.S.isDown) dy += 1;
 
-    if (dx !== 0 || dy !== 0) {
+    const moving = dx !== 0 || dy !== 0;
+    if (moving) {
       this.playerFacingAngle = Math.atan2(dy, dx);
     }
 
     if (this.localTargetX !== null && this.localTargetY !== null) {
-      this.playerBody.x = Phaser.Math.Linear(this.playerBody.x, this.localTargetX, 0.35);
-      this.playerBody.y = Phaser.Math.Linear(this.playerBody.y, this.localTargetY, 0.35);
+      this.player.x = Phaser.Math.Linear(this.player.x, this.localTargetX, 0.35);
+      this.player.y = Phaser.Math.Linear(this.player.y, this.localTargetY, 0.35);
     }
 
-    this.playerLabel.setPosition(this.playerBody.x, this.playerBody.y - 34);
-
-    // Update direction indicator relative to player angle
-    this.positionPointer(
-      this.playerPointer,
-      this.playerBody.x,
-      this.playerBody.y,
-      this.playerFacingAngle
-    );
+    this.player.facing = this.playerFacingAngle;
+    this.player.moving = moving;
+    this.player.running = moving && this.keys.SHIFT.isDown;
+    this.player.update();
 
     this.updateHud();
-  }
-
-  private positionPointer(
-    pointer: Phaser.GameObjects.Arc,
-    x: number,
-    y: number,
-    angle: number
-  ) {
-    const offset = PLAYER_RADIUS - 3;
-    pointer.setPosition(x + Math.cos(angle) * offset, y + Math.sin(angle) * offset);
   }
 
   private sendMovement() {
@@ -292,31 +271,40 @@ class GameScene extends Phaser.Scene {
   private applyLocalSnapshot(player: PlayerSnapshot) {
     // Snap to the server position on the first snapshot, then ease toward it.
     if (this.localTargetX === null) {
-      this.playerBody.setPosition(player.x, player.y);
+      this.player.x = player.x;
+      this.player.y = player.y;
     }
     this.localTargetX = player.x;
     this.localTargetY = player.y;
 
-    this.playerLabel.setText(player.is_it ? "YOU • IT" : "YOU");
-    this.playerBody.setFillStyle(player.is_it ? 0xef4444 : 0x38bdf8);
+    this.player.setLabel(player.is_it ? "YOU • IT" : "YOU");
+    this.player.setRole(player.is_it ? "it" : "self");
 
     // Energy comes straight from our entry in the server snapshot.
     this.localEnergy = player.energy;
   }
 
   private applyRemoteSnapshot(player: PlayerSnapshot) {
+    const isNew = !this.remotePlayers.has(player.id);
     const remote = this.ensureRemotePlayer(player.id);
+
+    if (isNew) {
+      // First time we see this player: appear in place instead of sliding in.
+      remote.avatar.x = player.x;
+      remote.avatar.y = player.y;
+    }
+    if (player.x !== remote.targetX || player.y !== remote.targetY) {
+      remote.lastMovedAt = this.time.now;
+    }
 
     remote.targetX = player.x;
     remote.targetY = player.y;
     remote.snapshot = player;
 
-    // Bots are purple, other humans are amber; anyone who is IT is red.
-    remote.body.setFillStyle(
-      player.is_it ? 0xef4444 : player.is_bot ? 0xa78bfa : 0xf59e0b
-    );
+    // Ring under the feet: bots purple, other humans amber, IT red.
+    remote.avatar.setRole(player.is_it ? "it" : player.is_bot ? "bot" : "human");
 
-    remote.label.setText(
+    remote.avatar.setLabel(
       `${player.is_it ? "IT • " : ""}${player.is_bot ? "BOT" : player.id.slice(0, 8)}`
     );
   }
@@ -325,40 +313,20 @@ class GameScene extends Phaser.Scene {
     const existing = this.remotePlayers.get(id);
     if (existing) return existing;
 
-    const body = this.add.circle(
-      WORLD_WIDTH / 2,
-      WORLD_HEIGHT / 2,
-      PLAYER_RADIUS,
-      0xf59e0b
-    );
-
-    body.setDepth(19);
-
-    const label = this.add
-      .text(body.x, body.y - 34, id.slice(0, 8), {
-        fontFamily: "system-ui, sans-serif",
-        fontSize: "11px",
-        color: "#ffffff",
-        stroke: "#10131a",
-        strokeThickness: 4,
-      })
-      .setOrigin(0.5)
-      .setDepth(20);
-
-    // Facing direction dot, same as the local player's.
-    const pointer = this.add.circle(body.x, body.y, 4, 0xffffff);
-    pointer.setDepth(20);
+    const x = WORLD_WIDTH / 2;
+    const y = WORLD_HEIGHT / 2;
+    const avatar = new KidAvatar(this, x, y, PLAYER_RADIUS, id.slice(0, 8), "11px");
+    avatar.setRole("human");
 
     const remote: RemoteSprite = {
-      body,
-      pointer,
-      label,
-      targetX: body.x,
-      targetY: body.y,
+      avatar,
+      targetX: x,
+      targetY: y,
+      lastMovedAt: -Infinity,
       snapshot: {
         id,
-        x: body.x,
-        y: body.y,
+        x,
+        y,
         energy: 100,
         is_running: false,
         is_it: false,
@@ -375,9 +343,7 @@ class GameScene extends Phaser.Scene {
     const remote = this.remotePlayers.get(id);
     if (!remote) return;
 
-    remote.body.destroy();
-    remote.label.destroy();
-    remote.pointer.destroy();
+    remote.avatar.destroy();
     this.remotePlayers.delete(id);
   }
 
@@ -392,10 +358,10 @@ class GameScene extends Phaser.Scene {
 
     for (const remote of this.remotePlayers.values()) {
       const distance = Phaser.Math.Distance.Between(
-        this.playerBody.x,
-        this.playerBody.y,
-        remote.body.x,
-        remote.body.y
+        this.player.x,
+        this.player.y,
+        remote.avatar.x,
+        remote.avatar.y
       );
 
       if (distance < closestDistance) {
@@ -403,6 +369,17 @@ class GameScene extends Phaser.Scene {
         closestDistance = distance;
       }
     }
+
+    // Optimistic: swing the arm right away (toward the target if there is
+    // one, otherwise straight ahead) without waiting for the server.
+    if (closest) {
+      this.playerFacingAngle = Math.atan2(
+        closest.avatar.y - this.player.y,
+        closest.avatar.x - this.player.x
+      );
+    }
+    this.player.facing = this.playerFacingAngle;
+    this.player.playTag(this.playerFacingAngle);
 
     if (!closest) return;
 
@@ -416,9 +393,24 @@ class GameScene extends Phaser.Scene {
     this.tagCooldown = 500;
   }
 
+  private avatarFor(id: UUID): KidAvatar | null {
+    if (id === this.localPlayerId) return this.player;
+    return this.remotePlayers.get(id)?.avatar ?? null;
+  }
+
   private flashTag(taggerId: UUID, targetId: UUID) {
     const taggedLocal = targetId === this.localPlayerId;
     const taggingLocal = taggerId === this.localPlayerId;
+
+    // Tagger swings their arm toward whoever they tagged. (If we already
+    // started the swing optimistically on E, playTag() ignores the repeat.)
+    const tagger = this.avatarFor(taggerId);
+    const target = this.avatarFor(targetId);
+    if (tagger) {
+      tagger.playTag(
+        target ? Math.atan2(target.y - tagger.y, target.x - tagger.x) : undefined
+      );
+    }
 
     if (taggedLocal || taggingLocal) {
       this.cameras.main.flash(180, 255, 255, 255);
