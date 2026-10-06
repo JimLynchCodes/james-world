@@ -27,9 +27,11 @@ pub enum ClientMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum ServerMessage {
-    /// Sent only to the connecting client, first, to tell it its own player id.
+    /// Sent only to the connecting client, first, to tell it its own player
+    /// id and name.
     Welcome {
         player_id: Uuid,
+        name: String,
     },
 
     Snapshot {
@@ -38,6 +40,7 @@ pub enum ServerMessage {
 
     PlayerJoined {
         player_id: Uuid,
+        name: String,
     },
 
     PlayerLeft {
@@ -61,6 +64,8 @@ pub enum ServerMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerSnapshot {
     pub id: Uuid,
+    /// Display name, e.g. "James 3".
+    pub name: String,
     pub x: f32,
     pub y: f32,
     pub energy: f32,

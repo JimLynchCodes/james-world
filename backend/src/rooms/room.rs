@@ -54,11 +54,36 @@ impl RoomManager {
         player_id: Uuid,
         sender: mpsc::Sender<ServerMessage>,
     ) {
-        // The connection's channel is ordered, so queue the Welcome first:
-        // the client always learns its own id before any snapshot or join.
+        // Add to the world first: that's where the player's name comes from.
+        let (name, existing_players, spawned_bots) = {
+            let mut world =
+                self.world
+                    .lock()
+                    .await;
+
+            let existing = world
+                .players
+                .values()
+                .map(|p| (p.id, p.name.clone()))
+                .collect::<Vec<_>>();
+
+            // Joining may also spawn the bot players.
+            let spawned_bots = world
+                .add_player(player_id)
+                .into_iter()
+                .map(|id| (id, world.name_of(&id)))
+                .collect::<Vec<_>>();
+
+            (world.name_of(&player_id), existing, spawned_bots)
+        };
+
+        // The connection's channel is ordered and snapshots only reach
+        // registered connections, so queueing the Welcome before registering
+        // means the client always learns its own id before any snapshot or join.
         let _ = sender
             .send(ServerMessage::Welcome {
                 player_id,
+                name: name.clone(),
             })
             .await;
 
@@ -74,30 +99,13 @@ impl RoomManager {
             );
         }
 
-        let (existing_players, spawned_bots) = {
-            let mut world =
-                self.world
-                    .lock()
-                    .await;
-
-            let existing = world
-                .players
-                .keys()
-                .copied()
-                .collect::<Vec<_>>();
-
-            // Joining may also spawn the bot players.
-            let spawned_bots = world.add_player(player_id);
-
-            (existing, spawned_bots)
-        };
-
         // Tell the new player about everyone already here...
-        for existing_id in existing_players {
+        for (existing_id, existing_name) in existing_players {
             let _ = sender
                 .send(
                     ServerMessage::PlayerJoined {
                         player_id: existing_id,
+                        name: existing_name,
                     },
                 )
                 .await;
@@ -108,14 +116,16 @@ impl RoomManager {
             player_id,
             ServerMessage::PlayerJoined {
                 player_id,
+                name,
             },
         )
         .await;
 
-        for bot_id in spawned_bots {
+        for (bot_id, bot_name) in spawned_bots {
             self.broadcast(
                 ServerMessage::PlayerJoined {
                     player_id: bot_id,
+                    name: bot_name,
                 },
             )
             .await;

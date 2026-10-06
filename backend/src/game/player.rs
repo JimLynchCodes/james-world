@@ -10,6 +10,9 @@ pub struct Position {
 pub struct Player {
     pub id: Uuid,
 
+    /// Display name, e.g. "James 7" (assigned by the World on join).
+    pub name: String,
+
     pub position: Position,
 
     pub energy: f32,
@@ -37,6 +40,8 @@ impl Player {
     ) -> Self {
         Self {
             id,
+
+            name: String::new(),
 
             position: Position {
                 x,

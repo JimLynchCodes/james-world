@@ -14,6 +14,30 @@ pub const TICK_RATE: u32 = 30;
 pub const WORLD_WIDTH: f32 = 5000.0;
 pub const WORLD_HEIGHT: f32 = 5000.0;
 pub const PLAYER_RADIUS: f32 = 18.0;
+
+// The fence (the wall players can't cross) is inset from the world edges so
+// a kid standing against it still has its sprite and the whole label stack
+// (IT / YOU / name, drawn above the head) on screen: the camera can't
+// scroll past the world edge, and labels extend ~130px above a player's
+// centre. The top inset is the big one; the sides leave room for a name
+// label wider than the player. Players' collision circles stay inside
+// [WALL_LEFT, WORLD_WIDTH - WALL_RIGHT] x [WALL_TOP, WORLD_HEIGHT - WALL_BOTTOM].
+//
+// Mirrored in phaser-tag-client/src/world.ts (checked by tests/bounds.rs).
+pub const WALL_LEFT: f32 = 40.0;
+pub const WALL_RIGHT: f32 = 40.0;
+pub const WALL_TOP: f32 = 110.0;
+pub const WALL_BOTTOM: f32 = 40.0;
+
+/// Range of player centre positions allowed by the fence.
+pub const MIN_X: f32 = WALL_LEFT + PLAYER_RADIUS;
+pub const MAX_X: f32 = WORLD_WIDTH - WALL_RIGHT - PLAYER_RADIUS;
+pub const MIN_Y: f32 = WALL_TOP + PLAYER_RADIUS;
+pub const MAX_Y: f32 = WORLD_HEIGHT - WALL_BOTTOM - PLAYER_RADIUS;
+
+/// Everybody in James world is called James; the number is a server-wide
+/// join counter (humans and bots), so names are "James 1", "James 2", ...
+pub const PLAYER_FIRST_NAME: &str = "James";
 pub const TAG_COOLDOWN_SECONDS: f32 = 5.0;
 
 #[derive(Debug, Clone, Copy)]
@@ -40,6 +64,8 @@ pub struct World {
     pub inputs: HashMap<Uuid, PlayerInput>,
     pub bots: HashMap<Uuid, BotBrain>,
     tag_events: Vec<(Uuid, Uuid)>,
+    /// Players (humans and bots) that have joined so far; names use it.
+    joins: u64,
 }
 
 impl World {
@@ -49,7 +75,22 @@ impl World {
             inputs: HashMap::new(),
             bots: HashMap::new(),
             tag_events: Vec::new(),
+            joins: 0,
         }
+    }
+
+    /// Next player name: "James <n>", n counting every join from 1.
+    fn next_name(&mut self) -> String {
+        self.joins += 1;
+        format!("{PLAYER_FIRST_NAME} {}", self.joins)
+    }
+
+    /// Display name of a player ("" if unknown).
+    pub fn name_of(&self, id: &Uuid) -> String {
+        self.players
+            .get(id)
+            .map(|p| p.name.clone())
+            .unwrap_or_default()
     }
 
     pub fn human_count(&self) -> usize {
@@ -65,11 +106,12 @@ impl World {
         &mut self,
         id: Uuid,
     ) -> Vec<Uuid> {
-        let player = Player::new(
+        let mut player = Player::new(
             id,
             400.0,
             300.0,
         );
+        player.name = self.next_name();
 
         self.players.insert(id, player);
 
@@ -124,6 +166,7 @@ impl World {
             let id = Uuid::new_v4();
             let mut bot_player = Player::new(id, spot.0, spot.1);
             bot_player.is_bot = true;
+            bot_player.name = self.next_name();
 
             self.players.insert(id, bot_player);
             self.inputs.insert(id, PlayerInput::default());
@@ -356,11 +399,13 @@ impl World {
                     input.dy.atan2(input.dx);
             }
 
-            movement::clamp_to_bounds(
+            movement::clamp_to_area(
                 &mut player.position,
                 PLAYER_RADIUS,
-                WORLD_WIDTH,
-                WORLD_HEIGHT,
+                WALL_LEFT,
+                WALL_TOP,
+                WORLD_WIDTH - WALL_RIGHT,
+                WORLD_HEIGHT - WALL_BOTTOM,
             );
         }
 
@@ -470,6 +515,7 @@ impl World {
             .map(|player| {
                 crate::ws::protocol::PlayerSnapshot {
                     id: player.id,
+                    name: player.name.clone(),
                     x: player.position.x,
                     y: player.position.y,
                     energy: player.energy,
