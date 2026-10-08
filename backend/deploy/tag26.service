@@ -19,12 +19,16 @@ WorkingDirectory=/opt/tag26
 ExecStart=/opt/tag26/taggame-backend
 
 # Only Caddy (on this box) talks to the game server; the internet reaches it
-# through https://api.jamesworld.example -> Caddy -> 127.0.0.1:8000.
+# through https://api.jamesworld.lol -> Caddy -> 127.0.0.1:8000.
 Environment=BIND_ADDR=127.0.0.1:8000
 Environment=RUST_LOG=info
 # Browsers may only open the socket from these pages (comma-separated,
-# scheme://host[:port]). Remove the line to allow any origin.
-Environment=ALLOWED_ORIGINS=https://jamesworld.example,https://www.jamesworld.example
+# exact scheme://host[:port], no path). Remove the line to allow any origin.
+Environment=ALLOWED_ORIGINS=https://jamesworld.lol,https://www.jamesworld.lol
+# To point a local dev client (npm run dev, with VITE_WS_URL=wss://api.jamesworld.lol/ws
+# in phaser-tag-client/.env.local) at this server, temporarily use instead:
+#Environment=ALLOWED_ORIGINS=https://jamesworld.lol,https://www.jamesworld.lol,http://localhost:5173
+# (Local dev against a local `cargo run` needs nothing: unset = any origin.)
 
 # On stop/restart: SIGTERM -> the server closes every socket with
 # "1012 service restart" (clients reconnect on their own) and exits within

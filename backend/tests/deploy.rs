@@ -35,13 +35,13 @@ fn bind_addr_defaults_and_overrides() {
 fn origin_allowlist() {
     assert_eq!(allowed_origins(None), None);
     assert_eq!(allowed_origins(Some(" , ")), None);
-    let list = allowed_origins(Some("https://JamesWorld.example/, https://www.jamesworld.example")).unwrap();
-    assert_eq!(list, vec!["https://jamesworld.example", "https://www.jamesworld.example"]);
+    let list = allowed_origins(Some("https://JamesWorld.lol/, https://www.jamesworld.lol")).unwrap();
+    assert_eq!(list, vec!["https://jamesworld.lol", "https://www.jamesworld.lol"]);
     assert!(origin_allowed(None, Some("https://evil.example")));
-    assert!(origin_allowed(Some(&list), Some("https://jamesworld.example")));
-    assert!(origin_allowed(Some(&list), Some("https://WWW.jamesworld.example/")));
+    assert!(origin_allowed(Some(&list), Some("https://jamesworld.lol")));
+    assert!(origin_allowed(Some(&list), Some("https://WWW.jamesworld.lol/")));
     assert!(!origin_allowed(Some(&list), Some("https://evil.example")));
-    assert!(!origin_allowed(Some(&list), Some("http://jamesworld.example")));
+    assert!(!origin_allowed(Some(&list), Some("http://jamesworld.lol")));
     assert!(origin_allowed(Some(&list), None), "non-browser clients send no Origin");
 }
 
@@ -64,11 +64,11 @@ fn request(url: &str, origin: &str) -> tokio_tungstenite::tungstenite::handshake
 #[tokio::test]
 async fn websocket_upgrade_checks_allowed_origins() {
     let url = boot(AppConfig {
-        allowed_origins: allowed_origins(Some("https://jamesworld.example")),
+        allowed_origins: allowed_origins(Some("https://jamesworld.lol")),
         shutdown: None,
     })
     .await;
-    assert!(connect_async(request(&url, "https://jamesworld.example")).await.is_ok());
+    assert!(connect_async(request(&url, "https://jamesworld.lol")).await.is_ok());
     let err = connect_async(request(&url, "https://evil.example")).await.unwrap_err();
     assert!(err.to_string().contains("403"), "{err}");
 }

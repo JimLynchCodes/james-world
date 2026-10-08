@@ -9,7 +9,7 @@
 //! | `PORT`            | `8000`         | Port, when `BIND_ADDR` is unset or has no port. |
 //! | `ALLOWED_ORIGINS` | (allow all)    | Comma-separated browser origins allowed to open |
 //! |                   |                | the WebSocket, e.g.                             |
-//! |                   |                | `https://jamesworld.example,https://www.jamesworld.example`. |
+//! |                   |                | `https://jamesworld.lol,https://www.jamesworld.lol`. |
 //! | `RUST_LOG`        | `info`         | Log filter (tracing-subscriber `EnvFilter`).    |
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};

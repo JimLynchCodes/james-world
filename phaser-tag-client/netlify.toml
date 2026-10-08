@@ -2,7 +2,7 @@
 #
 # In the Netlify UI set "Base directory" to `phaser-tag-client` (this file
 # lives there, so Netlify picks it up); paths below are relative to it.
-# Set VITE_WS_URL (e.g. wss://api.jamesworld.example/ws) under
+# Set VITE_WS_URL (e.g. wss://api.jamesworld.lol/ws) under
 # Site configuration -> Environment variables; it is baked in at build time.
 
 [build]

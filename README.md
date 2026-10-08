@@ -22,39 +22,24 @@ then open `http://<your-laptop-ip>:5173`).
 
 ## How it's deployed
 
-One domain, two hostnames (`jamesworld.example` stands in for your domain):
+**Full guide: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)** covers DNS,
+Netlify, the DigitalOcean/Vultr server, redeploys and troubleshooting, with
+an architecture diagram.
 
-```mermaid
-flowchart LR
-    B["Browser"]
-    subgraph Netlify
-        N["jamesworld.example<br/>static Vite build (CDN, HTTPS)"]
-    end
-    subgraph droplet ["DigitalOcean droplet (api.jamesworld.example)"]
-        C["Caddy :443<br/>Let's Encrypt TLS"]
-        R["taggame-backend<br/>systemd, 127.0.0.1:8000"]
-    end
-    B -- "https:// page, JS, sprites" --> N
-    B -- "wss://api.jamesworld.example/ws<br/>(game traffic)" --> C
-    C -- "ws:// reverse proxy" --> R
+```text
+https://jamesworld.lol, https://www.jamesworld.lol  ->  Netlify (the game page)
+wss://api.jamesworld.lol/ws                         ->  VPS: Caddy :443 -> Rust server on 127.0.0.1:8000
 ```
 
-- **Frontend:** Netlify builds `phaser-tag-client` on every push to `main`
-  and serves it on your domain. `VITE_WS_URL=wss://api.jamesworld.example/ws`
-  (set in the Netlify UI) tells the page where the server is.
-- **Backend:** one Rust binary on an Ubuntu droplet, run by systemd, with
-  Caddy in front for HTTPS. The browser connects to it directly, since
-  Netlify can't proxy WebSockets.
-- **DNS:** the apex/`www` records point at Netlify; `api` (`A`/`AAAA`) points
-  at the droplet.
-
-Step-by-step guides:
-
-- Frontend (Netlify, custom domain, env vars): [phaser-tag-client/README.md#deployment-netlify](phaser-tag-client/README.md#deployment-netlify)
-- Backend (droplet, Caddy, systemd, firewall, logs): [backend/README.md#production-deployment](backend/README.md#production-deployment)
-- Upgrading the server without (much) downtime: [backend/README.md#redeploying-and-upgrading](backend/README.md#redeploying-and-upgrading)
-
-**Redeploys in one line each:** Netlify deploys are atomic, so nobody notices.
-A backend deploy restarts the server: the in-memory world (positions, IT,
-names) starts fresh, and players see "Not Connected" for about a second while
-their clients reconnect and rejoin automatically.
+- **Frontend:** Netlify builds `phaser-tag-client` on every push to `main`.
+  `VITE_WS_URL=wss://api.jamesworld.lol/ws` tells the page where the server
+  is.
+- **Backend:** one Rust binary on an Ubuntu VPS, run by systemd, with Caddy
+  in front for HTTPS. The browser connects to it directly, because Netlify
+  can't proxy WebSockets.
+- **DNS:** `jamesworld.lol` and `www` point at Netlify; `api` (`A`/`AAAA`)
+  points at the VPS.
+- **Redeploys:** Netlify deploys are atomic, so nobody notices them. A
+  backend deploy restarts the server: the in-memory world starts fresh, and
+  players see "Not Connected" for about 1–2 seconds while their clients
+  reconnect and rejoin automatically.
