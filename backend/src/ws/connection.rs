@@ -1,4 +1,6 @@
 use axum::extract::ws::{
+    close_code,
+    CloseFrame,
     Message,
     WebSocket,
 };
@@ -8,7 +10,7 @@ use futures_util::{
     StreamExt,
 };
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 use uuid::Uuid;
 
@@ -26,12 +28,25 @@ pub async fn handle_connection(
     player_id: Uuid,
     mut outbound_rx: mpsc::Receiver<ServerMessage>,
     rooms: RoomManager,
+    mut shutdown: Option<watch::Receiver<bool>>,
 ) {
     let (mut sender, mut receiver) =
         socket.split();
 
     loop {
         tokio::select! {
+            // Server restarting: say so (1012 = service restart) so the
+            // client reconnects right away, then leave the world.
+            _ = wait_for_shutdown(&mut shutdown) => {
+                let _ = sender
+                    .send(Message::Close(Some(CloseFrame {
+                        code: close_code::RESTART,
+                        reason: "server restarting".into(),
+                    })))
+                    .await;
+                break;
+            }
+
             outgoing = outbound_rx.recv() => {
                 match outgoing {
                     Some(message) => {
@@ -128,6 +143,22 @@ pub async fn handle_connection(
     rooms
         .unregister(player_id)
         .await;
+}
+
+/// Resolves once the shutdown flag is set; never, without a signal.
+async fn wait_for_shutdown(shutdown: &mut Option<watch::Receiver<bool>>) {
+    let Some(rx) = shutdown else {
+        return std::future::pending().await;
+    };
+    loop {
+        if *rx.borrow_and_update() {
+            return;
+        }
+        if rx.changed().await.is_err() {
+            // Sender gone without a signal: nothing will ever fire.
+            return std::future::pending().await;
+        }
+    }
 }
 
 async fn handle_client_message(

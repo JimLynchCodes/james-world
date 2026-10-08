@@ -1,0 +1,17 @@
+# Caddy config for the game server's public hostname.
+#
+# Install:  sudo cp Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
+#
+# Caddy gets and renews the Let's Encrypt certificate for this hostname by
+# itself (needs the DNS A/AAAA records pointing at this droplet and ports
+# 80 + 443 open), and reverse_proxy passes WebSocket upgrades (wss://) through
+# with no extra config. Replace api.jamesworld.example with your API hostname.
+
+api.jamesworld.example {
+	reverse_proxy 127.0.0.1:8000 {
+		# While the game server restarts (deploy), keep retrying new
+		# connections for up to 5s instead of failing them right away.
+		lb_try_duration 5s
+		lb_try_interval 250ms
+	}
+}

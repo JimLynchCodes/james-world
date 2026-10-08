@@ -1,0 +1,38 @@
+# Netlify config for the Vite client.
+#
+# In the Netlify UI set "Base directory" to `phaser-tag-client` (this file
+# lives there, so Netlify picks it up); paths below are relative to it.
+# Set VITE_WS_URL (e.g. wss://api.jamesworld.example/ws) under
+# Site configuration -> Environment variables; it is baked in at build time.
+
+[build]
+  # `npm ci` wipes the committed node_modules (installed on macOS, so it is
+  # missing Linux's native rollup/esbuild packages) and installs exactly what
+  # package-lock.json says for this platform.
+  command = "npm ci && npm run build"
+  publish = "dist"
+
+[build.environment]
+  # Vite 7 needs Node ^20.19 or >=22.12.
+  NODE_VERSION = "22"
+
+# Vite's content-hashed bundles (dist/assets/index-<hash>.js/.css) never
+# change, so they can be cached forever. Only .js/.css: public/assets also
+# holds the un-hashed sprite sheets (kid*.png/json), which must revalidate.
+[[headers]]
+  for = "/assets/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+[[headers]]
+  for = "/assets/*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# No redirects: it's a single page (index.html) with no client-side routes,
+# so no SPA fallback is needed.
