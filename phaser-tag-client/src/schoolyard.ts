@@ -13,7 +13,7 @@ import { PLAYER_RADIUS, WALL_BOTTOM, WALL_LEFT, WALL_RIGHT, WALL_TOP } from "./w
  *    baseball diamond, playground) shown as a single Image each;
  *  - small prop textures (trees, bushes, benches, picnic tables) reused by
  *    many Images;
- *  - a single Graphics object for the edge strip and sidewalks (a few dozen
+ *  - a single Graphics object for the edge strip and the street outside the fence (a few dozen
  *    commands).
  * Colours are kept muted so the kid sprites and their foot rings stay
  * clearly readable on top.
@@ -22,7 +22,7 @@ import { PLAYER_RADIUS, WALL_BOTTOM, WALL_LEFT, WALL_RIGHT, WALL_TOP } from "./w
 const DEPTH = {
   grass: -100,
   patches: -99,
-  ground: -95, // edge strip + sidewalks
+  ground: -95, // edge strip + street outside the fence
   areas: -90,
   // Tall props (trees, bushes, fence) share the kid depth band:
   //   10 + baseY / 10
@@ -1108,7 +1108,8 @@ export function createSchoolyard(scene: Phaser.Scene, worldW: number, worldH: nu
   scene.add.image(areas.diamond.x, areas.diamond.y, diamond(scene)).setOrigin(0).setDepth(DEPTH.areas);
   scene.add.image(areas.playground.x, areas.playground.y, playground(scene)).setOrigin(0).setDepth(DEPTH.areas);
 
-  // --- ground: mulch strip along the fence + concrete sidewalks
+  // --- ground: mulch strip along the fence (no paths through the lawns:
+  // the grass runs right up to the blacktop, track, diamond and playground)
   const g = scene.add.graphics().setDepth(DEPTH.ground);
   const strip = 64;
   const yw = yard.right - yard.left;
@@ -1144,36 +1145,8 @@ export function createSchoolyard(scene: Phaser.Scene, worldW: number, worldH: nu
   g.lineStyle(2, 0x8a8981, 0.9); // sidewalk joints
   for (let x = 0; x < worldW; x += 56) g.lineBetween(x, road + 5, x, outTop - 10);
 
-  const PATH_W = 44;
-  const paths: Rect[] = [
-    { x: 378, y: yard.top + strip, w: PATH_W, h: areas.blacktop.y - yard.top - strip }, // north gate to blacktop
-    { x: yard.left + strip, y: 2030, w: yw - 2 * strip, h: PATH_W }, // main east-west walk
-    { x: 2480, y: yard.top + strip, w: PATH_W, h: yh - 2 * strip }, // main north-south walk
-    { x: areas.blacktop.x + areas.blacktop.w, y: 960, w: areas.track.x - (areas.blacktop.x + areas.blacktop.w), h: PATH_W },
-    { x: 1040, y: areas.blacktop.y + areas.blacktop.h, w: PATH_W, h: 2030 - (areas.blacktop.y + areas.blacktop.h) },
-    { x: 3740, y: areas.track.y + areas.track.h, w: PATH_W, h: areas.playground.y - (areas.track.y + areas.track.h) },
-    { x: 1040, y: 2074, w: PATH_W, h: areas.diamond.y + 420 - 2074 },
-    { x: 2524, y: 4300, w: 900, h: PATH_W }, // to the picnic lawn
-  ];
-  for (const p of paths) {
-    g.fillStyle(0x6f6e68, 1);
-    g.fillRect(p.x - 3, p.y - 3, p.w + 6, p.h + 6);
-    g.fillStyle(0x9b9a92, 1);
-    g.fillRect(p.x, p.y, p.w, p.h);
-  }
-  // expansion joints
-  g.lineStyle(2, 0x7c7b74, 0.8);
-  for (const p of paths) {
-    const horizontal = p.w > p.h;
-    const len = horizontal ? p.w : p.h;
-    for (let t = 56; t < len; t += 56) {
-      if (horizontal) g.lineBetween(p.x + t, p.y, p.x + t, p.y + p.h);
-      else g.lineBetween(p.x, p.y + t, p.x + p.w, p.y + t);
-    }
-  }
-
   // --- props
-  const blocked: Rect[] = [...Object.values(areas), ...paths];
+  const blocked: Rect[] = [...Object.values(areas)];
   const free = (x: number, y: number, pad: number) =>
     !blocked.some(r => overlaps(r, x, y, pad)) && Math.hypot(x - 400, y - 300) > 160; // keep the spawn point clear
 

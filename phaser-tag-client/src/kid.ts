@@ -132,6 +132,10 @@ const LABEL_LOOK: Record<LabelLine, { text: string; style: Phaser.Types.GameObje
 const LABEL_TIGHTEN = 5;
 /** Gap between the top of the head and the bottom label (px). */
 const LABEL_GAP = 2;
+/** Extra space under IT so it doesn't touch the YOU / name line below (px). */
+const IT_GAP = 4;
+/** Keep the top of the label stack at least this far below the world top. */
+const LABEL_MIN_TOP = 2;
 
 const ROLE_COLORS: Record<KidRole, number> = {
   self: 0x38bdf8, // blue
@@ -376,15 +380,26 @@ export class KidAvatar {
     const depth = 10 + feetY / 10;
     this.sprite.setDepth(depth);
     let labelY = feetY - this.artHeight - LABEL_GAP;
+    const firstY = labelY;
     let labelDepth = depth + 0.05;
     for (const line of LABEL_LINES) {
       const text = this.labels[line];
       text.setVisible(this.showLabel[line]);
       if (!this.showLabel[line]) continue;
+      if (line === "it" && labelY !== firstY) labelY -= IT_GAP;
       text.setPosition(this.x, labelY);
       text.setDepth(labelDepth);
       labelDepth += 0.01;
       labelY -= text.height - LABEL_TIGHTEN;
+    }
+    // The camera can't scroll above y = 0: at the top wall, the tallest skin
+    // with IT + YOU would poke off screen, so nudge the stack down onto the
+    // head instead (only ever a pixel or two).
+    const overflow = LABEL_MIN_TOP - (labelY - LABEL_TIGHTEN);
+    if (overflow > 0) {
+      for (const line of LABEL_LINES) {
+        if (this.showLabel[line]) this.labels[line].y += overflow;
+      }
     }
   }
 

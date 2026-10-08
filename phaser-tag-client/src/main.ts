@@ -8,7 +8,7 @@ import { createSchoolyard, type Occluder } from "./schoolyard";
 import { PLAYER_RADIUS, PLAY_AREA, WORLD_HEIGHT, WORLD_WIDTH } from "./world";
 import { GameAudio } from "./audio";
 import { DEFAULT_SKIN, toSkin, type Skin } from "./skins";
-import { RunButton } from "./runButton";
+import { MobileControls } from "./mobileControls";
 import {
   SettingsPanel,
   controlsHint,
@@ -76,14 +76,16 @@ class GameScene extends Phaser.Scene {
   private controlMode: ControlMode = "keyboard";
   /** Settings modal open: game input is paused. */
   private uiOpen = false;
-  /** Tap mode destination (world px) and the last direction walked toward it. */
+  /** Mobile mode tap-to-move destination (world px) and the last direction walked toward it. */
   private tapTarget: { x: number; y: number } | null = null;
   private tapDir: { x: number; y: number } | null = null;
   private tapDragging = false;
   /** Phaser pointer id doing the tap / drag-to-steer (multi-touch safe). */
   private tapPointerId: number | null = null;
-  /** Tap mode's on-screen Run button is held. */
+  /** Mobile mode's on-screen Run button is held. */
   private runHeld = false;
+  /** Mobile mode joystick direction (each axis -1..1; zero when released). */
+  private joystick = { x: 0, y: 0 };
   private tapMarker!: Phaser.GameObjects.Container;
   private stepTimer = 0;
   /** Our chosen skin (Settings > Skins); sent on Join and with SetSkin. */
@@ -113,7 +115,7 @@ class GameScene extends Phaser.Scene {
     this.cameras.main.centerOn(900, 700);
 
     this.cursors = this.input.keyboard!.createCursorKeys();
-    this.keys = this.input.keyboard!.addKeys("W,A,S,D,SHIFT,E") as Record<
+    this.keys = this.input.keyboard!.addKeys("W,A,S,D,SHIFT,SPACE") as Record<
       string,
       Phaser.Input.Keyboard.Key
     >;
@@ -125,7 +127,7 @@ class GameScene extends Phaser.Scene {
       onOpen: () => {
         this.connected = true;
         // Spectator until Start: Hello arrives next; Join is sent from startPlaying().
-        this.setStatus(this.playing ? "Connected" : "Watching…");
+        this.renderStatus();
         if (this.startRequested && !this.playing) {
           this.socket.send({
             type: "Join",
@@ -135,11 +137,13 @@ class GameScene extends Phaser.Scene {
       },
       onClose: () => {
         this.connected = false;
-        this.setStatus("Disconnected");
+        this.socketFailed = true;
+        this.renderStatus();
       },
       onError: () => {
         this.connected = false;
-        this.setStatus("Connection error");
+        this.socketFailed = true;
+        this.renderStatus();
       },
       onMessage: message => this.handleServerMessage(message),
     });
@@ -184,7 +188,8 @@ class GameScene extends Phaser.Scene {
 
       this.tagCooldown = Math.max(0, this.tagCooldown - delta);
 
-      if (Phaser.Input.Keyboard.JustDown(this.keys.E)) {
+      // SPACE tags (captured, so it never scrolls the page).
+      if (Phaser.Input.Keyboard.JustDown(this.keys.SPACE)) {
         this.tryTagNearest();
       }
     } else {
@@ -260,15 +265,18 @@ class GameScene extends Phaser.Scene {
 
   /**
    * Current movement input. Keyboard mode: dx/dy in {-1, 0, 1} from the keys.
-   * Tap mode: unit vector toward the tap target (zero once arrived).
-   * running = SHIFT while moving. Nothing moves while Settings is open.
+   * Mobile mode: the joystick while it's pushed, otherwise the unit vector
+   * toward the tap target (zero once arrived).
+   * running = SHIFT (or the Run button) while moving. Nothing moves while
+   * Settings is open.
    */
   private readInput() {
     let dx = 0;
     let dy = 0;
     if (this.uiOpen || !this.playing) return { dx, dy, running: false };
-    if (this.controlMode === "tap") {
-      if (this.tapDir) ({ x: dx, y: dy } = this.tapDir);
+    if (this.controlMode === "mobile") {
+      if (this.joystick.x !== 0 || this.joystick.y !== 0) ({ x: dx, y: dy } = this.joystick);
+      else if (this.tapDir) ({ x: dx, y: dy } = this.tapDir);
       const runKey = this.keys.SHIFT.isDown || this.runHeld;
       return { dx, dy, running: runKey && (dx !== 0 || dy !== 0) };
     }
@@ -308,7 +316,7 @@ class GameScene extends Phaser.Scene {
     switch (message.type) {
       case "Hello":
         // Spectator: we receive snapshots of everyone else until Start.
-        this.setStatus("Watching…");
+        this.renderStatus();
         break;
 
       case "Snapshot":
@@ -350,7 +358,8 @@ class GameScene extends Phaser.Scene {
         break;
 
       case "Error":
-        this.setStatus(`Server error: ${message.data.message}`);
+        // Keep the status line for the connection / name; errors go to the log.
+        this.logEvent(`Server error: ${message.data.message}`);
         break;
     }
   }
@@ -524,7 +533,7 @@ class GameScene extends Phaser.Scene {
     const taggingLocal = this.playing && taggerId === this.localPlayerId;
 
     // Tagger swings their arm toward whoever they tagged. (If we already
-    // started the swing optimistically on E, playTag() ignores the repeat.)
+    // started the swing optimistically on SPACE / TAG, playTag() ignores the repeat.)
     const tagger = this.avatarFor(taggerId);
     const target = this.avatarFor(targetId);
     if (tagger) {
@@ -553,10 +562,26 @@ class GameScene extends Phaser.Scene {
 
   setControlMode(mode: ControlMode) {
     this.controlMode = mode;
-    if (mode !== "tap") {
+    if (mode !== "mobile") {
       this.clearTapTarget();
       this.runHeld = false;
+      this.joystick = { x: 0, y: 0 };
     }
+  }
+
+  /** Mobile joystick moved (or let go: 0, 0). Steering cancels tap-to-move. */
+  setJoystick(dx: number, dy: number) {
+    const was = this.joystick.x !== 0 || this.joystick.y !== 0;
+    this.joystick = { x: dx, y: dy };
+    const now = dx !== 0 || dy !== 0;
+    if (now && this.tapTarget) this.clearTapTarget();
+    if (was !== now) this.inputTimer = 0; // start / stop right away
+  }
+
+  /** Mobile Tag button: same as SPACE. */
+  tagPressed() {
+    if (!this.playing || this.uiOpen) return;
+    this.tryTagNearest();
   }
 
   /**
@@ -592,8 +617,10 @@ class GameScene extends Phaser.Scene {
 
   /** After Welcome: spawn our kid, follow the camera, leave the title screen. */
   private spawnLocalPlayer(name: string) {
+    this.localName = name;
     if (this.playing && this.player) {
       this.player.setLabels({ name, you: true, it: false });
+      this.renderStatus();
       return;
     }
     const x = this.localTargetX ?? 400;
@@ -604,7 +631,7 @@ class GameScene extends Phaser.Scene {
     this.player.setSkin(this.localSkin);
     this.cameras.main.startFollow(this.player.shadow, true, 0.12, 0.12);
     this.playing = true;
-    this.setStatus("Connected");
+    this.renderStatus();
     document.body.classList.remove("title-mode");
     this.title?.dismiss();
     this.title = null;
@@ -651,7 +678,7 @@ class GameScene extends Phaser.Scene {
     cam.centerOn(Phaser.Math.Linear(cx, tx, k), Phaser.Math.Linear(cy, ty, k));
   }
 
-  /** Tap mode Run button: same `running` flag as SHIFT. */
+  /** Mobile Run button: same `running` flag as SHIFT. */
   setRunHeld(held: boolean) {
     this.runHeld = held;
   }
@@ -689,7 +716,7 @@ class GameScene extends Phaser.Scene {
     // Phaser only reports presses on the canvas itself, so clicks on the
     // HUD, the cog or the modal never reach these handlers.
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
-      if (!this.playing || this.controlMode !== "tap" || this.uiOpen) return;
+      if (!this.playing || this.controlMode !== "mobile" || this.uiOpen) return;
       const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
       const kid = this.remoteAt(world.x, world.y);
       if (kid && this.distanceToPlayer(kid) < TAG_DISTANCE) {
@@ -703,7 +730,7 @@ class GameScene extends Phaser.Scene {
     });
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
       if (!this.tapDragging || pointer.id !== this.tapPointerId || !pointer.isDown) return;
-      if (this.controlMode !== "tap" || this.uiOpen) return;
+      if (this.controlMode !== "mobile" || this.uiOpen) return;
       const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
       this.setTapTarget(world.x, world.y);
     });
@@ -784,11 +811,32 @@ class GameScene extends Phaser.Scene {
     return out;
   }
 
-  private setStatus(status: string) {
-    if (this.hudStatus) {
-      this.hudStatus.textContent = status;
+  /** Our "James N" name from Welcome (shown in the status panel). */
+  private localName: string | null = null;
+  private hudConnection: HTMLElement | null = null;
+
+  /**
+   * Status panel line: green light + our "James N" name once joined; green
+   * + "Connected" while spectating before Start (the panel is hidden on the
+   * title screen anyway); red + "Not Connected" when the socket is closed or
+   * errored; amber + "Connecting…" before the first open.
+   */
+  private renderStatus() {
+    const state = this.connected ? "connected" : this.everConnected || this.socketFailed ? "error" : "connecting";
+    if (this.connected) this.everConnected = true;
+    const text =
+      state === "connected" ? (this.playing && this.localName) || "Connected"
+      : state === "error" ? "Not Connected"
+      : "Connecting…";
+    if (this.hudStatus && this.hudStatus.textContent !== text) this.hudStatus.textContent = text;
+    if (this.hudConnection) {
+      this.hudConnection.classList.toggle("connected", state === "connected");
+      this.hudConnection.classList.toggle("error", state === "error");
+      this.hudConnection.title = text;
     }
   }
+  private everConnected = false;
+  private socketFailed = false;
 
   private logEvent(text: string) {
     console.log(`[game] ${text}`);
@@ -807,12 +855,15 @@ class GameScene extends Phaser.Scene {
     status: HTMLElement,
     energy: HTMLElement,
     players: HTMLElement,
-    events?: HTMLElement
+    events?: HTMLElement,
+    connection?: HTMLElement
   ) {
     this.hudEvents = events ?? null;
+    this.hudConnection = connection ?? null;
     this.hudStatus = status;
     this.hudEnergy = energy;
     this.hudPlayers = players;
+    this.renderStatus();
     this.updateHud();
   }
 
@@ -823,7 +874,8 @@ class GameScene extends Phaser.Scene {
 
   /**
    * Near the world edges the camera stops scrolling, so the local kid can
-   * end up under the status panel, the cog, the hint or the Run button.
+   * end up under the status panel, the cog, the hint, the joystick or the
+   * Tag / Run buttons.
    * Make whichever one covers the kid (body + labels) see-through.
    */
   private fadeHudOverPlayer() {
@@ -918,7 +970,7 @@ const connection = document.querySelector("#connection") as HTMLElement;
 
 const events = document.querySelector("#events") as HTMLElement;
 
-scene.setHudElements(status, energy, players, events);
+scene.setHudElements(status, energy, players, events, connection);
 
 // Settings (cog + modal), audio and the Run button; prefs live in localStorage.
 const { settings, saved } = loadSettings();
@@ -935,16 +987,20 @@ const title = new TitleScreen({
 scene.setTitle(title);
 
 const controls = hud.querySelector(".controls") as HTMLElement;
-const runButton = new RunButton(hud, held => scene.setRunHeld(held));
+const mobileControls = new MobileControls(hud, {
+  onJoystick: (dx, dy) => scene.setJoystick(dx, dy),
+  onRunHeld: held => scene.setRunHeld(held),
+  onTag: () => scene.tagPressed(),
+});
 
 const applyControls = (s: Readonly<Settings>) => {
   scene.setControlMode(s.controlMode);
   controls.innerHTML = controlsHint(s.controlMode);
-  runButton.setVisible(s.controlMode === "tap");
-  runButton.setSide(s.runSide);
-  // Lets the CSS keep the controls hint clear of the Run button.
+  mobileControls.setVisible(s.controlMode === "mobile");
+  mobileControls.setLayout(s.leftyJoystick, s.flipTagRun);
+  // Lets the CSS keep the controls hint clear of the joystick / buttons.
   hud.dataset.mode = s.controlMode;
-  hud.dataset.runSide = s.runSide;
+  hud.dataset.lefty = String(s.leftyJoystick);
 };
 applyControls(settings);
 
@@ -961,7 +1017,7 @@ scene.setHudOverlays([
   hud.querySelector(".status") as HTMLElement,
   controls,
   settingsPanel.cog,
-  runButton.el,
+  ...mobileControls.overlays,
 ]);
 
 // Dev-only hooks for Playwright / live debugging (not shipped in prod builds).
@@ -971,8 +1027,3 @@ if (import.meta.env.DEV) {
 }
 
 window.addEventListener("resize", () => game.scale.resize(window.innerWidth, window.innerHeight));
-
-game.events.on("step", () => {
-  const socketConnected = status.textContent === "Connected";
-  connection.className = `connection ${socketConnected ? "connected" : ""}`;
-});

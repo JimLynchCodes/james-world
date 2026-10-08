@@ -6,12 +6,13 @@ A minimal fullscreen Phaser client for the Rust WebSocket protocol.
 
 - Fullscreen Phaser game
 - Title screen ("James World"): watch the yard, then hit Start to join
-- WASD / arrow-key movement, or Tap mode (tap/click where to walk)
+- WASD / arrow-key movement, or Mobile mode (tap where to walk, or a
+  virtual joystick with Tag and Run buttons)
 - Settings panel (cog, top right): controls mode, volumes, music mood, skin
 - Skins: James (default), Banana James, or T-rex James, seen by every player
 - Music and sound effects: procedural (Web Audio) plus one CC0 lo-fi loop
 - SHIFT to request running
-- E to attempt tagging the nearest player
+- SPACE to attempt tagging the nearest player
 - Periodic `Ping` messages
 - Normalized `dx` / `dy` movement vectors
 - Sends `MoveInput` at 20 Hz
@@ -182,18 +183,20 @@ from the snapshot for everyone else.
 - local "moving" comes from the keys held right now; remote players count
   as moving while their snapshot position changes (with a short grace time)
 - tag (arm reach + small forward lunge) plays once on the tagger when the
-  server sends `PlayerTagged`, and immediately when you press E
+  server sends `PlayerTagged`, and immediately when you press SPACE (or TAG)
 - coloured ring under the feet: blue = you, red = IT, purple = bot,
   amber = other human; IT also gets a light red tint
 - label stack above the head, top to bottom: **IT** (red, only on the IT
   player), **YOU** (blue, local player only), then the player's name
-  (white with a dark stroke). Lines that don't apply collapse with no gap,
-  and the labels draw above all sprites
+  (white with a dark stroke). Lines that don't apply collapse; IT keeps a
+  4px gap above the line below it so the two don't touch. The labels sort
+  with their kid's depth
 - names come from the server: every join (humans and bots) bumps a
   server-wide counter and the player is named "James N". The name is in
   `Welcome`, `PlayerJoined` and every `PlayerSnapshot`
-- near a world corner the camera stops scrolling, so the local kid can walk
-  under a HUD panel; whichever panel covers the kid turns see-through
+- near a world corner the camera stops scrolling, so James can walk under
+  a HUD panel, the joystick or the Tag / Run buttons; whichever one covers
+  him turns see-through
 - sprites are depth-sorted by y so lower players draw in front
 - trees, bushes and the fence share that depth sort: a kid whose feet are
   north of a trunk/post sorts behind it, and the foliage goes translucent
@@ -233,7 +236,7 @@ Kids are drawn at 0.84 scale (~75px tall on screen); the ground ring,
 feet offset and tag lunge grow with them. Display only: the server
 collision radius (`PLAYER_RADIUS` = 18) is unchanged.
 
-## Settings, Tap mode and audio
+## Settings, Mobile mode and audio
 
 The cog in the top-right corner opens the Settings modal (`src/settings.ts`,
 styles in `src/style.css`). Close it with the X, a click on the backdrop,
@@ -241,27 +244,36 @@ or Escape. While it is open the game ignores the keyboard (Phaser's key
 capture is released so the sliders, dropdown and Tab work) and the local
 player stops.
 
-- **Controls**: a Keyboard / Tap switch. Keyboard is WASD / arrows + SHIFT
-  + E. In Tap mode, tapping or clicking the ground sets a destination
-  (white marker) and the client sends `MoveInput` toward it from the
-  server-reported position, stopping within 10px (drag to steer). Tapping
-  a kid within tag range tags them, tapping one further away walks toward
-  them. Clicks on the HUD, cog, Run button or modal are ignored.
-- **Run button** (Tap mode only): a big hold-to-run button in the bottom
-  corner (respects phone safe-area insets). It's held while any pointer is
-  down on it, so one thumb can hold RUN while the other taps / drags to
-  steer (multi-touch; Phaser tracks 3 pointers). It sets the same
-  `running` flag in `MoveInput` as SHIFT and never sets a destination.
-  With Tap selected the Controls tab shows a **Run button side** switch
-  (Left / Right, default Right). The controls hint moves so it doesn't
-  sit under the button.
+- **Controls**: a Keyboard / Mobile switch. Keyboard is WASD / arrows,
+  SHIFT to run, SPACE to tag (Space is captured so it never scrolls the
+  page). Mobile mode offers two input styles that work together:
+  - **Tap to move**: tapping the ground sets a destination (white marker)
+    and the client sends `MoveInput` toward it from the server-reported
+    position, stopping within 10px (drag to steer). Tapping a player within
+    tag range tags them; tapping one further away walks toward them.
+  - **Joystick + buttons** (`src/mobileControls.ts`): a virtual joystick in
+    one bottom corner (drag the thumb in any direction; 20% dead zone,
+    thumb clamped to the base; letting go stops; steering cancels any tap
+    destination) and the **TAG** (blue) and **RUN** (orange, hold) buttons
+    side by side in the other corner. Every control tracks its own pointer
+    ids, so you can steer and hold RUN / press TAG at the same time. TAG
+    does what SPACE does; RUN sets the same `running` flag as SHIFT.
+  Touches on the joystick, buttons, HUD, cog or modal never set a tap
+  destination. Everything respects phone safe-area insets, and the
+  controls hint moves above the joystick.
+  With Mobile selected the Controls tab shows two more switches:
+  **Lefty Joystick** (Left / Right, default Left: joystick bottom-left,
+  TAG + RUN bottom-right; Right swaps the corners) and **Flip Tag / Run**
+  (default Off: TAG to the left of RUN; On: RUN to the left of TAG).
+  A control mode saved as `tap` by an older build is migrated to `mobile`,
+  and an old "Run button side: Left" becomes Lefty Joystick.
 - **Default control mode**: auto-detected only while the user hasn't
-  picked one: phones / tablets get Tap, desktops / laptops get Keyboard
+  picked one: phones / tablets get Mobile, desktops / laptops get Keyboard
   (`isTouchFirstDevice()` in `src/settings.ts`: Client Hints `mobile`,
   mobile UA, iPadOS touch points, coarse primary pointer without hover).
 - **Sound**: Master volume, Background music, Sound effects (0-100), and
   a Mood dropdown (Happy, Spooky, Relaxed, Chillin) that picks the music.
-- **Skins**: three cards with a live preview of each kid: **James** (default),
+- **Skins**: three cards with a live preview of James in each skin: **James** (default),
   **Banana James** (banana costume, squeaky shoes on the SFX bus), and
   **T-rex James** (T-rex onesie, deep scary stomp on the SFX bus). See
   "Skins" below.
@@ -298,6 +310,12 @@ On load the client connects as a **spectator**: it receives `Hello`, then
 snapshots of whoever is already playing, but does not send `Join` and does
 not spawn a local kid. The title overlay ("James World" / Start) sits on top;
 the settings cog stays available so you can pick a skin first.
+
+The top-left status panel (hidden on the title screen) shows a green light
+and your "James N" name once you've joined, and a red light with
+"Not Connected" if the socket closes or errors. Before Start it would read
+"Connected" (green) while spectating, but the panel stays hidden there, as
+before.
 
 Pressing **Start** sends `Join`. The server replies with `Welcome` (your id
 and "James N" name), the local kid appears, and the overlay dismisses.
@@ -345,8 +363,8 @@ animation. Unknown values become `james`; bots always wear `james`.
 `src/schoolyard.ts` draws the world procedurally at startup (no image
 assets): grass with subtle patches, a blacktop with basketball courts,
 four-square, hopscotch and other painted games, a running track around a
-soccer field, a baseball diamond, a wood-chip playground, sidewalks, trees,
-bushes, benches, picnic tables, and a chain-link fence that sits exactly on
+soccer field, a baseball diamond, a wood-chip playground (no paths through
+the lawns: grass runs right up to each area), trees, bushes, benches, picnic tables, and a chain-link fence that sits exactly on
 the server's walls (see "Coordinate model"), with a street and sidewalk
 outside the top fence. It is decoration only (no
 collision). For performance everything is baked once into canvas textures:

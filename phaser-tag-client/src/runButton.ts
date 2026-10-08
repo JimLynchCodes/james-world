@@ -1,14 +1,13 @@
 /**
- * Tap mode's hold-to-run button, fixed to a bottom corner of the screen.
+ * Mobile mode's hold-to-run button (lives in the Tag / Run pad, see
+ * mobileControls.ts).
  *
  * Held while at least one pointer is down on it, so it works with
- * multi-touch: one thumb holds RUN while the other taps / drags on the
- * game to steer. Its touches are kept away from Phaser (preventDefault on
+ * multi-touch: one thumb holds RUN while the other uses the joystick or
+ * taps / drags on the game to steer. Its touches are kept away from Phaser (preventDefault on
  * the touch / pointer events, which Phaser skips), so pressing it never
  * sets a tap destination.
  */
-
-import type { RunSide } from "./settings";
 
 const ICON = `
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
@@ -53,7 +52,7 @@ export class RunButton {
     }
     el.addEventListener("contextmenu", swallow);
 
-    window.addEventListener("blur", () => this.releaseAll());
+    window.addEventListener("blur", () => this.release());
     parent.appendChild(el);
   }
 
@@ -63,15 +62,11 @@ export class RunButton {
 
   setVisible(visible: boolean) {
     this.el.hidden = !visible;
-    if (!visible) this.releaseAll();
+    if (!visible) this.release();
   }
 
-  setSide(side: RunSide) {
-    this.el.classList.toggle("left", side === "left");
-    this.el.classList.toggle("right", side === "right");
-  }
-
-  private releaseAll() {
+  /** Let go (e.g. the controls were hidden mid-press). */
+  release() {
     if (this.pointers.size === 0) return;
     this.pointers.clear();
     this.update();
