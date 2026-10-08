@@ -1,4 +1,4 @@
-# tag-26
+# James World
 
 A multiplayer game of tag in the browser: every player is a "James", the
 server decides who's IT, and you run around a schoolyard trying not to get
