@@ -720,5 +720,278 @@ This will install any dependencies (if needed) and start the local webserver at:
 
 Check it by sending a GET request to: http://0.0.0.0:8000/health
 
+With nothing configured it listens on every interface, so a phone on the same
+Wi-Fi can play against your laptop (the client connects to "same host, port
+8000" by default). See [Configuration](#configuration) to change that.
 
-originally built with rustc 1.92.0-nightly (dd7fda570 2025-09-20)
+originally built with rustc 1.92.0-nightly (dd7fda570 2025-09-20); builds on
+stable Rust (1.85+).
+
+---
+
+# Production Deployment
+
+The game server runs on a DigitalOcean droplet behind
+[Caddy](https://caddyserver.com) (automatic HTTPS), as a systemd service. The
+browser client is a static site on Netlify (see
+[`../phaser-tag-client/README.md`](../phaser-tag-client/README.md#deployment-netlify))
+and connects straight to the droplet over a secure WebSocket:
+
+```text
+https://jamesworld.example            -> Netlify (the game page)
+wss://api.jamesworld.example/ws       -> droplet: Caddy :443 -> 127.0.0.1:8000
+```
+
+`jamesworld.example` is a placeholder used throughout: substitute your domain.
+One domain with two hostnames is all you need (the API could live on a
+different domain, but there's no reason to). The page goes directly to the
+droplet because Netlify's rewrites/proxy can't carry WebSockets, and it must be
+`wss://` because a page served over `https://` may not open a plain `ws://`
+socket.
+
+Files used below live in [`deploy/`](deploy):
+
+| File | Goes to | What it is |
+|---|---|---|
+| [`deploy/tag26.service`](deploy/tag26.service) | `/etc/systemd/system/tag26.service` | systemd unit: non-root user, env vars, restart on crash |
+| [`deploy/Caddyfile`](deploy/Caddyfile) | `/etc/caddy/Caddyfile` | TLS for `api.` + reverse proxy (WebSockets included) |
+| [`deploy/deploy.sh`](deploy/deploy.sh) | run from your machine | build, copy, restart, health-check (and `rollback`) |
+
+## Configuration
+
+All settings are environment variables (none are secret):
+
+| Variable | Default | Production value | Meaning |
+|---|---|---|---|
+| `BIND_ADDR` | `0.0.0.0:8000` | `127.0.0.1:8000` | Address to listen on. `host:port`, or just an IP (then `PORT` is used). |
+| `PORT` | `8000` | | Port when `BIND_ADDR` has none. |
+| `ALLOWED_ORIGINS` | *(any)* | `https://jamesworld.example,https://www.jamesworld.example` | Comma-separated page origins allowed to open `/ws`; others get `403`. Requests without an `Origin` header (bots, scripts, tests) are always allowed. |
+| `RUST_LOG` | `info` | `info` | Log filter ([`tracing` env-filter syntax](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html)). |
+
+Behind Caddy, bind to `127.0.0.1` so port 8000 is unreachable from the
+internet; everything public goes through Caddy on 443.
+
+On `SIGTERM` or Ctrl-C the server shuts down gracefully: it stops accepting
+connections, closes every WebSocket with close code `1012` ("service
+restart") so clients reconnect straight away, waits up to 3 seconds for them
+to go, and exits 0.
+
+## 1. DNS
+
+At your DNS provider (or DigitalOcean's, if the domain's nameservers point
+there), add for the API hostname:
+
+| Type | Name | Value |
+|---|---|---|
+| `A` | `api` | the droplet's IPv4 address |
+| `AAAA` | `api` | the droplet's IPv6 address (only if IPv6 is enabled on the droplet) |
+
+The apex / `www` records point at Netlify; the client README covers those.
+Wait until `dig +short api.jamesworld.example` shows the droplet's IP before
+starting Caddy, otherwise it can't get a certificate yet (it keeps retrying).
+
+## 2. Prepare the droplet (once)
+
+Ubuntu 24.04 LTS. The smallest droplet runs the game easily; compiling on it
+wants 2 GB of RAM, or add swap as below.
+
+```bash
+ssh root@api.jamesworld.example
+
+apt update && apt upgrade -y
+
+# Firewall: SSH + HTTP + HTTPS only. Port 8000 stays private (BIND_ADDR=127.0.0.1).
+ufw allow OpenSSH
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw enable
+
+# Unprivileged user the server runs as, and its directory.
+useradd --system --no-create-home --shell /usr/sbin/nologin tag26
+mkdir -p /opt/tag26
+
+# Caddy, from its official apt repo (https://caddyserver.com/docs/install#debian-ubuntu-raspbian)
+apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+chmod o+r /usr/share/keyrings/caddy-stable-archive-keyring.gpg /etc/apt/sources.list.d/caddy-stable.list
+apt update && apt install -y caddy
+```
+
+Only if you'll build on the droplet (the simplest option, below):
+
+```bash
+apt install -y build-essential rsync
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y   # installs to ~/.cargo
+fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+```
+
+If you use a DigitalOcean Cloud Firewall instead of (or as well as) `ufw`,
+give it the same inbound rules: 22, 80, 443.
+
+## 3. Build and install the binary
+
+Pick one:
+
+**A. Build on the droplet** (no cross-compiling; the binary matches the
+droplet's libraries):
+
+```bash
+# from your machine, in backend/
+rsync -az --delete --exclude target/ ./ root@api.jamesworld.example:tag26-src/
+ssh root@api.jamesworld.example 'cd tag26-src && ~/.cargo/bin/cargo build --release --locked \
+  && install -m 0755 target/release/taggame-backend /opt/tag26/taggame-backend'
+```
+
+**B. Build on your machine and copy it.** On Linux x86_64, `cargo build
+--release` (build on the same or an older Ubuntu than the droplet, or glibc
+may not match). On a Mac (or to avoid glibc questions entirely), build a
+static Linux binary with [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild):
+
+```bash
+brew install zig && cargo install cargo-zigbuild
+rustup target add x86_64-unknown-linux-musl
+cargo zigbuild --release --target x86_64-unknown-linux-musl
+scp target/x86_64-unknown-linux-musl/release/taggame-backend root@api.jamesworld.example:/tmp/
+ssh root@api.jamesworld.example 'install -m 0755 /tmp/taggame-backend /opt/tag26/taggame-backend'
+```
+
+After the first time, [`deploy/deploy.sh`](deploy/deploy.sh) does either
+flavour in one command (see [Redeploying](#redeploying-and-upgrading)).
+
+## 4. systemd service
+
+Edit `ALLOWED_ORIGINS` in [`deploy/tag26.service`](deploy/tag26.service) to
+your site's origin(s) (exact `https://host`, no path), then:
+
+```bash
+scp deploy/tag26.service root@api.jamesworld.example:/etc/systemd/system/tag26.service
+ssh root@api.jamesworld.example 'systemctl daemon-reload && systemctl enable --now tag26 && systemctl status tag26 --no-pager'
+```
+
+The unit runs the server as `tag26` with `BIND_ADDR=127.0.0.1:8000` and
+`RUST_LOG=info`, restarts it if it ever exits (`Restart=always`), starts it at
+boot, and gives it 10s to stop on `SIGTERM` (it needs well under one).
+
+To change a setting later: `systemctl edit tag26` (adds an override, e.g.
+`[Service]` / `Environment=RUST_LOG=debug`) or edit the unit, then
+`systemctl daemon-reload && systemctl restart tag26`.
+
+## 5. Caddy (HTTPS and wss://)
+
+Replace `api.jamesworld.example` in [`deploy/Caddyfile`](deploy/Caddyfile),
+then:
+
+```bash
+scp deploy/Caddyfile root@api.jamesworld.example:/etc/caddy/Caddyfile
+ssh root@api.jamesworld.example 'caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy'
+```
+
+Caddy obtains and renews the Let's Encrypt certificate on its own (it needs
+the DNS record from step 1 and ports 80/443 open), redirects HTTP to HTTPS,
+and its `reverse_proxy` passes WebSocket upgrades through without extra
+settings. While the game server restarts, it holds new connections for up to
+5 seconds (`lb_try_duration`) instead of failing them.
+
+## 6. Check it
+
+```bash
+curl https://api.jamesworld.example/health
+# {"service":"taggame-backend","status":"ok"}
+
+ssh root@api.jamesworld.example
+journalctl -u tag26 -f            # game server logs (live)
+journalctl -u caddy -n 50         # certificate / proxy problems
+systemctl status tag26
+```
+
+For more detail, set `RUST_LOG=debug` (or e.g.
+`RUST_LOG=info,taggame_backend=debug`) with `systemctl edit tag26` and
+restart. Rejected origins are logged as warnings
+(`rejected WebSocket from a disallowed origin`).
+
+Then open the Netlify site: the status panel shows your James name in green
+once the socket is up.
+
+**If the game says "Not Connected":** in the browser dev tools (Network ->
+WS) check the URL it tries. `ws://` instead of `wss://`, or the wrong host,
+means `VITE_WS_URL` wasn't set when Netlify built the site (set it, then
+redeploy). A `403` means the page's origin isn't in `ALLOWED_ORIGINS`. A TLS
+error means Caddy has no certificate yet (`journalctl -u caddy`).
+
+## Redeploying and upgrading
+
+**The frontend** redeploys on every push to `main` (Netlify builds it). Netlify
+deploys are atomic: the new version goes live all at once and nobody is
+disconnected. Players pick it up on their next page load.
+
+**The backend** is the interesting one, and the honest answer is: the game
+world lives only in this process's memory (positions, who's IT, the
+`James N` counter, the bots). Starting a new binary starts a new world, and
+everyone connected to the old one is disconnected. Rust has no practical way
+to swap code inside a running process, so "upgrading" means "replace the
+process"; the choice is how much of that players notice.
+
+### Option 1 (what's set up now): fast restart + auto-reconnect
+
+```bash
+DEPLOY_HOST=root@api.jamesworld.example ./deploy/deploy.sh            # build on droplet
+BUILD_ON=local DEPLOY_HOST=root@api.jamesworld.example ./deploy/deploy.sh   # build here, scp
+DEPLOY_HOST=root@api.jamesworld.example ./deploy/deploy.sh rollback   # back to the previous binary
+```
+
+The script builds the new binary (all the slow part happens while the old one
+keeps serving), swaps it in (keeping the old one as `taggame-backend.prev`),
+runs `systemctl restart tag26`, and waits for `/health`. A non-root
+`DEPLOY_HOST` user needs passwordless `sudo`.
+
+What players see: the server closes their sockets with "service restart", the
+status turns red "Not Connected" for about a second, and the client
+reconnects by itself (retrying after 0.5s, 1s, 2s, 4s, then every 5s for longer
+outages). Anyone who had pressed Start joins the new world automatically, in
+the same skin, under a fresh `James N`; spectators simply see the new world.
+Positions and IT start over. For a casual game of tag, this is usually fine.
+
+### Option 2: blue/green (no gap, but briefly two worlds)
+
+Run the new version next to the old one and move traffic over:
+
+1. Start the new binary on another port, e.g. a second unit with
+   `Environment=BIND_ADDR=127.0.0.1:8001` (`tag26-green.service`).
+2. Wait for `curl http://127.0.0.1:8001/health`.
+3. Point Caddy at it (`reverse_proxy 127.0.0.1:8001`) and `systemctl reload caddy`.
+4. Stop the old one; its players reconnect, landing on the new server.
+
+New players go straight to the new server while the old one is still up. Two
+caveats: by default Caddy closes proxied WebSockets when its config reloads,
+so add `stream_close_delay 10m` inside `reverse_proxy` if you want old
+games to keep running until you stop the old server; and until then the two
+servers are two separate worlds (players on one can't see the other). Not
+worth the complexity for now.
+
+### Option 3 (later): hand the world over
+
+Make restarts nearly invisible by carrying the state across:
+
+- On `SIGTERM`, write the world (players, positions, IT, energy, counter) to
+  disk or Redis; on boot, load it if it's fresh (a few seconds old).
+- Give each player a resume token in `Welcome`; on reconnect the client sends
+  it with `Join`, and the server gives them back their `James N`, position and
+  IT status instead of a new player.
+
+Combined with the reconnect that already exists, a deploy would look like a
+one-second lag spike.
+
+### Keep old and new talking
+
+Because the frontend and backend deploy separately, there are moments when an
+old page talks to a new server (or the reverse). Keep the protocol
+backward-compatible:
+
+- Add fields, don't rename or remove them, and give new fields serde defaults
+  (`#[serde(default)]`) so messages from older clients still parse.
+- Deploy the backend first, then the frontend, when adding a field (the old
+  client ignores fields it doesn't know about).
+- Never change the meaning of an existing message type; add a new one.
+

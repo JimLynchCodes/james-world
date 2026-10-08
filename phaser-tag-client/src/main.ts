@@ -19,7 +19,7 @@ import {
 import { TitleScreen } from "./title";
 
 const WS_URL =
-  import.meta.env.VITE_WS_URL ??
+  import.meta.env.VITE_WS_URL ||
   `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:8000/ws`;
 
 const ROOM_ID = import.meta.env.VITE_ROOM_ID ?? "default";
@@ -127,18 +127,32 @@ class GameScene extends Phaser.Scene {
       onOpen: () => {
         this.connected = true;
         // Spectator until Start: Hello arrives next; Join is sent from startPlaying().
+        // After a reconnect (server restart / deploy, network blip) a player
+        // who had pressed Start joins again automatically, in the same skin;
+        // the server hands out a fresh "James N" in its Welcome.
         this.renderStatus();
-        if (this.startRequested && !this.playing) {
+        if (this.startRequested) {
           this.socket.send({
             type: "Join",
             data: { room_id: ROOM_ID, skin: this.localSkin },
           });
         }
       },
-      onClose: () => {
+      onClose: ({ retryInMs }) => {
+        const wasConnected = this.connected;
         this.connected = false;
         this.socketFailed = true;
         this.renderStatus();
+        if (wasConnected) {
+          // The next server is a fresh world: snap to wherever it spawns us
+          // instead of sliding there, and drop any tap destination.
+          this.localTargetX = null;
+          this.localTargetY = null;
+          this.clearTapTarget();
+          this.rejoining = this.playing;
+          this.logEvent("Connection lost, reconnecting…");
+        }
+        console.info(`[net] socket closed, retrying in ${retryInMs}ms`);
       },
       onError: () => {
         this.connected = false;
@@ -328,7 +342,8 @@ class GameScene extends Phaser.Scene {
         this.localPlayerId = message.data.player_id;
         this.removeRemotePlayer(message.data.player_id);
         this.spawnLocalPlayer(message.data.name);
-        this.logEvent(`You joined as ${message.data.name}`);
+        this.logEvent(`${this.rejoining ? "Reconnected" : "You joined"} as ${message.data.name}`);
+        this.rejoining = false;
         break;
 
       case "PlayerJoined":
@@ -836,6 +851,8 @@ class GameScene extends Phaser.Scene {
     }
   }
   private everConnected = false;
+  /** Lost the connection while playing; the next Welcome is a rejoin. */
+  private rejoining = false;
   private socketFailed = false;
 
   private logEvent(text: string) {

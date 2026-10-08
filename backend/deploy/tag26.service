@@ -1,0 +1,49 @@
+# systemd unit for the tag-26 game server.
+#
+# Install:  sudo cp tag26.service /etc/systemd/system/tag26.service
+#           sudo systemctl daemon-reload && sudo systemctl enable --now tag26
+# Logs:     journalctl -u tag26 -f
+# Redeploy: copy a new binary to /opt/tag26/taggame-backend, then
+#           sudo systemctl restart tag26
+
+[Unit]
+Description=tag-26 game server (taggame-backend)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tag26
+Group=tag26
+WorkingDirectory=/opt/tag26
+ExecStart=/opt/tag26/taggame-backend
+
+# Only Caddy (on this box) talks to the game server; the internet reaches it
+# through https://api.jamesworld.example -> Caddy -> 127.0.0.1:8000.
+Environment=BIND_ADDR=127.0.0.1:8000
+Environment=RUST_LOG=info
+# Browsers may only open the socket from these pages (comma-separated,
+# scheme://host[:port]). Remove the line to allow any origin.
+Environment=ALLOWED_ORIGINS=https://jamesworld.example,https://www.jamesworld.example
+
+# On stop/restart: SIGTERM -> the server closes every socket with
+# "1012 service restart" (clients reconnect on their own) and exits within
+# ~3s; after 10s systemd stops waiting and sends SIGKILL.
+KillSignal=SIGTERM
+TimeoutStopSec=10
+Restart=always
+RestartSec=1
+
+# Hardening: the server needs no disk writes and no privileges.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

@@ -63,8 +63,12 @@ where the player actually is.
 ## Local development
 
 ```bash
+# terminal 1: the game server (port 8000)
+cd backend && cargo run
+
+# terminal 2: this client
+cd phaser-tag-client
 npm install
-cp .env.example .env
 npm run dev
 ```
 
@@ -74,82 +78,32 @@ Then open the Vite URL, normally:
 http://localhost:5173
 ```
 
-Set the Rust WebSocket endpoint in `.env`:
+No configuration is needed: with `VITE_WS_URL` unset (the committed `.env`
+leaves it commented out) the client connects to the host the page came from,
+on port 8000: `ws://localhost:8000/ws` on your machine, or
+`ws://192.168.x.y:8000/ws` when a phone on your Wi-Fi opens
+`http://192.168.x.y:5173` (start Vite with `npm run dev -- --host` for that).
 
-```text
-VITE_WS_URL=ws://localhost:3000/ws
-```
+To point at some other server, put `VITE_WS_URL=ws://host:port/ws` in
+`.env.local` (git-ignored; see `.env.example`) and restart Vite.
 
-## Important protocol limitation
+### Reconnecting
 
-The supplied protocol does not contain a message that tells the client
-which UUID belongs to the local player.
+If the socket drops (server restart or deploy, Wi-Fi blip, laptop sleep), the
+status panel turns red "Not Connected" and the client reconnects on its own,
+retrying after 0.5s, 1s, 2s, 4s, then every 5s. A "service restart" close from
+the server (code 1012, sent when it shuts down for a deploy) retries straight
+away at 0.5s. If you had pressed Start, it joins again automatically with the
+same skin (the server hands out a new `James N`); if you were watching from
+the title screen, it just reconnects. Only one socket is ever open, so
+retries can't pile up on the server.
 
-For a multiplayer game, the recommended protocol addition is:
+## Which player is you
 
-```rust
-Joined {
-    player_id: Uuid,
-}
-```
-
-sent only to the newly connected client.
-
-Then the browser can set:
-
-```ts
-this.localPlayerId = message.data.player_id;
-```
-
-Without that, the browser cannot reliably distinguish its own
-`PlayerSnapshot` from another player's snapshot.
-
-As a temporary development workaround, set:
-
-```text
-VITE_PLAYER_ID=<uuid>
-```
-
-in `.env`.
-
-## Suggested next server-side addition
-
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
-pub enum ServerMessage {
-    Joined {
-        player_id: Uuid,
-    },
-
-    Snapshot {
-        players: Vec<PlayerSnapshot>,
-    },
-
-    PlayerJoined {
-        player_id: Uuid,
-    },
-
-    PlayerLeft {
-        player_id: Uuid,
-    },
-
-    PlayerTagged {
-        tagger_id: Uuid,
-        target_id: Uuid,
-    },
-
-    Pong {
-        timestamp: u64,
-    },
-
-    Error {
-        message: String,
-    },
-}
-```
-
-This is a small change but makes the protocol unambiguous.
+After `Join`, the server sends `Welcome { player_id, name }` to the joining
+client only. The client stores `player_id` as `localPlayerId` to tell its own
+`PlayerSnapshot` apart from everyone else's, and shows `name` (`James N`). A
+reconnect is a new `Join`, so it gets a new `Welcome`.
 
 ## Coordinate model
 
@@ -408,6 +362,102 @@ reconcile the displayed position.
 ## Build
 
 ```bash
-npm run build
+npm run build      # -> dist/
 npm run preview
 ```
+
+`VITE_WS_URL` is read when `vite build` runs and baked into the bundle, so a
+build made for production has the production URL in it:
+
+```bash
+VITE_WS_URL=wss://api.jamesworld.example/ws npm run build
+```
+
+## Deployment (Netlify)
+
+The client is a static site: `vite build` turns it into `dist/` (an
+`index.html`, one hashed JS/CSS bundle, and the files from `public/`), which
+Netlify serves from its CDN on your domain. The game server runs separately
+on a DigitalOcean droplet; see
+[`../backend/README.md`](../backend/README.md#production-deployment).
+
+```text
+https://jamesworld.example        -> Netlify (this client)
+wss://api.jamesworld.example/ws   -> the droplet (Caddy -> Rust server)
+```
+
+(`jamesworld.example` is a placeholder; substitute your domain.) The browser
+opens the WebSocket straight to the droplet: Netlify's rewrites/proxy rules
+can't carry WebSockets. Because the page is `https://`, the socket must be
+`wss://` (browsers block `ws://` from secure pages), which is what Caddy on the
+droplet provides.
+
+### One-time setup
+
+1. **Create the site.** In Netlify: *Add new site* -> *Import an existing
+   project* -> GitHub -> `tag-26`. Set:
+
+   | Setting | Value |
+   |---|---|
+   | Base directory | `phaser-tag-client` |
+   | Build command | `npm ci && npm run build` *(also set by `netlify.toml`)* |
+   | Publish directory | `dist` *(relative to the base directory; also in `netlify.toml`)* |
+   | Branch to deploy | `main` |
+
+   [`netlify.toml`](netlify.toml) in this folder supplies the build command,
+   publish directory, Node version (22) and cache headers, and wins over the
+   UI fields. Only the base directory has to be set in the UI.
+
+2. **Set the server URL.** *Site configuration* -> *Environment variables* ->
+   add `VITE_WS_URL` = `wss://api.jamesworld.example/ws`. Variables that exist
+   in the environment when `vite build` runs take priority over `.env` files,
+   so this beats anything committed. It's baked in at build time: after
+   changing it, trigger a new deploy (*Deploys* -> *Trigger deploy*).
+
+3. **Add your domain.** *Domain management* -> *Add a domain* ->
+   `jamesworld.example`. Then either move the domain's nameservers to Netlify
+   DNS, or at your DNS provider add what Netlify shows (typically an `A`
+   record for the apex pointing at Netlify's load balancer and a `CNAME` for
+   `www` -> `<your-site>.netlify.app`). Keep the `api` `A`/`AAAA` records
+   pointing at the droplet; if Netlify manages DNS, add them there. Netlify
+   then provisions the HTTPS certificate on its own (*Domain management* ->
+   *HTTPS*). Prefer a subdomain like `play.jamesworld.example` for the game?
+   Use that instead; just keep the origin in the backend's `ALLOWED_ORIGINS`
+   in sync.
+
+4. **Check it.** Open `https://jamesworld.example`; the status panel shows
+   your `James N` in green once it's connected. If it stays red "Not
+   Connected", open dev tools -> Network -> WS: a `ws://` URL or the wrong
+   host means `VITE_WS_URL` wasn't set for that build; a `403` means the page
+   origin is missing from the server's `ALLOWED_ORIGINS`.
+
+### Redeploys
+
+Every push to `main` rebuilds and publishes the site. Netlify deploys are
+atomic: the new version goes live in one switch, nobody is disconnected,
+and players get it on their next page load. Old deploys stay available for
+one-click rollback (*Deploys* -> pick one -> *Publish deploy*). Pull requests
+get deploy previews (they use the same `VITE_WS_URL`, so they talk to the real
+server; add the `deploy-preview-*--<site>.netlify.app` origin to
+`ALLOWED_ORIGINS` if you restrict origins and want previews to connect).
+
+Since the page and the server deploy separately, ship protocol additions to
+the backend first, then the client (details in the backend README).
+
+### About `node_modules`
+
+`node_modules/` is committed to this repo, from a Mac, so it holds macOS
+builds of the native packages Vite uses (rollup, esbuild) and lacks the Linux
+ones Netlify needs. The build command starts with `npm ci`, which deletes it
+and installs exactly what `package-lock.json` lists for Linux, so the
+committed copy never reaches the build. Follow-up worth doing: remove
+`node_modules/` from git (`git rm -r --cached phaser-tag-client/node_modules`
+and add it to `.gitignore`); everyone runs `npm install` anyway.
+
+### Headers and caching
+
+`netlify.toml` caches `/assets/*.js` and `/assets/*.css` (Vite's
+content-hashed bundles) forever; everything else, including the sprite sheets
+in `public/assets/`, revalidates so a deploy shows up on the next reload.
+There's no SPA redirect: the game is a single `index.html` with no
+client-side routes.
