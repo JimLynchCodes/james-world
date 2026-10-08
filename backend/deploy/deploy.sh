@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build the game server, copy it to the droplet, restart it, check /health.
 #
-#   DEPLOY_HOST=deploy@api.jamesworld.example ./deploy/deploy.sh            # deploy
-#   DEPLOY_HOST=deploy@api.jamesworld.example ./deploy/deploy.sh rollback   # previous binary
+#   DEPLOY_HOST=root@api.jamesworld.lol ./deploy/deploy.sh            # deploy
+#   DEPLOY_HOST=root@api.jamesworld.lol ./deploy/deploy.sh rollback   # previous binary
 #
 # Run from backend/. Settings (environment variables, no secrets here):
 #   DEPLOY_HOST  ssh destination; that user needs sudo (required)
@@ -21,7 +21,7 @@
 # world (positions, who's IT, the James N counter) starts fresh.
 set -euo pipefail
 
-: "${DEPLOY_HOST:?set DEPLOY_HOST, e.g. DEPLOY_HOST=deploy@api.jamesworld.example}"
+: "${DEPLOY_HOST:?set DEPLOY_HOST, e.g. DEPLOY_HOST=root@api.jamesworld.lol}"
 BUILD_ON="${BUILD_ON:-droplet}"
 TARGET="${TARGET:-x86_64-unknown-linux-musl}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8000/health}"
