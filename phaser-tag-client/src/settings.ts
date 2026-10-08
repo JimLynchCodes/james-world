@@ -5,8 +5,7 @@
  */
 import { DEFAULT_SKIN, SKINS, SKIN_IDS, type Skin } from "./skins";
 
-export type ControlMode = "keyboard" | "tap";
-export type RunSide = "left" | "right";
+export type ControlMode = "keyboard" | "mobile";
 /**
  * Background music moods. "relaxed" is the procedural lo-fi track that used
  * to be called "chillin"; "chillin" is now a CC0 lo-fi recording
@@ -23,8 +22,13 @@ export const MOODS: ReadonlyArray<{ value: Mood; label: string }> = [
 
 export interface Settings {
   controlMode: ControlMode;
-  /** Tap mode: which bottom corner the Run button sits in. */
-  runSide: RunSide;
+  /**
+   * Mobile mode: false = joystick bottom-left, Tag / Run bottom-right;
+   * true = joystick bottom-right, Tag / Run bottom-left.
+   */
+  leftyJoystick: boolean;
+  /** Mobile mode: false = Tag to the left of Run; true = Run left of Tag. */
+  flipTagRun: boolean;
   /** 0-100 */
   masterVolume: number;
   /** 0-100 */
@@ -32,7 +36,7 @@ export interface Settings {
   /** 0-100 */
   sfxVolume: number;
   mood: Mood;
-  /** Which outfit your kid wears (everyone else sees it too). */
+  /** Which outfit James wears (everyone else sees it too). */
   skin: Skin;
 }
 
@@ -59,11 +63,12 @@ export function isTouchFirstDevice(): boolean {
   return touchPoints > 0 && media("(pointer: coarse)") && !media("(any-pointer: fine)");
 }
 
-/** Phones / tablets start in Tap mode, desktops on the keyboard. */
+/** Phones / tablets start in Mobile mode, desktops on the keyboard. */
 function defaultSettings(): Settings {
   return {
-    controlMode: isTouchFirstDevice() ? "tap" : "keyboard",
-    runSide: "right",
+    controlMode: isTouchFirstDevice() ? "mobile" : "keyboard",
+    leftyJoystick: false,
+    flipTagRun: false,
     masterVolume: 80,
     musicVolume: 60,
     sfxVolume: 80,
@@ -113,13 +118,19 @@ export function loadSettings(): LoadedSettings {
   const vol = (value: unknown) =>
     typeof value === "number" && Number.isFinite(value) ? volume(value, 0) : undefined;
 
-  take("controlMode", oneOf(raw.controlMode, ["keyboard", "tap"] as const));
-  take("runSide", oneOf(raw.runSide, ["left", "right"] as const));
+  // "tap" is what Mobile mode was called before the joystick existed.
+  take("controlMode", oneOf(raw.controlMode === "tap" ? "mobile" : raw.controlMode, ["keyboard", "mobile"] as const));
+  const bool = (value: unknown) => (typeof value === "boolean" ? value : undefined);
+  // Old "Run button side: Left" put the buttons on the left: that's lefty now.
+  take("leftyJoystick", bool(raw.leftyJoystick) ?? (raw.runSide === "left" ? true : undefined));
+  take("flipTagRun", bool(raw.flipTagRun));
   take("masterVolume", vol(raw.masterVolume));
   take("musicVolume", vol(raw.musicVolume));
   take("sfxVolume", vol(raw.sfxVolume));
   take("mood", oneOf(raw.mood, MOODS.map(m => m.value)));
   take("skin", oneOf(raw.skin, SKIN_IDS));
+  // Rewrite saves from older builds ("tap", runSide) in the new shape.
+  if (raw.controlMode === "tap" || "runSide" in raw) saveSettings(settings, saved);
   return { settings, saved };
 }
 
@@ -136,11 +147,11 @@ export function saveSettings(settings: Settings, keys: Iterable<keyof Settings>)
 
 /** Bottom-left controls hint for each mode (HTML). */
 export function controlsHint(mode: ControlMode): string {
-  return mode === "tap"
-    ? "<strong>Tap</strong> the ground to walk · <strong>Tap a kid</strong> nearby to tag · " +
-        "hold <strong>RUN</strong> to run"
+  return mode === "mobile"
+    ? "<strong>Tap</strong> the ground to walk or use the <strong>joystick</strong> · " +
+        "<strong>TAG</strong> or tap a nearby player to tag · hold <strong>RUN</strong> to run"
     : "<strong>WASD / Arrow Keys</strong> move · <strong>SHIFT</strong> run · " +
-        "<strong>E</strong> tag";
+        "<strong>SPACE</strong> tag";
 }
 
 export interface SettingsPanelOptions {
@@ -153,6 +164,10 @@ export interface SettingsPanelOptions {
 }
 
 type Tab = "controls" | "sound" | "skins";
+
+/** On/off settings shown as switches in the Controls tab (Mobile only). */
+const FLAGS = ["leftyJoystick", "flipTagRun"] as const;
+type Flag = (typeof FLAGS)[number];
 
 const SVG_NS = 'xmlns="http://www.w3.org/2000/svg"';
 
@@ -328,16 +343,25 @@ export class SettingsPanel {
                 <button type="button" class="mode-option" data-mode="keyboard">Keyboard</button>
                 <button type="button" class="switch" role="switch" aria-labelledby="mode-label"
                         data-toggle="mode" aria-checked="false"><span class="switch-knob"></span></button>
-                <button type="button" class="mode-option" data-mode="tap">Tap</button>
+                <button type="button" class="mode-option" data-mode="mobile">Mobile</button>
               </div>
             </div>
-            <div class="setting-row" data-tap-only>
-              <span class="setting-label" id="side-label">Run button side</span>
+            <div class="setting-row" data-mobile-only>
+              <span class="setting-label" id="lefty-label">Lefty Joystick</span>
               <div class="mode-switch">
-                <button type="button" class="mode-option" data-side="left">Left</button>
-                <button type="button" class="switch side-switch" role="switch" aria-labelledby="side-label"
-                        data-toggle="side" aria-checked="true"><span class="switch-knob"></span></button>
-                <button type="button" class="mode-option" data-side="right">Right</button>
+                <button type="button" class="mode-option" data-flag="leftyJoystick" data-value="false">Left</button>
+                <button type="button" class="switch side-switch" role="switch" aria-labelledby="lefty-label"
+                        data-toggle="leftyJoystick" aria-checked="false"><span class="switch-knob"></span></button>
+                <button type="button" class="mode-option" data-flag="leftyJoystick" data-value="true">Right</button>
+              </div>
+            </div>
+            <div class="setting-row" data-mobile-only>
+              <span class="setting-label" id="flip-label">Flip Tag / Run</span>
+              <div class="mode-switch">
+                <button type="button" class="mode-option" data-flag="flipTagRun" data-value="false">Off</button>
+                <button type="button" class="switch" role="switch" aria-labelledby="flip-label"
+                        data-toggle="flipTagRun" aria-checked="false"><span class="switch-knob"></span></button>
+                <button type="button" class="mode-option" data-flag="flipTagRun" data-value="true">On</button>
               </div>
             </div>
             <p class="setting-help" data-help></p>
@@ -360,7 +384,7 @@ export class SettingsPanel {
                    aria-labelledby="tab-skins" data-pane="skins">
             <h3>Skins</h3>
             <div class="skin-cards" role="radiogroup" aria-label="Skin">${skinCards}</div>
-            <p class="setting-help">Everyone in the game sees your kid in the skin you pick.</p>
+            <p class="setting-help">Everyone in the game sees James in the skin you pick.</p>
           </section>
         </div>
       </div>`;
@@ -403,7 +427,7 @@ export class SettingsPanel {
 
     this.q<HTMLButtonElement>('.switch[data-toggle="mode"]').addEventListener("click", () => {
       this.options.onSound?.("click");
-      this.set("controlMode", this.values.controlMode === "tap" ? "keyboard" : "tap");
+      this.set("controlMode", this.values.controlMode === "mobile" ? "keyboard" : "mobile");
     });
     this.backdrop.querySelectorAll<HTMLButtonElement>(".mode-option[data-mode]").forEach(option =>
       option.addEventListener("click", () => {
@@ -411,14 +435,16 @@ export class SettingsPanel {
         this.set("controlMode", option.dataset.mode as ControlMode);
       })
     );
-    this.q<HTMLButtonElement>('.switch[data-toggle="side"]').addEventListener("click", () => {
-      this.options.onSound?.("click");
-      this.set("runSide", this.values.runSide === "right" ? "left" : "right");
-    });
-    this.backdrop.querySelectorAll<HTMLButtonElement>(".mode-option[data-side]").forEach(option =>
+    for (const flag of FLAGS) {
+      this.q<HTMLButtonElement>(`.switch[data-toggle="${flag}"]`).addEventListener("click", () => {
+        this.options.onSound?.("click");
+        this.set(flag, !this.values[flag]);
+      });
+    }
+    this.backdrop.querySelectorAll<HTMLButtonElement>(".mode-option[data-flag]").forEach(option =>
       option.addEventListener("click", () => {
         this.options.onSound?.("click");
-        this.set("runSide", option.dataset.side as RunSide);
+        this.set(option.dataset.flag as Flag, option.dataset.value === "true");
       })
     );
 
@@ -507,27 +533,30 @@ export class SettingsPanel {
 
   /** Reflect the current values in the controls. */
   private render() {
-    const tap = this.values.controlMode === "tap";
-    const right = this.values.runSide === "right";
+    const mobile = this.values.controlMode === "mobile";
     const modeSwitch = this.q<HTMLButtonElement>('.switch[data-toggle="mode"]');
-    modeSwitch.setAttribute("aria-checked", String(tap));
-    modeSwitch.classList.toggle("on", tap);
-    const sideSwitch = this.q<HTMLButtonElement>('.switch[data-toggle="side"]');
-    sideSwitch.setAttribute("aria-checked", String(right));
-    sideSwitch.classList.toggle("on", right);
+    modeSwitch.setAttribute("aria-checked", String(mobile));
+    modeSwitch.classList.toggle("on", mobile);
+    for (const flag of FLAGS) {
+      const sw = this.q<HTMLButtonElement>(`.switch[data-toggle="${flag}"]`);
+      sw.setAttribute("aria-checked", String(this.values[flag]));
+      sw.classList.toggle("on", this.values[flag]);
+    }
     this.backdrop.querySelectorAll<HTMLButtonElement>(".mode-option").forEach(option => {
       const active = option.dataset.mode
         ? option.dataset.mode === this.values.controlMode
-        : option.dataset.side === this.values.runSide;
+        : String(this.values[option.dataset.flag as Flag]) === option.dataset.value;
       option.classList.toggle("active", active);
       option.setAttribute("aria-pressed", String(active));
     });
-    this.q<HTMLElement>("[data-tap-only]").hidden = !tap;
-    this.q<HTMLElement>("[data-help]").textContent = tap
-      ? "Tap anywhere on the ground and your kid walks there (drag to steer). " +
-        "Hold the RUN button to run, and tap a kid close by to tag them. " +
-        "Great for phones and tablets!"
-      : "Move with WASD or the arrow keys, hold SHIFT to run, press E to tag.";
+    this.backdrop.querySelectorAll<HTMLElement>("[data-mobile-only]").forEach(row => {
+      row.hidden = !mobile;
+    });
+    this.q<HTMLElement>("[data-help]").textContent = mobile
+      ? "Tap the ground and James walks there (drag to steer), and tap a nearby player " +
+        "to tag them. Or use the joystick to move, with the TAG and RUN buttons. " +
+        "Mix and match! Great for phones and tablets."
+      : "Move with WASD or the arrow keys, hold SHIFT to run, press SPACE to tag.";
 
     for (const { key } of SLIDERS) {
       const value = this.values[key];
