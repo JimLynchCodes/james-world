@@ -441,8 +441,8 @@ export class SettingsPanel {
           <section class="settings-pane" role="tabpanel" id="pane-skins"
                    aria-labelledby="tab-skins" data-pane="skins">
             <h3>Skins</h3>
+            <p class="setting-help">Same hero, different drip.</p>
             <div class="skin-cards" role="radiogroup" aria-label="Skin">${skinCards}</div>
-            <p class="setting-help">Everyone in the game sees James in the skin you pick.</p>
           </section>
           </div>
           <div class="settings-fade" hidden></div>

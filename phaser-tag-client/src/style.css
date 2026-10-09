@@ -458,7 +458,7 @@ canvas {
 }
 .setting-label > span { min-width: 0; }
 .setting-help {
-  margin: 4px 0 0;
+  margin: 3px 0 12px 0;
   font-size: 13px;
   line-height: 1.45;
   color: #5b4f73;
