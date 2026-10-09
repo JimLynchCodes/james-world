@@ -1,6 +1,7 @@
 /**
  * Settings: persisted preferences (localStorage) plus the cog button and
- * the Settings modal (vertical tabs: Controls, Sound, Skins). Plain DOM on
+ * the Settings modal (tabs: Controls, Sound, Skins). The header and tabs stay
+ * put; the option panes scroll inside the rounded frame. Plain DOM on
  * top of the Phaser canvas; styles live in style.css under "Settings".
  */
 import { DEFAULT_SKIN, SKINS, SKIN_IDS, type Skin } from "./skins";
@@ -268,6 +269,8 @@ export class SettingsPanel {
     document.addEventListener("keydown", this.onDocumentKey, true);
     this.options.onOpenChange?.(true);
     this.q<HTMLElement>(".settings-tab[aria-selected='true']").focus();
+    // Layout is ready on the next frame; that's when the fade can measure.
+    requestAnimationFrame(() => this.updateScrollFade());
   }
 
   close() {
@@ -323,6 +326,7 @@ export class SettingsPanel {
     return `
       <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <button type="button" class="settings-close" aria-label="Close settings">${ICONS.close}</button>
+        <div class="settings-frame">
         <h2 id="settings-title" class="settings-title">Settings</h2>
         <div class="settings-body">
           <div class="settings-tabs" role="tablist" aria-orientation="vertical">
@@ -333,6 +337,8 @@ export class SettingsPanel {
             <button type="button" class="settings-tab" role="tab" id="tab-skins"
                     data-tab="skins" aria-controls="pane-skins">${ICONS.skins}<span>Skins</span></button>
           </div>
+          <div class="settings-main">
+          <div class="settings-scroll">
 
           <section class="settings-pane" role="tabpanel" id="pane-controls"
                    aria-labelledby="tab-controls" data-pane="controls">
@@ -386,6 +392,10 @@ export class SettingsPanel {
             <div class="skin-cards" role="radiogroup" aria-label="Skin">${skinCards}</div>
             <p class="setting-help">Everyone in the game sees James in the skin you pick.</p>
           </section>
+          </div>
+          <div class="settings-fade" hidden></div>
+          </div>
+        </div>
         </div>
       </div>`;
   }
@@ -399,6 +409,18 @@ export class SettingsPanel {
     this.backdrop.addEventListener("pointerdown", event => {
       if (event.target === this.backdrop) this.close();
     });
+    // A drag on the dimmed page (or the frame chrome) must not scroll the
+    // document or rubber-band into the game. The options scroller is exempt.
+    const scroller = this.q<HTMLElement>(".settings-scroll");
+    this.backdrop.addEventListener("touchmove", event => {
+      const target = event.target;
+      if (target instanceof Node && scroller.contains(target)) return;
+      if (event.cancelable) event.preventDefault();
+    }, { passive: false });
+    scroller.addEventListener("scroll", () => this.updateScrollFade(), { passive: true });
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(() => this.updateScrollFade()).observe(scroller);
+    }
     this.q<HTMLButtonElement>(".settings-close").addEventListener("click", () => {
       this.options.onSound?.("click");
       this.close();
@@ -517,6 +539,17 @@ export class SettingsPanel {
     this.backdrop.querySelectorAll<HTMLElement>(".settings-pane").forEach(pane => {
       pane.hidden = pane.dataset.pane !== tab;
     });
+    const scroller = this.q<HTMLElement>(".settings-scroll");
+    scroller.scrollTop = 0;
+    this.updateScrollFade();
+  }
+
+  /** Show a fade along the bottom edge while more options sit below. */
+  private updateScrollFade() {
+    const scroller = this.q<HTMLElement>(".settings-scroll");
+    const fade = this.q<HTMLElement>(".settings-fade");
+    const more = scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 4;
+    fade.hidden = !more;
   }
 
   private set<K extends keyof Settings>(key: K, value: Settings[K]) {
@@ -574,5 +607,6 @@ export class SettingsPanel {
       card.classList.toggle("picked", picked);
       card.tabIndex = picked ? 0 : -1;
     });
+    this.updateScrollFade();
   }
 }

@@ -176,8 +176,19 @@ canvas {
   display: grid;
   /* minmax(0, 1fr): the modal never grows wider than the screen on phones */
   grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   place-items: center;
-  padding: 24px;
+  /* Padding leaves room for the close button, which hangs off the corner. */
+  padding:
+    max(22px, env(safe-area-inset-top, 0px))
+    max(22px, env(safe-area-inset-right, 0px))
+    max(16px, env(safe-area-inset-bottom, 0px))
+    max(16px, env(safe-area-inset-left, 0px));
+  box-sizing: border-box;
+  overflow: hidden;
+  overscroll-behavior: none;
+  /* Touches on the dimmed page must not scroll, zoom, or reach the game. */
+  touch-action: none;
   background: rgba(12, 10, 24, .55);
   backdrop-filter: blur(3px);
   animation: settings-fade .18s ease-out;
@@ -191,25 +202,61 @@ canvas {
   100% { transform: scale(1) rotate(0); }
 }
 
+/* Sizing wrapper only. The close button hangs off this box, so the clip
+   lives on .settings-frame, not here. Height stretches toward 640px but
+   always leaves the close button on screen (100vh fallback, then svh/dvh). */
 .settings-modal {
   position: relative;
   box-sizing: border-box;
   width: min(580px, 100%);
-  max-height: calc(100vh - 48px);
-  overflow: visible;
-  padding: 18px 22px 24px;
+  /* Grow with the options, but never past the screen. 100vh first so older
+     browsers still cap it; svh/dvh then keep mobile browser toolbars from
+     covering the close button. Percentage clamps it inside the backdrop. */
+  max-height: min(640px, calc(100vh - 48px));
+  max-height: min(640px, calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 44px));
+  max-height: min(640px, calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 44px));
+  max-height: min(640px, 100%);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  color: var(--ink);
+  font-family: var(--font-fun);
+  user-select: none;
+}
+
+@media (max-height: 740px) {
+  .settings-modal {
+    height: min(640px, calc(100vh - 48px));
+    height: min(640px, calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 44px));
+    height: min(640px, calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 44px));
+  }
+}
+
+/* Wide screens: keep the panel about as tall as the Sound tab so switching
+   tabs doesn't resize it, without the big empty stretch used on phones. */
+@media (min-width: 561px) and (min-height: 741px) {
+  .settings-modal { min-height: min(470px, 100%); }
+}
+.settings-frame {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding: 18px 22px 20px;
   border: 4px solid var(--ink);
   border-radius: 26px;
   background: var(--paper);
   box-shadow: 0 8px 0 var(--ink), 0 22px 44px rgba(0, 0, 0, .45);
-  color: var(--ink);
-  font-family: var(--font-fun);
-  user-select: none;
   animation: settings-pop .32s cubic-bezier(.3, 1.4, .5, 1);
 }
 
 .settings-title {
-  margin: 0 0 16px;
+  flex: none;
+  margin: 0 0 14px;
+  padding-right: 8px;
   font-size: 32px;
   font-weight: 900;
   letter-spacing: .5px;
@@ -219,10 +266,12 @@ canvas {
 
 .settings-close {
   position: absolute;
-  top: -18px;
-  right: -18px;
+  top: -16px;
+  right: -16px;
+  z-index: 2;
   width: 50px;
   height: 50px;
+  touch-action: manipulation;
   padding: 8px;
   border: 4px solid var(--ink);
   border-radius: 50%;
@@ -238,16 +287,20 @@ canvas {
 
 .settings-body {
   display: grid;
-  grid-template-columns: 150px 1fr;
+  grid-template-columns: 150px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 18px;
-  /* Tall enough for the Sound tab, so switching tabs doesn't resize the panel. */
-  min-height: 370px;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .settings-tabs {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: none;
+  align-self: start;
+  min-width: 0;
 }
 
 .settings-tab,
@@ -289,7 +342,46 @@ canvas {
   transform: translateX(6px);
 }
 
+/* Tabs stay put; only this region scrolls, inside the rounded frame. */
+.settings-main {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.settings-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(43, 33, 64, .45) transparent;
+}
+.settings-scroll::-webkit-scrollbar { width: 8px; }
+.settings-scroll::-webkit-scrollbar-thumb {
+  border-radius: 99px;
+  background: rgba(43, 33, 64, .4);
+}
+/* Soft fade while more options sit below the fold. */
+.settings-fade {
+  position: absolute;
+  left: 3px;
+  right: 11px;
+  bottom: 3px;
+  height: 36px;
+  border-radius: 0 0 16px 16px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), #fff 78%);
+  pointer-events: none;
+}
+.settings-fade[hidden] { display: none; }
+
 .settings-pane {
+  box-sizing: border-box;
+  min-height: 100%;
   padding: 16px 18px 18px;
   border: 3px solid var(--ink);
   border-radius: 20px;
@@ -337,8 +429,11 @@ canvas {
 /* Keyboard / Mobile toggle (and the Mobile-only switches) */
 .mode-switch {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
+  max-width: 100%;
 }
 .mode-option {
   padding: 4px 2px;
@@ -391,7 +486,10 @@ canvas {
 .settings-slider {
   --fill: 50%;
   flex: 1;
+  min-width: 0;
   height: 16px;
+  /* Horizontal drag must not be stolen by the vertical scroller. */
+  touch-action: none;
   margin: 0;
   border: 3px solid var(--ink);
   border-radius: 999px;
@@ -433,8 +531,11 @@ canvas {
 /* Mood dropdown */
 .select-wrap { position: relative; }
 .settings-select {
-  min-width: 150px;
+  max-width: 100%;
+  min-width: 0;
+  width: 150px;
   padding: 8px 40px 8px 14px;
+  touch-action: manipulation;
   border: 3px solid var(--ink);
   border-radius: 14px;
   background:
@@ -450,21 +551,26 @@ canvas {
 }
 
 @media (max-width: 560px) {
-  .settings-backdrop { padding: 24px 14px; }
-  .settings-modal { padding: 16px 14px 20px; }
-  .settings-body { grid-template-columns: minmax(0, 1fr); min-height: 0; }
-  .settings-tabs { flex-direction: row; gap: 8px; }
+  .settings-frame { padding: 16px 12px 14px; }
+  .settings-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 12px;
+  }
+  .settings-tabs { flex-direction: row; gap: 8px; align-self: stretch; }
   .settings-tab { flex: 1 1 0; min-width: 0; justify-content: center; gap: 5px; padding: 8px 6px; font-size: 14px; }
   .settings-tab svg { width: 20px; height: 20px; }
-  .settings-pane { min-width: 0; padding: 14px 12px 14px; }
+  .settings-pane { min-width: 0; padding: 14px 12px 16px; }
   .mode-switch { gap: 8px; }
   .mode-option { font-size: 14px; }
   .settings-tab[aria-selected="true"] { transform: translateY(2px); }
   .settings-title { font-size: 26px; }
+  .setting-row { gap: 8px 10px; }
+  .switch { flex: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .settings-cog, .settings-cog svg, .settings-modal, .settings-backdrop,
+  .settings-cog, .settings-cog svg, .settings-frame, .settings-backdrop,
   .switch-knob, .settings-tab, .settings-close { animation: none; transition: none; }
 }
 
@@ -680,7 +786,11 @@ canvas {
   margin-bottom: 14px;
 }
 @media (max-width: 560px) {
-  .skin-cards { grid-template-columns: 1fr; }
+  /* Two-up so more costumes fit; the third wraps and the pane scrolls. */
+  .skin-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .skin-card { --s: .82; padding: 8px 4px 10px; }
+  .skin-name { font-size: 13px; }
+  .skin-note { font-size: 11px; }
 }
 .skin-card {
   --s: 1.05; /* preview scale (3 cards; trex frames are wide) */
@@ -709,6 +819,7 @@ canvas {
   position: relative;
   display: block;
   width: 100%;
+  overflow: hidden;
   /* tallest frame (T-rex / Banana ~122px) so every kid stands on the same line */
   height: calc(122px * var(--s));
   border-radius: 12px;
@@ -740,8 +851,21 @@ canvas {
   from { background-position-x: calc(var(--fw) * var(--s) * -4px); }
   to { background-position-x: calc(var(--fw) * var(--s) * -12px); }
 }
-.skin-name { font-size: 16px; font-weight: 900; }
-.skin-note { font-size: 12px; font-weight: 700; color: #5b4f73; }
+.skin-name {
+  max-width: 100%;
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-align: center;
+}
+.skin-note {
+  max-width: 100%;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  color: #5b4f73;
+}
 @media (prefers-reduced-motion: reduce) {
   .skin-preview, .skin-card.picked .skin-preview { animation: none; background-position-x: calc(var(--fw) * var(--s) * -12px); }
 }
