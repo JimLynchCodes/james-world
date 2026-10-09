@@ -14,7 +14,7 @@
 
 import type { Mood, Settings } from "./settings";
 
-export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "click";
+export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "click";
 
 const CROSSFADE_S = 1.5;
 const LOOKAHEAD_S = 0.15;
@@ -485,6 +485,9 @@ export class GameAudio {
   private bananaFoot = false;
   private trexFoot = false;
   private tuxedoFoot = false;
+  private pirateFoot = false;
+  /** Pirate James: the deck creaks now and then, not on every step. */
+  private pirateSteps = 0;
   private lastJoin = 0;
   private buffers = new Map<Mood, AudioBuffer>();
   private loads = new Map<Mood, LoadStatus>();
@@ -663,6 +666,27 @@ export class GameAudio {
         syn.noise(t + 0.055, { filter: "bandpass", freq: 2600 * p, q: 4, gain: 0.16 * v, attack: 0.001, release: 0.018 });
         break;
       }
+      case "pirateStep": { // Pirate James: chunky leather boot clomp, now and then a deck creak
+        this.pirateFoot = !this.pirateFoot;
+        const p = (this.pirateFoot ? 1 : 0.88) * (0.94 + Math.random() * 0.12);
+        // heavy heel: low woody knock with a quick pitch drop
+        syn.tone(t, 170 * p, { type: "triangle", glideTo: 90 * p, attack: 0.002, hold: 0.012, release: 0.09, gain: 0.2 * v, filter: 900 });
+        syn.noise(t, { filter: "lowpass", freq: 900 * p, sweepTo: 260, gain: 0.3 * v, attack: 0.002, release: 0.07 });
+        // leather slap of the sole a beat later
+        syn.noise(t + 0.045, { filter: "bandpass", freq: 1300 * p, q: 1.6, gain: 0.12 * v, attack: 0.002, release: 0.04 });
+        // creaky wooden plank (every ~3rd step, quiet)
+        if (++this.pirateSteps % 3 === 0) {
+          const c = 360 + Math.random() * 90;
+          syn.tone(t + 0.03, c, { type: "sawtooth", glideTo: c * 0.78, attack: 0.03, hold: 0.07, release: 0.08, gain: 0.018 * v, filter: 1100, vibrato: [23, 14] });
+        }
+        break;
+      }
+      case "pirateSwing": // Pirate James's tag: the plain whoosh plus a thin cutlass swish/ring
+        syn.noise(t, { filter: "bandpass", freq: 500, sweepTo: 2800, q: 1.6, gain: 0.4 * v, attack: 0.04, release: 0.16 });
+        syn.noise(t + 0.02, { filter: "bandpass", freq: 2400, sweepTo: 7200, q: 5, gain: 0.22 * v, attack: 0.05, release: 0.1 });
+        syn.tone(t + 0.1, 2950, { gain: 0.025 * v, attack: 0.002, release: 0.25 });
+        syn.tone(t + 0.1, 4420, { gain: 0.012 * v, attack: 0.002, release: 0.18 });
+        break;
       case "click":
         syn.tone(t, 1250, { type: "triangle", gain: 0.08 * v, release: 0.035 });
         break;

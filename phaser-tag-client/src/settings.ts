@@ -14,11 +14,11 @@ export type ControlMode = "keyboard" | "mobile";
  */
 export type Mood = "happy" | "spooky" | "relaxed" | "chillin";
 
-export const MOODS: ReadonlyArray<{ value: Mood; label: string }> = [
-  { value: "happy", label: "Happy" },
-  { value: "spooky", label: "Spooky" },
-  { value: "relaxed", label: "Relaxed" },
-  { value: "chillin", label: "Chillin" },
+export const MOODS: ReadonlyArray<{ value: Mood; label: string; blurb: string }> = [
+  { value: "happy", label: "Happy", blurb: "Bouncy chiptune" },
+  { value: "spooky", label: "Spooky", blurb: "Creepy bells and a heartbeat" },
+  { value: "relaxed", label: "Relaxed", blurb: "Mellow lo-fi keys" },
+  { value: "chillin", label: "Chillin", blurb: "Lo-fi hip hop loop" },
 ];
 
 export interface Settings {
@@ -201,10 +201,18 @@ const ICONS = {
   close: `<svg ${SVG_NS} viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>`,
 };
 
-const SLIDERS: ReadonlyArray<{ key: "masterVolume" | "musicVolume" | "sfxVolume"; label: string }> = [
-  { key: "masterVolume", label: "Master volume" },
-  { key: "musicVolume", label: "Background music" },
-  { key: "sfxVolume", label: "Sound effects" },
+/** Little line icons in front of the Sound rows (same style as the tabs). */
+const ROW_ICONS = {
+  master: ICONS.sound,
+  music: `<svg ${SVG_NS} viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17.5V5.5l10-2v12"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="16.5" cy="15.5" r="2.5"/></svg>`,
+  sfx: `<svg ${SVG_NS} viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/></svg>`,
+  mood: `<svg ${SVG_NS} viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 14.5a4.5 4.5 0 0 0 8 0"/><path d="M9 9.5h.01M15 9.5h.01"/></svg>`,
+};
+
+const SLIDERS: ReadonlyArray<{ key: "masterVolume" | "musicVolume" | "sfxVolume"; label: string; icon: keyof typeof ROW_ICONS }> = [
+  { key: "masterVolume", label: "Master volume", icon: "master" },
+  { key: "musicVolume", label: "Background music", icon: "music" },
+  { key: "sfxVolume", label: "Sound effects", icon: "sfx" },
 ];
 
 export class SettingsPanel {
@@ -294,9 +302,9 @@ export class SettingsPanel {
 
   private template() {
     const sliders = SLIDERS.map(
-      ({ key, label }) => `
+      ({ key, label, icon }) => `
         <div class="setting-row slider-row">
-          <label class="setting-label" for="setting-${key}">${label}</label>
+          <label class="setting-label" for="setting-${key}">${ROW_ICONS[icon]}<span>${label}</span></label>
           <div class="slider-wrap">
             <input id="setting-${key}" class="settings-slider" type="range"
                    min="0" max="100" step="1" data-key="${key}">
@@ -343,6 +351,8 @@ export class SettingsPanel {
           <section class="settings-pane" role="tabpanel" id="pane-controls"
                    aria-labelledby="tab-controls" data-pane="controls">
             <h3>Controls</h3>
+            <div class="controls-layout">
+            <div class="controls-options">
             <div class="setting-row">
               <span class="setting-label" id="mode-label">Move with</span>
               <div class="mode-switch">
@@ -370,17 +380,59 @@ export class SettingsPanel {
                 <button type="button" class="mode-option" data-flag="flipTagRun" data-value="true">On</button>
               </div>
             </div>
-            <p class="setting-help" data-help></p>
+            <p class="setting-help controls-note" data-keyboard-only>Playing on a phone or tablet?
+              Pick <strong>Mobile</strong> for a joystick and big TAG and RUN buttons.</p>
+            </div>
+            <aside class="howto" aria-label="How to play">
+              <h4 class="howto-title">How to play</h4>
+              <ul class="howto-list" data-howto="keyboard">
+                <li class="howto-row">
+                  <span class="howto-keys move-keys">
+                    <span class="key-cluster"><kbd class="key k-up">W</kbd><kbd class="key k-left">A</kbd><kbd class="key k-down">S</kbd><kbd class="key k-right">D</kbd></span>
+                    <span class="howto-or">or</span>
+                    <span class="key-cluster"><kbd class="key k-up" aria-label="Up arrow">&#9650;</kbd><kbd class="key k-left" aria-label="Left arrow">&#9664;</kbd><kbd class="key k-down" aria-label="Down arrow">&#9660;</kbd><kbd class="key k-right" aria-label="Right arrow">&#9654;</kbd></span>
+                  </span>
+                  <span class="howto-what">Move</span>
+                </li>
+                <li class="howto-row">
+                  <span class="howto-keys"><kbd class="key key-wide">Shift</kbd></span>
+                  <span class="howto-what">Run (hold)</span>
+                </li>
+                <li class="howto-row">
+                  <span class="howto-keys"><kbd class="key key-space">Space</kbd></span>
+                  <span class="howto-what">Tag!</span>
+                </li>
+              </ul>
+              <ul class="howto-list" data-howto="mobile">
+                <li class="howto-row">
+                  <span class="howto-keys"><span class="chip-stick" aria-hidden="true"><span></span></span></span>
+                  <span class="howto-what">Joystick, or tap the ground, to walk</span>
+                </li>
+                <li class="howto-row">
+                  <span class="howto-keys"><span class="chip chip-tag">TAG</span></span>
+                  <span class="howto-what">Tag, or tap a nearby player</span>
+                </li>
+                <li class="howto-row">
+                  <span class="howto-keys"><span class="chip chip-run">RUN</span></span>
+                  <span class="howto-what">Hold to run</span>
+                </li>
+              </ul>
+              <p class="setting-help" data-help></p>
+            </aside>
+            </div>
           </section>
 
           <section class="settings-pane" role="tabpanel" id="pane-sound"
                    aria-labelledby="tab-sound" data-pane="sound">
             <h3>Sound</h3>
             ${sliders}
-            <div class="setting-row">
-              <label class="setting-label" for="setting-mood">Mood</label>
-              <div class="select-wrap">
-                <select id="setting-mood" class="settings-select">${moods}</select>
+            <div class="setting-row mood-row">
+              <label class="setting-label" for="setting-mood">${ROW_ICONS.mood}<span>Mood</span></label>
+              <div class="mood-pick">
+                <div class="select-wrap">
+                  <select id="setting-mood" class="settings-select">${moods}</select>
+                </div>
+                <span class="mood-blurb" data-mood-blurb></span>
               </div>
             </div>
             <p class="setting-help">The mood picks the background music.</p>
@@ -389,8 +441,8 @@ export class SettingsPanel {
           <section class="settings-pane" role="tabpanel" id="pane-skins"
                    aria-labelledby="tab-skins" data-pane="skins">
             <h3>Skins</h3>
+            <p class="setting-help">Same hero, different drip.</p>
             <div class="skin-cards" role="radiogroup" aria-label="Skin">${skinCards}</div>
-            <p class="setting-help">Everyone in the game sees James in the skin you pick.</p>
           </section>
           </div>
           <div class="settings-fade" hidden></div>
@@ -585,11 +637,15 @@ export class SettingsPanel {
     this.backdrop.querySelectorAll<HTMLElement>("[data-mobile-only]").forEach(row => {
       row.hidden = !mobile;
     });
+    this.backdrop.querySelectorAll<HTMLElement>("[data-keyboard-only]").forEach(row => {
+      row.hidden = mobile;
+    });
+    this.backdrop.querySelectorAll<HTMLElement>("[data-howto]").forEach(list => {
+      list.hidden = list.dataset.howto !== this.values.controlMode;
+    });
     this.q<HTMLElement>("[data-help]").textContent = mobile
-      ? "Tap the ground and James walks there (drag to steer), and tap a nearby player " +
-        "to tag them. Or use the joystick to move, with the TAG and RUN buttons. " +
-        "Mix and match! Great for phones and tablets."
-      : "Move with WASD or the arrow keys, hold SHIFT to run, press SPACE to tag.";
+      ? "Drag on the ground to steer. Mix and match! Great for phones and tablets."
+      : "Tag someone nearby to make them it.";
 
     for (const { key } of SLIDERS) {
       const value = this.values[key];
@@ -600,6 +656,8 @@ export class SettingsPanel {
     }
     const mood = this.q<HTMLSelectElement>(".settings-select");
     if (mood.value !== this.values.mood) mood.value = this.values.mood;
+    this.q<HTMLElement>("[data-mood-blurb]").textContent =
+      MOODS.find(m => m.value === this.values.mood)?.blurb ?? "";
 
     this.backdrop.querySelectorAll<HTMLButtonElement>(".skin-card").forEach(card => {
       const picked = card.dataset.skin === this.values.skin;

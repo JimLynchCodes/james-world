@@ -41,6 +41,12 @@ pub const MAX_Y: f32 = WORLD_HEIGHT - WALL_BOTTOM - PLAYER_RADIUS;
 pub const PLAYER_FIRST_NAME: &str = "James";
 pub const TAG_COOLDOWN_SECONDS: f32 = 5.0;
 
+/// Where humans join (kept clear of props by the client's schoolyard).
+pub const SPAWN: (f32, f32) = (400.0, 300.0);
+/// Joining humans are placed at least this far from every other player, so
+/// sprites and label stacks never start on top of each other.
+pub const SPAWN_GAP: f32 = 110.0;
+
 #[derive(Debug, Clone, Copy)]
 pub struct PlayerInput {
     pub seq: u64,
@@ -161,11 +167,8 @@ impl World {
         if self.players.contains_key(&id) {
             return Vec::new();
         }
-        let mut player = Player::new(
-            id,
-            400.0,
-            300.0,
-        );
+        let (x, y) = self.human_spawn_spot();
+        let mut player = Player::new(id, x, y);
         player.name = self.next_name();
 
         self.players.insert(id, player);
@@ -180,6 +183,35 @@ impl World {
         self.assign_it_if_needed();
 
         spawned
+    }
+
+    /// Where a joining human appears: the spawn point (the clearing the
+    /// client keeps free of props), or the nearest free spot beside it.
+    /// Two kids on the exact same spot draw their sprites and label stacks
+    /// (IT / YOU / name) on top of each other, and nobody moves you apart
+    /// (players don't collide), so never stack a new player on anyone.
+    pub fn human_spawn_spot(&self) -> (f32, f32) {
+        let free = |x: f32, y: f32| {
+            self.players.values().all(|p| {
+                let dx = p.position.x - x;
+                let dy = p.position.y - y;
+                dx * dx + dy * dy >= SPAWN_GAP * SPAWN_GAP
+            })
+        };
+        // Rows of spots fanning out sideways from the spawn point, then
+        // further down the yard; clamped inside the fence.
+        for row in 0..12 {
+            for k in 0..12 {
+                let side = if k % 2 == 0 { 1.0 } else { -1.0 };
+                let dx = side * ((k + 1) / 2) as f32 * SPAWN_GAP;
+                let x = (SPAWN.0 + dx).clamp(MIN_X, MAX_X);
+                let y = (SPAWN.1 + row as f32 * SPAWN_GAP).clamp(MIN_Y, MAX_Y);
+                if free(x, y) {
+                    return (x, y);
+                }
+            }
+        }
+        SPAWN
     }
 
     fn spawn_missing_bots(&mut self) -> Vec<Uuid> {

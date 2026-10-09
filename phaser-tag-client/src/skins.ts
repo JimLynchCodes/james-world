@@ -8,11 +8,12 @@
  *   banana - public/assets/kid_banana.png  (tools/make_banana_skin.py)
  *   trex   - public/assets/kid_trex.png    (tools/make_trex_skin.py)
  *   tuxedo - public/assets/kid_tuxedo.png  (tools/make_tuxedo_skin.py)
+ *   pirate - public/assets/kid_pirate.png  (tools/make_pirate_skin.py)
  *
  * The id is what goes over the wire (`skin` in Join / SetSkin /
  * PlayerSnapshot); the server falls back to "james" for unknown values.
  */
-export type Skin = "james" | "banana" | "trex" | "tuxedo";
+export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate";
 
 export const DEFAULT_SKIN: Skin = "james";
 
@@ -82,6 +83,19 @@ export const SKINS: Record<Skin, SkinSheet> = {
     frameHeight: 100,
     baselineY: 96,
     artHeight: 90,
+  },
+  pirate: {
+    id: "pirate",
+    label: "Pirate James",
+    note: "Arrr, you're it!",
+    texture: "kid_pirate",
+    url: `${BASE}assets/kid_pirate.png`,
+    // padded: 20px each side for the cutlass, 12px on top for the tricorn
+    frameWidth: 120,
+    frameHeight: 112,
+    baselineY: 108,
+    // hat top ~96px above the feet (the feather a touch higher)
+    artHeight: 96,
   },
 };
 
