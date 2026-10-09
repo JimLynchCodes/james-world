@@ -13,11 +13,13 @@ read at game zoom. Every frame keeps the kid's own motion:
   1. sleeveless black tunic, black shendyt with a gold hem and front sash;
   2. bare upper arms, solid gold forearm gauntlets, bare hands;
   3. black gladiator sandals — straps and round gold studs up the calf;
-  4. a pale champagne cape to the calves, behind the body (it covers the
-     back). Dark outline and a 2px gold trim;
-  5. striped nemes over the hair and ears, two lappets on the shoulders,
-     James's face (eyes and all) put back in the opening. Back views are
-     all headdress;
+  4. a pale champagne cape to the calves. On the back (N, NW, NE) it is
+     an opaque layer over the arms and hands; from the front and sides the
+     arms stay in front of the wings. Dark outline and a 2px gold trim;
+  5. striped nemes over the hair and ears, two lappets on the shoulders.
+     The face hole is James's own face (eyes, mouth, cheeks, chin), so the
+     headcloth frames it instead of cropping an ellipse through it. Back
+     views are all headdress;
   6. wide black collar with a gold rim, gold belt, jeweled eagle, pyramid
      pendant.
 
@@ -52,7 +54,6 @@ ASSETS = HERE.parent / "public" / "assets"
 PAD_TOP = 6
 PAD_SIDE = 12
 
-FRONT = {"SE": 1, "S": 0, "SW": -1}
 PROFILE = {"E": 1, "W": -1}
 BACK = {"NW", "N", "NE"}
 FACING = {"E": 1.0, "SE": 0.65, "S": 0.0, "SW": -0.65, "W": -1.0, "NW": -0.55, "N": 0.0, "NE": 0.55}
@@ -112,41 +113,71 @@ def ellipse(yy, xx, cx, cy, rx, ry) -> np.ndarray:
     return ((xx - cx) / max(rx, 0.4)) ** 2 + ((yy - cy) / max(ry, 0.4)) ** 2 <= 1.0
 
 
-def face_window(f: np.ndarray, g: Geometry, direction: str):
-    """Ellipse of James's face, or None on back views. Inset past the ears."""
-    if direction in BACK:
-        return None
+def face_opening(f: np.ndarray, g: Geometry, direction: str) -> np.ndarray:
+    """James's face, framed by the nemes — not a hard ellipse cut through it.
+
+    The hole is the face itself (forehead, cheeks, chin, and the eyes and
+    mouth, which are holes in the skin). Ears are separate blobs and stay
+    under the cloth. A one-pixel close knocks the jagged notches off the
+    outline so the gold rim reads as a headcloth edge.
+    """
     h, w = f.shape[:2]
+    opening = np.zeros((h, w), dtype=bool)
+    if direction in BACK:
+        return opening
     yy, xx = np.mgrid[0:h, 0:w]
-    face = (yy <= g.neck + 1) & skin_mask(f)
-    ys, xs = np.nonzero(face)
-    if len(xs) < 40:
-        return None
+    # skull only: a tagging arm can reach the head zone and must not become the face
+    zone = (yy >= g.top + 8) & (yy <= g.neck + 1)
+    zone &= np.abs(xx - g.head_cx) <= g.head_hw + 1
     if direction in PROFILE:
-        s = PROFILE[direction]
-        cx = float(np.median(xs)) + s * 1.2
-        cy = float(np.percentile(ys, 55))
-        rx = max(6.5, (np.percentile(xs, 88) - np.percentile(xs, 22)) / 2)
-        ry = max(7.0, (np.percentile(ys, 92) - np.percentile(ys, 30)) / 2)
-        brow = g.top + 14
-        if cy - ry < brow:
-            ry = max(6.0, cy - brow)
-    else:
-        cx = float(np.median(xs)) + FRONT[direction] * 0.8
-        cy = float(np.percentile(ys, 52)) + 0.4
-        rx = max(8.0, (np.percentile(xs, 82) - np.percentile(xs, 18)) / 2)
-        ry = max(8.5, (np.percentile(ys, 94) - np.percentile(ys, 12)) / 2)
-    return cx, cy, float(rx), float(ry)
-
-
-def opening_mask(shape, g: Geometry, direction: str, window) -> np.ndarray:
-    h, w = shape
-    yy, xx = np.mgrid[0:h, 0:w]
-    if window is None:
-        return np.zeros((h, w), dtype=bool)
-    opening = ellipse(yy + 0.0, xx + 0.0, *window)
-    opening &= yy >= g.top + (12 if direction in PROFILE else 9)
-    return opening
+        # the back of the skull is hair; keep the opening on the nose side
+        zone &= (xx - g.head_cx) * PROFILE[direction] >= -4
+    comps = [c for c in components8(skin_mask(f) & zone) if c.sum() >= 8]
+    if not comps:
+        return opening
+    comps.sort(key=lambda c: -c.sum())
+    face = comps[0]
+    ys, xs = np.nonzero(face)
+    span_l, span_r = int(xs.min()), int(xs.max())
+    ears = np.zeros((h, w), dtype=bool)
+    for c in comps[1:]:
+        cys, cxs = np.nonzero(c)
+        ccx = (float(cxs.min()) + float(cxs.max())) / 2
+        # ears (and a stray pixel) sit outside the cheeks
+        if ccx < span_l - 1 or ccx > span_r + 1:
+            ears |= c
+            continue
+        # chin / a cheek fragment still inside the face's width
+        if cys.min() <= int(ys.max()) + 4:
+            face |= c
+    # eyes and mouth are enclosed non-skin pixels
+    face = fill_holes(face)
+    enclosed = fill_holes(dilate(face, 1)) & ~face & zone
+    r, gc, b = (f[..., i].astype(np.int16) for i in range(3))
+    # reddish hair around the face. The mouth is red too, but it sits inside
+    # the face; keep that, and the dark eyes, and drop the hair.
+    lum = r.astype(np.int32) + gc.astype(np.int32) + b.astype(np.int32)
+    features = enclosed & ((lum < 220) | ((r > 140) & (gc < 130) & (b < 130)))
+    hair = (
+        alpha_mask(f)
+        & ~skin_mask(f)
+        & (r > gc + 18)
+        & (r > 70)
+        & (gc < 175)
+        & (b < r - 8)
+        & ~features
+    )
+    # peach shading tucked against the cheeks, not the hair and not the ears
+    shade = loose_skin(f) & dilate(face, 1) & zone & ~dilate(ears, 1) & ~hair
+    core = fill_holes(face | features | shade)
+    top = int(np.nonzero(core)[0].min())
+    # close 1px bays so the rim isn't a sawtooth, without climbing into the hair
+    closed = erode(dilate(core, 1), 1)
+    closed &= (yy >= top) & ~dilate(ears, 1) & ~hair
+    opening = (core | closed) & ~hair & ~dilate(ears, 1)
+    # hair test can punch the eyes and the outline inside the cheeks; close those
+    # back up so the nemes never stripes across the face
+    return fill_holes(opening)
 
 
 def phase_sway(anim: str, col: int) -> float:
@@ -481,15 +512,8 @@ def pharaohify(frame: np.ndarray, direction: str, anim: str, col: int) -> np.nda
     yy, xx = np.mgrid[0:h, 0:w]
     L = lum(f)
 
-    window = face_window(f, g, direction)
-    opening = opening_mask((h, w), g, direction, window)
-    # eyes and mouth sit in holes of the skin mask: fill those, clipped to the ellipse
-    face_skin = (yy <= g.neck + 1) & skin_mask(f)
-    # eyes and mouth are holes in the skin mask; keep them inside the window
-    holes = fill_holes(dilate(face_skin, 1)) & ~face_skin & (yy <= g.neck + 1)
-    opening = opening | (holes & dilate(opening, 1))
-
-    face = face_skin
+    opening = face_opening(f, g, direction)
+    face = (yy <= g.neck + 1) & skin_mask(f)
     arms, hands = arms_and_hands(f, g, face)
     hands = grow(hands, loose_skin(f) & arms, 1)
     sk = loose_skin(f)
@@ -541,8 +565,11 @@ def pharaohify(frame: np.ndarray, direction: str, anim: str, col: int) -> np.nda
     pin = (al > 0) & ~solid & (nb >= 3) & (yy > g.neck + 1)
     img[pin, 3] = 255
 
-    # what must survive every layer: the original face window and the hands
-    protect = (opening & (f[..., 3] > 0)) | (hands & (img[..., 3] > 0))
+    # Front and sides: the face and the hands stay on top of every layer.
+    # Back: the cape is the rear surface, so the arms and hands stay behind it.
+    face_keep = opening & (f[..., 3] > 0)
+    hand_keep = hands & (img[..., 3] > 0) & (direction not in BACK)
+    protect = face_keep | hand_keep
     saved = img.copy()
     saved[opening] = f[opening]  # original eyes, mouth, freckles — not recoloured neighbours
 
@@ -552,18 +579,30 @@ def pharaohify(frame: np.ndarray, direction: str, anim: str, col: int) -> np.nda
 
     torso = a & ~arms & ~hands & (yy > g.neck) & (yy < g.hem)
     cape = cape_mask(g, torso, direction, phase_sway(anim, col))
-    # cape stays behind the head, arms, hands and sandals
-    cape &= ~cloth & ~lappets & ~protect & ~hands & ~arms & ~shoes
+    if direction in BACK:
+        # fill the cape out to the arms and plug the holes where the limbs were
+        limb = (arms | hands) & ~shoes
+        rows = np.nonzero(cape.any(axis=1))[0]
+        if len(rows):
+            for y in range(int(rows.min()), int(rows.max()) + 1):
+                xs = np.nonzero(cape[y] | limb[y])[0]
+                if len(xs) >= 2:
+                    cape[y, int(xs[0]):int(xs[-1]) + 1] = True
+        cape &= ~cloth & ~lappets & ~shoes
+    else:
+        # wings sit behind the body, the arms and the sandals
+        cape &= ~cloth & ~lappets & ~protect & ~hands & ~arms & ~shoes
     cape &= yy < g.hem + 8
 
-    # back: the cape covers the tunic and shendyt; arms, head and feet stay
     shown = img.copy()
     if direction in BACK:
-        cover = (yy > g.neck + 1) & (yy < g.hem + 6) & ~arms & ~hands & ~protect & ~shoes
+        # tunic, shendyt and the arms all disappear under the cape; feet stay
+        cover = (yy > g.neck + 1) & (yy < g.hem + 6) & ~shoes
         shown[cover, 3] = 0
-
-    if direction in BACK:
         paint_cape(shown, cape)
+        # a limb that still sticks past the cloth must not show as skin
+        peek = (arms | hands) & ~shoes & ~cape & (yy > g.neck)
+        shown[peek, 3] = 0
     else:
         # wings only: the body is already in `shown` and must stay in front
         paint_cape(shown, cape & (shown[..., 3] == 0))
@@ -583,10 +622,11 @@ def pharaohify(frame: np.ndarray, direction: str, anim: str, col: int) -> np.nda
     # collar variable kept so a back-view collar isn't covered by the cape fold
     _ = collar
 
-    # face, hands, gauntlets and sandals always win
+    # face (and, from the front, the hands) always win. Gauntlets stay off the back.
     shown[protect] = saved[protect]
-    stamp(shown, gaunt & ~protect, GOLD)
-    stamp(shown, lip & ~protect, GOLD_BRIGHT)
+    if direction not in BACK:
+        stamp(shown, gaunt & ~protect, GOLD)
+        stamp(shown, lip & ~protect, GOLD_BRIGHT)
     # sandals again so the cape hem can't swallow the straps
     paint_sandals(shown, g, shins & ~protect, shoes & ~protect)
     paint_skirt_gold(shown, skirt & (shown[..., 3] > 0) & ~protect, g, direction)
