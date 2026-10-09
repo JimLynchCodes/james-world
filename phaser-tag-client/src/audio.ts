@@ -14,7 +14,7 @@
 
 import type { Mood, Settings } from "./settings";
 
-export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "click";
+export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "gorillaStep" | "gorillaTag" | "click";
 
 const CROSSFADE_S = 1.5;
 const LOOKAHEAD_S = 0.15;
@@ -488,6 +488,8 @@ export class GameAudio {
   private pirateFoot = false;
   /** Pirate James: the deck creaks now and then, not on every step. */
   private pirateSteps = 0;
+  /** Gorilla James alternates an "ooh" and a slightly lower "ahh" per foot. */
+  private gorillaFoot = false;
   private lastJoin = 0;
   private buffers = new Map<Mood, AudioBuffer>();
   private loads = new Map<Mood, LoadStatus>();
@@ -687,6 +689,98 @@ export class GameAudio {
         syn.tone(t + 0.1, 2950, { gain: 0.025 * v, attack: 0.002, release: 0.25 });
         syn.tone(t + 0.1, 4420, { gain: 0.012 * v, attack: 0.002, release: 0.18 });
         break;
+      case "gorillaStep": {
+        // Gorilla James: one monkey "ooh-ahh" per footfall. The vowel opens
+        // (pitch up, a brighter partial comes in). Feet alternate so left
+        // and right aren't the same note; a little random detune on top.
+        this.gorillaFoot = !this.gorillaFoot;
+        const p = (this.gorillaFoot ? 1 : 0.84) * (0.96 + Math.random() * 0.08);
+        const ooh = 220 * p;
+        const ahh = 370 * p;
+        syn.tone(t, ooh, {
+          type: "sine",
+          glideTo: ahh,
+          attack: 0.018,
+          hold: 0.04,
+          release: 0.09,
+          gain: 0.16 * v,
+          filter: 980,
+          vibrato: [5.5, 8],
+        });
+        syn.tone(t, ooh * 0.5, {
+          type: "sine",
+          glideTo: ahh * 0.5,
+          attack: 0.02,
+          hold: 0.035,
+          release: 0.08,
+          gain: 0.07 * v,
+          filter: 420,
+        });
+        // the "ahh" formant arrives as the mouth opens
+        syn.tone(t + 0.042, ooh * 2.05, {
+          type: "triangle",
+          glideTo: ahh * 1.65,
+          attack: 0.018,
+          hold: 0.028,
+          release: 0.07,
+          gain: 0.045 * v,
+          filter: 2200,
+        });
+        syn.noise(t + 0.01, {
+          filter: "bandpass",
+          freq: 680 * p,
+          sweepTo: 1450 * p,
+          q: 1.4,
+          gain: 0.045 * v,
+          attack: 0.018,
+          release: 0.07,
+        });
+        break;
+      }
+      case "gorillaTag": {
+        // Gorilla James tags with a falling monkey "waaaahhh": open vowel,
+        // slow pitch drop, a rasp, and a quiet whoosh under the swing.
+        const start = 490 * (0.94 + Math.random() * 0.1);
+        const end = 155;
+        syn.tone(t, start, {
+          type: "sine",
+          glideTo: end,
+          attack: 0.03,
+          hold: 0.16,
+          release: 0.3,
+          gain: 0.18 * v,
+          vibrato: [5, 16],
+        });
+        syn.tone(t, start * 0.5, {
+          type: "sine",
+          glideTo: end * 0.5,
+          attack: 0.03,
+          hold: 0.14,
+          release: 0.26,
+          gain: 0.08 * v,
+        });
+        syn.tone(t + 0.02, start * 2.15, {
+          type: "triangle",
+          glideTo: end * 2.3,
+          attack: 0.04,
+          hold: 0.1,
+          release: 0.22,
+          gain: 0.04 * v,
+          filter: 2400,
+        });
+        syn.tone(t, start, {
+          type: "sawtooth",
+          glideTo: end,
+          attack: 0.04,
+          hold: 0.08,
+          release: 0.18,
+          gain: 0.018 * v,
+          filter: 900,
+        });
+        syn.noise(t, { filter: "bandpass", freq: 1100, sweepTo: 360, q: 0.8, gain: 0.07 * v, attack: 0.04, release: 0.28 });
+        syn.noise(t, { filter: "bandpass", freq: 480, sweepTo: 2000, q: 1.2, gain: 0.14 * v, attack: 0.03, release: 0.11 });
+        break;
+      }
       case "click":
         syn.tone(t, 1250, { type: "triangle", gain: 0.08 * v, release: 0.035 });
         break;

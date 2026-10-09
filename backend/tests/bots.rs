@@ -209,6 +209,14 @@ fn skins_default_to_james_and_unknown_values_fall_back() {
     assert_eq!(serde_json::to_value(Skin::Pirate).unwrap(), "pirate");
     assert_eq!(serde_json::from_value::<Skin>(serde_json::json!("pirate")).unwrap(), Skin::Pirate);
     assert_eq!(Skin::parse("pirates"), Skin::James);
+    assert!(world.set_skin(human, Skin::parse("gorilla")));
+    assert_eq!(world.skin_of(&human), Skin::Gorilla);
+    assert_eq!(Skin::parse(" Gorilla "), Skin::Gorilla);
+    assert_eq!(Skin::parse("GORILLA"), Skin::Gorilla);
+    assert_eq!(Skin::Gorilla.as_str(), "gorilla");
+    assert_eq!(serde_json::to_value(Skin::Gorilla).unwrap(), "gorilla");
+    assert_eq!(serde_json::from_value::<Skin>(serde_json::json!("gorilla")).unwrap(), Skin::Gorilla);
+    assert_eq!(Skin::parse("gorillas"), Skin::James);
     assert_eq!(Skin::parse("tux"), Skin::James, "unknown skins fall back to james");
     assert!(!world.set_skin(Uuid::new_v4(), Skin::Banana));
 }

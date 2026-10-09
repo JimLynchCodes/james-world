@@ -25,6 +25,17 @@ const STEP_SFX: Record<Skin, Sfx> = {
   trex: "trexStep",
   tuxedo: "tuxedoStep",
   pirate: "pirateStep",
+  gorilla: "gorillaStep",
+};
+
+/** Tag swing sound for the local kid, per skin. */
+const TAG_SFX: Record<Skin, Sfx> = {
+  james: "swing",
+  banana: "swing",
+  trex: "swing",
+  tuxedo: "swing",
+  pirate: "pirateSwing",
+  gorilla: "gorillaTag",
 };
 
 const WS_URL =
@@ -264,7 +275,7 @@ class GameScene extends Phaser.Scene {
     if (moving) {
       this.stepTimer -= delta;
       if (this.stepTimer <= 0) {
-        // Costumes have their own footsteps (squeaky / stomp / dress-shoe click).
+        // Costumes have their own footsteps (squeak / stomp / click / ooh-ahh).
         this.audio?.playSfx(STEP_SFX[this.localSkin]);
         this.stepTimer = running ? STEP_MS.run : STEP_MS.walk;
       }
@@ -532,7 +543,7 @@ class GameScene extends Phaser.Scene {
       );
     }
     this.player.facing = this.playerFacingAngle;
-    if (!this.player.isTagging) this.audio?.playSfx(this.localSkin === "pirate" ? "pirateSwing" : "swing");
+    if (!this.player.isTagging) this.audio?.playSfx(TAG_SFX[this.localSkin]);
     this.player.playTag(this.playerFacingAngle);
 
     if (!closest) return;

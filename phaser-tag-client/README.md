@@ -9,7 +9,7 @@ A minimal fullscreen Phaser client for the Rust WebSocket protocol.
 - WASD / arrow-key movement, or Mobile mode (tap where to walk, or a
   virtual joystick with Tag and Run buttons)
 - Settings panel (cog, top right): controls mode, volumes, music mood, skin
-- Skins: James (default), Banana James, or T-rex James, seen by every player
+- Skins: James (default), Banana James, T-rex James, Tuxedo James, Pirate James, or Gorilla James, seen by every player
 - Music and sound effects: procedural (Web Audio) plus one CC0 lo-fi loop
 - SHIFT to request running
 - SPACE to attempt tagging the nearest player
@@ -227,10 +227,10 @@ player stops.
   mobile UA, iPadOS touch points, coarse primary pointer without hover).
 - **Sound**: Master volume, Background music, Sound effects (0-100), and
   a Mood dropdown (Happy, Spooky, Relaxed, Chillin) that picks the music.
-- **Skins**: three cards with a live preview of James in each skin: **James** (default),
-  **Banana James** (banana costume, squeaky shoes on the SFX bus), and
-  **T-rex James** (T-rex onesie, deep scary stomp on the SFX bus). See
-  "Skins" below.
+- **Skins**: a card per outfit with a live preview. **James** (default),
+  **Banana James** (squeaky shoes), **T-rex James** (scary stomps),
+  **Tuxedo James**, **Pirate James**, and **Gorilla James** (a monkey
+  "ooh-ahh" on each step, and a "waaaahhh" when he tags). See "Skins" below.
 
 Only settings the user has actually chosen are saved in `localStorage`
 (`tag26.settings`), and they are applied on load. Invalid or unknown saved
@@ -305,6 +305,16 @@ skin carries its own frame size and feet line. Animation keys are
   tail), claw mittens and booties, and a prominent spiked tail. Footsteps
   use a deep scary stomp on the SFX bus (`trexStep`). Re-run:
   `python3 tools/make_trex_skin.py [--preview /tmp/trex.png]`.
+- `gorilla`: `public/assets/kid_gorilla.png` (100x115 frames, feet on y = 108;
+  12px on top for the rounded ears, 10px each side for shaggy fur). Generated
+  from `kid.png` by `tools/make_gorilla_skin.py`. Black fur suit with a
+  ragged tuft halo, a hood opening that keeps James's face (back views are
+  all fur), rounded ears, a molded muscle chest on front and side views,
+  hands peeking from the sleeves (darker knuckles on walk and run), and
+  furry feet with toe nubs. Footsteps are a monkey "ooh-ahh" (`gorillaStep`,
+  pitch alternates per foot) and tagging is a falling "waaaahhh"
+  (`gorillaTag`), both on the SFX bus. Re-run:
+  `python3 tools/make_gorilla_skin.py [--preview /tmp/gorilla.png]`.
 
 Multiplayer: the client sends its skin in `Join` (`skin`, optional) and
 `SetSkin { skin }` when it changes in Settings. The server stores it on the

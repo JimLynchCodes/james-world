@@ -9,11 +9,12 @@
  *   trex   - public/assets/kid_trex.png    (tools/make_trex_skin.py)
  *   tuxedo - public/assets/kid_tuxedo.png  (tools/make_tuxedo_skin.py)
  *   pirate - public/assets/kid_pirate.png  (tools/make_pirate_skin.py)
+ *   gorilla - public/assets/kid_gorilla.png (tools/make_gorilla_skin.py)
  *
  * The id is what goes over the wire (`skin` in Join / SetSkin /
  * PlayerSnapshot); the server falls back to "james" for unknown values.
  */
-export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate";
+export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate" | "gorilla";
 
 export const DEFAULT_SKIN: Skin = "james";
 
@@ -96,6 +97,19 @@ export const SKINS: Record<Skin, SkinSheet> = {
     baselineY: 108,
     // hat top ~96px above the feet (the feather a touch higher)
     artHeight: 96,
+  },
+  gorilla: {
+    id: "gorilla",
+    label: "Gorilla James",
+    note: "Ooh ahh!",
+    texture: "kid_gorilla",
+    url: `${BASE}assets/kid_gorilla.png`,
+    // padded: 12px on top for the ears, 10px each side for shaggy fur
+    frameWidth: 100,
+    frameHeight: 115,
+    baselineY: 108,
+    // ear tops sit ~102px above the feet
+    artHeight: 102,
   },
 };
 
