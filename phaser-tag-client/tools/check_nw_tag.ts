@@ -6,7 +6,14 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { avatarAnimKey, directionFromAngle, latchTagPress } from "../src/tagging.ts";
+import {
+  applyPhysicalKey,
+  avatarAnimKey,
+  directionFromAngle,
+  latchTagPress,
+  movementAxes,
+  noteTagKey,
+} from "../src/tagging.ts";
 
 const DIRS: [number, number, string][] = [
   [1, 0, "E"],
@@ -48,4 +55,46 @@ test("space keyup does not swallow a same-step tag press", () => {
   queued = latchTagPress(queued, "up");
   assert.equal(queued, true);
   assert.equal(latchTagPress(false, "up"), false);
+});
+
+const SKINS = ["kid", "kid_pharaoh", "kid_banana", "kid_trex", "kid_tuxedo", "kid_pirate"] as const;
+
+test("arrow up+left and WASD northwest are the same axes", () => {
+  assert.deepEqual(movementAxes(new Set(["ArrowUp", "ArrowLeft"])), movementAxes(new Set(["KeyW", "KeyA"])));
+  const { dx, dy, running } = movementAxes(new Set(["ArrowUp", "ArrowLeft"]));
+  assert.equal(dx, -1);
+  assert.equal(dy, -1);
+  assert.equal(running, false);
+});
+
+test("arrow keyup in the same step does not drop a keyCode-less space tap", () => {
+  // Phaser indexes Key objects by keyCode. Space often arrives here as
+  // code "Space" with keyCode 0 while ArrowUp/ArrowLeft still carry 38/37,
+  // so the cursor-key path walked and the Space Key latch never fired.
+  let held = new Set<string>();
+  let queued = false;
+  const step = (
+    phase: "down" | "up",
+    event: { code?: string; key?: string; keyCode?: number; repeat?: boolean }
+  ) => {
+    held = applyPhysicalKey(held, event, phase);
+    queued = noteTagKey(queued, event, phase);
+  };
+  step("down", { code: "ArrowUp", keyCode: 38 });
+  step("down", { code: "ArrowLeft", keyCode: 37 });
+  step("up", { code: "ArrowUp", keyCode: 38 });
+  step("down", { code: "Space", key: " ", keyCode: 0 });
+  step("up", { code: "Space", key: " ", keyCode: 0 });
+  step("down", { code: "ArrowUp", keyCode: 0 });
+  const { dx, dy, running } = movementAxes(held);
+  assert.equal(queued, true);
+  assert.equal(dx, -1);
+  assert.equal(dy, -1);
+  const angle = Math.atan2(dy, dx);
+  for (const texture of SKINS) {
+    assert.equal(avatarAnimKey(texture, angle, true, running, queued), `${texture}-tag-NW`);
+  }
+  assert.equal(noteTagKey(true, { code: "ArrowLeft", keyCode: 37 }, "up"), true);
+  assert.equal(noteTagKey(false, { code: "Space", keyCode: 0, repeat: true }, "down"), false);
+  assert.equal(movementAxes(applyPhysicalKey(new Set(), { key: "ArrowUp", keyCode: 0 }, "down")).dy, -1);
 });
