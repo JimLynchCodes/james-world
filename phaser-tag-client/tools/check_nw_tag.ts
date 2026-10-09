@@ -12,6 +12,7 @@ import {
   directionFromAngle,
   latchTagPress,
   movementAxes,
+  nextAvatarAnim,
   noteTagKey,
 } from "../src/tagging.ts";
 
@@ -97,4 +98,61 @@ test("arrow keyup in the same step does not drop a keyCode-less space tap", () =
   assert.equal(noteTagKey(true, { code: "ArrowLeft", keyCode: 37 }, "up"), true);
   assert.equal(noteTagKey(false, { code: "Space", keyCode: 0, repeat: true }, "down"), false);
   assert.equal(movementAxes(applyPhysicalKey(new Set(), { key: "ArrowUp", keyCode: 0 }, "down")).dy, -1);
+});
+
+test("T tags the same way as Space and is not a movement key", () => {
+  const tagWith = (event: { code?: string; key?: string; keyCode?: number; repeat?: boolean }) => {
+    let held = applyPhysicalKey(new Set(["ArrowUp", "ArrowLeft"]), { code: "ArrowUp", keyCode: 38 }, "up");
+    let queued = false;
+    queued = noteTagKey(queued, event, "down");
+    queued = noteTagKey(queued, event, "up");
+    held = applyPhysicalKey(held, event, "down");
+    held = applyPhysicalKey(held, event, "up");
+    return { queued, held };
+  };
+  for (const event of [
+    { code: "KeyT", key: "t", keyCode: 84 },
+    { key: "t", keyCode: 0 },
+    { key: "T", keyCode: 84 },
+    { keyCode: 84 },
+  ]) {
+    const { queued, held } = tagWith(event);
+    assert.equal(queued, true, JSON.stringify(event));
+    const { dx, dy } = movementAxes(held);
+    assert.equal(dx, -1);
+    assert.equal(dy, 0);
+    assert.equal(held.has("KeyT"), false);
+  }
+  assert.equal(noteTagKey(false, { code: "KeyT", keyCode: 84, repeat: true }, "down"), false);
+  const angle = Math.atan2(-1, -1);
+  assert.equal(avatarAnimKey("kid", angle, true, false, true), "kid-tag-NW");
+});
+
+test("a tag swing stays on the facing it started in while walking, for every skin", () => {
+  const nw = Math.atan2(-1, -1);
+  const east = 0;
+  for (const texture of SKINS) {
+    assert.equal(
+      nextAvatarAnim({
+        texture,
+        facing: east,
+        moving: true,
+        running: true,
+        tagging: true,
+        tagFacing: nw,
+      }),
+      `${texture}-tag-NW`
+    );
+    assert.equal(
+      nextAvatarAnim({
+        texture,
+        facing: nw,
+        moving: true,
+        running: false,
+        tagging: false,
+        tagFacing: null,
+      }),
+      `${texture}-walk-NW`
+    );
+  }
 });

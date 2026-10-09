@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import { DEFAULT_SKIN, SKINS, SKIN_IDS, type Skin, type SkinSheet } from "./skins";
-import { DIRECTIONS, avatarAnimKey, type Direction } from "./tagging";
+import { DIRECTIONS, nextAvatarAnim, type Direction } from "./tagging";
 
 export { directionFromAngle } from "./tagging";
 
@@ -295,19 +295,23 @@ export class KidAvatar {
   }
 
   /**
-   * Play the tag (arm reach) animation once. `towardAngle`, if given, turns
-   * the kid to face the tagged player for the duration of the swing so the
-   * arm reaches toward them.
+   * Play the tag (arm reach) once, in the direction the kid is facing right
+   * now. `towardAngle` locks a different facing (a remote kid swinging at
+   * someone). Walking does not restart or replace this clip.
    */
   playTag(towardAngle?: number) {
     if (this.tagging) return;
     this.tagging = true;
-    this.tagFacing = towardAngle ?? null;
-
-    const angle = this.tagFacing ?? this.facing;
+    this.tagFacing = towardAngle ?? this.facing;
     this.sprite.anims.play(
-      avatarAnimKey(SKINS[this.skin].texture, angle, this.moving, this.running, true),
-      true
+      nextAvatarAnim({
+        texture: SKINS[this.skin].texture,
+        facing: this.facing,
+        moving: this.moving,
+        running: this.running,
+        tagging: true,
+        tagFacing: this.tagFacing,
+      })
     );
 
     // Small forward lunge in the facing direction, synced to the reach.
@@ -352,24 +356,30 @@ export class KidAvatar {
   /** Call every frame after updating x/y/facing/moving/running. */
   update() {
     const facing = this.tagFacing ?? this.facing;
+    const key = nextAvatarAnim({
+      texture: SKINS[this.skin].texture,
+      facing: this.facing,
+      moving: this.moving,
+      running: this.running,
+      tagging: this.tagging,
+      tagFacing: this.tagFacing,
+    });
 
-    if (!this.tagging) {
-      // Re-evaluated every frame from the current flags only: walk / run
-      // while moving, the breathing idle as soon as moving goes false.
-      // A tag swing (including northwest, while still walking) is left alone.
-      const key = avatarAnimKey(SKINS[this.skin].texture, facing, this.moving, this.running, false);
-      if (this.moving) {
-        const current = this.sprite.anims.currentAnim?.key;
-        if (current !== key) {
-          // Keep the stride phase when turning or switching walk <-> run.
-          const was = animOf(current);
-          const progress = was === "walk" || was === "run" ? this.sprite.anims.getProgress() : 0;
-          this.sprite.anims.play(key);
-          if (progress) this.sprite.anims.setProgress(progress);
-        }
-      } else {
-        this.sprite.anims.play(key, true);
+    if (this.tagging) {
+      // The swing wins until its clip finishes. A walk / run / turn must
+      // not replace it, including a movement clip that started this frame.
+      if (this.sprite.anims.currentAnim?.key !== key) this.sprite.anims.play(key);
+    } else if (this.moving) {
+      const current = this.sprite.anims.currentAnim?.key;
+      if (current !== key) {
+        // Keep the stride phase when turning or switching walk <-> run.
+        const was = animOf(current);
+        const progress = was === "walk" || was === "run" ? this.sprite.anims.getProgress() : 0;
+        this.sprite.anims.play(key);
+        if (progress) this.sprite.anims.setProgress(progress);
       }
+    } else {
+      this.sprite.anims.play(key, true);
     }
 
     const lunge = TAG_LUNGE * this.lunge.t;

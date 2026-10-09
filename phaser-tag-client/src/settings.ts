@@ -152,7 +152,7 @@ export function controlsHint(mode: ControlMode): string {
     ? "<strong>Tap</strong> the ground to walk or use the <strong>joystick</strong> · " +
         "<strong>TAG</strong> or tap a nearby player to tag · hold <strong>RUN</strong> to run"
     : "<strong>WASD / Arrow Keys</strong> move · <strong>SHIFT</strong> run · " +
-        "<strong>SPACE</strong> tag";
+        "<strong>SPACE</strong> or <strong>T</strong> tag";
 }
 
 export interface SettingsPanelOptions {
@@ -399,7 +399,7 @@ export class SettingsPanel {
                   <span class="howto-what">Run (hold)</span>
                 </li>
                 <li class="howto-row">
-                  <span class="howto-keys"><kbd class="key key-space">Space</kbd></span>
+                  <span class="howto-keys"><kbd class="key key-space">Space</kbd><span class="howto-or">or</span><kbd class="key">T</kbd></span>
                   <span class="howto-what">Tag!</span>
                 </li>
               </ul>

@@ -229,9 +229,9 @@ class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Arrows, WASD, Shift and Space. Space's keyup does not forget a press
-   * that landed in this same step (see noteTagKey); an arrow keyup doesn't
-   * either.
+   * Arrows, WASD, Shift, Space, and T. Space and T share one latch: either
+   * keyup does not forget a press that landed in this same step (see
+   * noteTagKey), and an arrow keyup doesn't either.
    */
   private readonly onDomKey = (event: KeyboardEvent) => {
     const phase: "down" | "up" = event.type === "keydown" ? "down" : "up";
@@ -249,21 +249,22 @@ class GameScene extends Phaser.Scene {
 
   update(_time: number, delta: number) {
     if (this.playing) {
+      this.tagCooldown = Math.max(0, this.tagCooldown - delta);
+
+      // Space or T (captured, so Space never scrolls the page). Consumed
+      // before movement so the swing starts in the facing we already have,
+      // and the walk clip this frame cannot replace it.
+      if (this.tagQueued) {
+        this.tagQueued = false;
+        this.tryTagNearest();
+      }
+
       this.updateLocalMovement(delta);
 
       this.inputTimer -= delta;
       if (this.inputTimer <= 0) {
         this.sendMovement();
         this.inputTimer = 50;
-      }
-
-      this.tagCooldown = Math.max(0, this.tagCooldown - delta);
-
-      // SPACE tags (captured, so it never scrolls the page). Consumed from
-      // the latch so a same-step press+release still swings.
-      if (this.tagQueued) {
-        this.tagQueued = false;
-        this.tryTagNearest();
       }
     } else {
       this.updateSpectatorCamera();
@@ -569,17 +570,10 @@ class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Optimistic: swing the arm right away (toward the target if there is
-    // one, otherwise straight ahead) without waiting for the server.
-    if (closest) {
-      this.playerFacingAngle = Math.atan2(
-        closest.avatar.y - this.player.y,
-        closest.avatar.x - this.player.x
-      );
-    }
-    this.player.facing = this.playerFacingAngle;
+    // Optimistic: swing right away in the direction we're already facing.
+    // A nearby player does not turn the clip, and walking does not cancel it.
     if (!this.player.isTagging) this.audio?.playSfx(SWING_SFX[this.localSkin] ?? "swing");
-    this.player.playTag(this.playerFacingAngle);
+    this.player.playTag();
 
     if (!closest) return;
 
