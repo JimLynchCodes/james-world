@@ -35,7 +35,9 @@ canvas {
   position: absolute;
   top: 16px;
   left: 16px;
-  min-width: 220px;
+  min-width: min(220px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
   padding: 12px 14px;
   border: 1px solid rgba(255,255,255,.12);
   border-radius: 12px;
@@ -43,6 +45,11 @@ canvas {
   backdrop-filter: blur(8px);
   font-size: 13px;
   line-height: 1.5;
+}
+
+/* Narrow phones: the status panel stops short of the settings cog. */
+@media (max-width: 360px) {
+  .status { min-width: 0; max-width: calc(100vw - 16px - 86px); padding: 10px; font-size: 12px; }
 }
 
 .controls {
@@ -72,6 +79,7 @@ canvas {
 
 .energy-bar {
   width: 180px;
+  max-width: 100%;
   height: 6px;
   margin-top: 5px;
   overflow: hidden;
@@ -194,6 +202,12 @@ canvas {
   animation: settings-fade .18s ease-out;
 }
 .settings-backdrop[hidden] { display: none; }
+@media (max-width: 300px) {
+  .settings-backdrop {
+    padding-left: max(8px, env(safe-area-inset-left, 0px));
+    padding-right: max(20px, env(safe-area-inset-right, 0px));
+  }
+}
 
 @keyframes settings-fade { from { opacity: 0; } }
 @keyframes settings-pop {
@@ -222,6 +236,8 @@ canvas {
   color: var(--ink);
   font-family: var(--font-fun);
   user-select: none;
+  /* Layout below follows the panel's own width, not the screen's. */
+  container: settings / inline-size;
 }
 
 @media (max-height: 740px) {
@@ -314,6 +330,9 @@ canvas {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
   padding: 10px 12px;
   border: 3px solid var(--ink);
   border-radius: 16px;
@@ -351,6 +370,7 @@ canvas {
   flex-direction: column;
 }
 .settings-scroll {
+  container: pane / inline-size;
   flex: 1 1 auto;
   min-height: 0;
   overflow-x: hidden;
@@ -406,6 +426,8 @@ canvas {
 .slider-row { display: block; }
 .setting-row[hidden] { display: none; }
 .setting-label {
+  min-width: 0;
+  overflow-wrap: break-word;
   font-size: 15px;
   font-weight: 800;
 }
@@ -434,8 +456,12 @@ canvas {
   justify-content: flex-end;
   gap: 10px;
   max-width: 100%;
+  /* room for the active option's little scale-up pop */
+  padding-inline: 4px;
+  box-sizing: border-box;
 }
 .mode-option {
+  white-space: nowrap;
   padding: 4px 2px;
   border: 0;
   background: none;
@@ -550,7 +576,9 @@ canvas {
   -webkit-appearance: none;
 }
 
-@media (max-width: 560px) {
+/* Narrow panel: tabs move above the options. Breakpoints are the panel's
+   width (container "settings"), so they track the real space available. */
+@container settings (max-width: 519px) {
   .settings-frame { padding: 16px 12px 14px; }
   .settings-body {
     grid-template-columns: minmax(0, 1fr);
@@ -558,7 +586,13 @@ canvas {
     gap: 12px;
   }
   .settings-tabs { flex-direction: row; gap: 8px; align-self: stretch; }
-  .settings-tab { flex: 1 1 0; min-width: 0; justify-content: center; gap: 5px; padding: 8px 6px; font-size: 14px; }
+  .settings-tab {
+    flex: 1 1 auto;
+    justify-content: center;
+    gap: 5px;
+    padding: 8px 8px;
+    font-size: 14px;
+  }
   .settings-tab svg { width: 20px; height: 20px; }
   .settings-pane { min-width: 0; padding: 14px 12px 16px; }
   .mode-switch { gap: 8px; }
@@ -567,6 +601,61 @@ canvas {
   .settings-title { font-size: 26px; }
   .setting-row { gap: 8px 10px; }
   .switch { flex: none; }
+}
+
+/* Getting tight: a slightly smaller tab row still fits every label. */
+@container settings (max-width: 339px) {
+  .settings-tabs { gap: 6px; }
+  .settings-tab { gap: 4px; padding: 7px 6px; font-size: 13px; }
+  .settings-tab svg { width: 18px; height: 18px; }
+}
+
+/* Too narrow for three labelled tabs side by side: stack them, full width. */
+@container settings (max-width: 299px) {
+  .settings-tabs { flex-direction: column; gap: 8px; }
+  .settings-tab { flex: none; justify-content: flex-start; gap: 8px; padding: 7px 12px; font-size: 14px; }
+  .settings-tab svg { width: 20px; height: 20px; }
+  .settings-tab:hover { transform: none; }
+  .settings-tab[aria-selected="true"] { transform: none; }
+  /* Toggle rows: label on its own line, the switch group under it. */
+  .setting-row { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .setting-row .mode-switch { align-self: stretch; justify-content: flex-start; }
+  .slider-row { display: block; }
+}
+
+/* Tiny panel (very narrow phones / split screen): trim the chrome and lay
+   each toggle out as "Option  Option" with the switch centered beneath. */
+@container settings (max-width: 259px) {
+  .settings-frame { padding: 14px 10px 12px; border-radius: 22px; }
+  .settings-title { font-size: 22px; margin-bottom: 10px; }
+  .settings-pane { padding: 12px 10px 14px; border-radius: 16px; }
+  .settings-pane h3 { font-size: 17px; margin-bottom: 10px; }
+  .settings-tab { font-size: 13px; padding: 6px 10px; }
+  .settings-tab svg { width: 18px; height: 18px; }
+  .mode-switch {
+    display: grid;
+    grid-template-columns: auto auto;
+    grid-template-areas: "a b" "s s";
+    justify-content: space-between;
+    justify-items: center;
+    gap: 2px 4px;
+    padding-inline: 0;
+  }
+  .setting-row .mode-switch { justify-content: space-between; }
+  .mode-switch > .mode-option:first-child { grid-area: a; }
+  .mode-switch > .switch { grid-area: s; }
+  .mode-switch > .mode-option:last-child { grid-area: b; }
+  .mode-option { font-size: 13px; }
+  .mode-option.active { transform: none; }
+  .switch { width: 64px; height: 36px; }
+  .switch-knob { width: 24px; height: 24px; }
+  .switch.on .switch-knob { left: 31px; }
+  .setting-label { font-size: 14px; }
+  .slider-wrap { gap: 8px; }
+  .slider-value { min-width: 36px; font-size: 13px; }
+  .settings-select { width: 100%; font-size: 15px; }
+  .setting-row .select-wrap { align-self: stretch; }
+  .setting-help { font-size: 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -581,10 +670,19 @@ canvas {
 
 :root {
   /* Tag / Run buttons; shrink a little on narrow phones so everything fits. */
-  --run-size: min(108px, 24vw);
+  --run-size: min(108px, max(60px, 24vw));
   --stick-size: min(144px, 34vw);
   --pad-gap: 12px;
   --edge: 18px;
+}
+/* Very narrow screens: smaller pads so the joystick never runs into Tag. */
+@media (max-width: 300px) {
+  :root {
+    --run-size: max(48px, 20vw);
+    --stick-size: 30vw;
+    --pad-gap: 8px;
+    --edge: 10px;
+  }
 }
 
 .action-pad {
@@ -632,8 +730,9 @@ canvas {
 }
 .run-button[hidden], .tag-button[hidden] { display: none; }
 .run-button svg, .tag-button svg {
-  width: 46px;
-  height: 46px;
+  width: calc(var(--run-size) * .42);
+  height: calc(var(--run-size) * .42);
+  flex: none;
   margin-top: 4px;
   overflow: visible;
 }
@@ -652,7 +751,7 @@ canvas {
 }
 .run-label {
   margin-top: -2px;
-  font-size: 22px;
+  font-size: calc(var(--run-size) * .2);
   font-weight: 900;
   letter-spacing: 1.5px;
   -webkit-text-stroke: 1.5px var(--ink);
@@ -679,7 +778,7 @@ canvas {
 .tag-button {
   background: radial-gradient(circle at 35% 28%, #9fdcff 0 18%, #3ea2ff 45%, #1f6fe0 100%);
 }
-.tag-button svg { width: 42px; height: 42px; }
+.tag-button svg { width: calc(var(--run-size) * .39); height: calc(var(--run-size) * .39); }
 .tag-button .tag-burst {
   fill: var(--sun);
   stroke: var(--ink);
@@ -694,7 +793,7 @@ canvas {
 }
 .tag-label {
   margin-top: -2px;
-  font-size: 22px;
+  font-size: calc(var(--run-size) * .2);
   font-weight: 900;
   letter-spacing: 1.5px;
   -webkit-text-stroke: 1.5px var(--ink);
@@ -779,21 +878,19 @@ canvas {
 .see-through { opacity: .18; }
 
 /* Settings > Skins: one card per skin with a live sprite preview */
+/* Cards per row follow the options pane's width (container "pane"):
+   3-up when wide, 2-up only when each card still gets ~135px, else one per
+   row: a wide card with the preview beside the name, or stacked when tiny. */
 .skin-cards {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 14px;
 }
-@media (max-width: 560px) {
-  /* Two-up so more costumes fit; the third wraps and the pane scrolls. */
-  .skin-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .skin-card { --s: .82; padding: 8px 4px 10px; }
-  .skin-name { font-size: 13px; }
-  .skin-note { font-size: 11px; }
-}
 .skin-card {
   --s: 1.05; /* preview scale (3 cards; trex frames are wide) */
+  box-sizing: border-box;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -853,6 +950,9 @@ canvas {
 }
 .skin-name {
   max-width: 100%;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: none;
   font-size: 16px;
   font-weight: 900;
   line-height: 1.2;
@@ -865,6 +965,40 @@ canvas {
   line-height: 1.2;
   text-align: center;
   color: #5b4f73;
+}
+@container pane (max-width: 339px) {
+  .skin-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .skin-card { --s: .82; padding: 8px 6px 10px; }
+  .skin-name { font-size: 14px; }
+  .skin-note { font-size: 11px; }
+}
+@container pane (max-width: 309px) {
+  .skin-cards { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .skin-card {
+    --s: .72;
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 2px;
+    padding: 8px 12px 8px 8px;
+    text-align: left;
+  }
+  .skin-stage { grid-row: 1 / 3; }
+  .skin-name { align-self: end; font-size: 16px; text-align: left; }
+  .skin-note { align-self: start; font-size: 12px; text-align: left; }
+  .skin-card.picked { transform: rotate(-1deg); }
+}
+@container pane (max-width: 189px) {
+  .skin-card {
+    --s: .8;
+    display: flex;
+    padding: 8px 6px 10px;
+    text-align: center;
+  }
+  .skin-name { align-self: center; font-size: 14px; text-align: center; }
+  .skin-note { align-self: center; font-size: 11px; text-align: center; }
 }
 @media (prefers-reduced-motion: reduce) {
   .skin-preview, .skin-card.picked .skin-preview { animation: none; background-position-x: calc(var(--fw) * var(--s) * -12px); }
@@ -931,7 +1065,8 @@ canvas {
 }
 .title-heading {
   margin: 0 0 10px;
-  font-size: clamp(42px, 8vw, 64px);
+  font-size: clamp(30px, 11vw, 64px);
+  overflow-wrap: break-word;
   font-weight: 900;
   letter-spacing: .5px;
   line-height: 1.05;
@@ -952,7 +1087,10 @@ canvas {
 }
 .title-start {
   display: inline-block;
-  min-width: 200px;
+  box-sizing: border-box;
+  min-width: min(200px, 100%);
+  max-width: 100%;
+  white-space: nowrap;
   padding: 14px 28px;
   border: 4px solid var(--ink);
   border-radius: 999px;
@@ -980,6 +1118,13 @@ canvas {
 .title-start:focus-visible {
   outline: 3px dashed var(--tangerine);
   outline-offset: 4px;
+}
+
+@media (max-width: 360px) {
+  .title-screen { padding: 14px; }
+  .title-card { padding: 22px 16px 20px; border-radius: 24px; }
+  .title-blurb { font-size: 16px; }
+  .title-start { padding: 12px 20px; font-size: 22px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
