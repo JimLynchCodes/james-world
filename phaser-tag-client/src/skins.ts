@@ -104,12 +104,13 @@ export const SKINS: Record<Skin, SkinSheet> = {
     note: "All hail, you're it!",
     texture: "kid_pharaoh",
     url: `${BASE}assets/kid_pharaoh.png`,
-    // padded: 12px each side for the cape, 6px on top for the nemes crown
-    frameWidth: 104,
-    frameHeight: 106,
-    baselineY: 102,
-    // striped crown tops out ~94px above the feet
-    artHeight: 94,
+    // padded: 15px each side for the cape, 20px on top for the tall nemes crown.
+    // 110×120 keeps the skins-card scale (1.2) on whole pixels.
+    frameWidth: 110,
+    frameHeight: 120,
+    baselineY: 116,
+    // striped crown tops out ~106px above the feet
+    artHeight: 106,
   },
 };
 

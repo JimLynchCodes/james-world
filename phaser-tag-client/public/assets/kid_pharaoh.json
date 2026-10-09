@@ -1,9 +1,9 @@
 {
   "image": "kid_pharaoh.png",
-  "frameWidth": 104,
-  "frameHeight": 106,
-  "baselineY": 102,
-  "anchorX": 52,
+  "frameWidth": 110,
+  "frameHeight": 120,
+  "baselineY": 116,
+  "anchorX": 55,
   "columns": 30,
   "directions": [
     "E",

@@ -1110,6 +1110,11 @@ canvas {
 .skin-card {
   flex: 0 0 calc((100% - (var(--cols) - 1) * var(--gap)) / var(--cols));
   --s: 1.2; /* preview scale (big 2-up cards; trex frames are wide) */
+  /* sprite draw scale. Defaults to --s. Pharaoh's frame is a multiple of
+     10, so 1.2 / 1 / 0.9 / 0.8 all land on whole pixels, same as James.
+     The narrow layouts use 0.82 and 0.72, which do not, so those
+     override --draw below. */
+  --draw: var(--s);
   box-sizing: border-box;
   min-width: 0;
   display: flex;
@@ -1150,25 +1155,25 @@ canvas {
   position: absolute;
   left: 50%;
   bottom: 0;
-  width: calc(var(--fw) * var(--s) * 1px);
-  height: calc(var(--fh) * var(--s) * 1px);
+  width: calc(var(--fw) * var(--draw) * 1px);
+  height: calc(var(--fh) * var(--draw) * 1px);
   transform: translateX(-50%);
   background-image: var(--sheet);
   background-repeat: no-repeat;
   /* 30 frames per row, 8 rows; row 2 = facing the camera (S) */
-  background-size: calc(var(--fw) * var(--s) * 30px) calc(var(--fh) * var(--s) * 8px);
-  background-position-y: calc(var(--fh) * var(--s) * -2px);
+  background-size: calc(var(--fw) * var(--draw) * 30px) calc(var(--fh) * var(--draw) * 8px);
+  background-position-y: calc(var(--fh) * var(--draw) * -2px);
   image-rendering: pixelated;
   animation: skin-breathe 1.3s steps(4) infinite;
 }
 .skin-card.picked .skin-preview { animation: skin-walk .8s steps(8) infinite; }
 @keyframes skin-breathe { /* breathing frames 12-15 */
-  from { background-position-x: calc(var(--fw) * var(--s) * -12px); }
-  to { background-position-x: calc(var(--fw) * var(--s) * -16px); }
+  from { background-position-x: calc(var(--fw) * var(--draw) * -12px); }
+  to { background-position-x: calc(var(--fw) * var(--draw) * -16px); }
 }
 @keyframes skin-walk { /* walk frames 4-11 */
-  from { background-position-x: calc(var(--fw) * var(--s) * -4px); }
-  to { background-position-x: calc(var(--fw) * var(--s) * -12px); }
+  from { background-position-x: calc(var(--fw) * var(--draw) * -4px); }
+  to { background-position-x: calc(var(--fw) * var(--draw) * -12px); }
 }
 .skin-name {
   max-width: 100%;
@@ -1197,6 +1202,8 @@ canvas {
 @container pane (max-width: 339px) {
   .skin-cards { --cols: 2; --gap: 12px; }
   .skin-card { --s: .82; padding: 8px 6px 10px; }
+  /* 0.82 of a 110×120 frame is not a whole pixel */
+  .skin-card[data-skin="pharaoh"] { --draw: 0.5; }
   .skin-name { font-size: 14px; }
   .skin-note { font-size: 11px; }
 }
@@ -1227,6 +1234,7 @@ canvas {
   }
   .skin-name { align-self: center; font-size: 14px; text-align: center; }
   .skin-note { align-self: center; font-size: 11px; text-align: center; }
+  .skin-card[data-skin="pharaoh"] { --draw: 0.8; }
 }
 /* Short laptop screens: a tighter 3-up so all six skins fit unscrolled. */
 @media (max-height: 700px) {
@@ -1242,7 +1250,7 @@ canvas {
   .settings-pane { padding-top: 12px; padding-bottom: 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .skin-preview, .skin-card.picked .skin-preview { animation: none; background-position-x: calc(var(--fw) * var(--s) * -12px); }
+  .skin-preview, .skin-card.picked .skin-preview { animation: none; background-position-x: calc(var(--fw) * var(--draw) * -12px); }
 }
 
 /* ------------------------------------------------------------------------

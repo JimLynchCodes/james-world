@@ -305,12 +305,15 @@ skin carries its own frame size and feet line. Animation keys are
   tail), claw mittens and booties, and a prominent spiked tail. Footsteps
   use a deep scary stomp on the SFX bus (`trexStep`). Re-run:
   `python3 tools/make_trex_skin.py [--preview /tmp/trex.png]`.
-- `pharaoh`: `public/assets/kid_pharaoh.png` (104x106 frames, feet on y = 102;
-  12px each side holds the cape, 6px on top holds the nemes crown).
+- `pharaoh`: `public/assets/kid_pharaoh.png` (110x120 frames, feet on y = 116;
+  15px each side holds the cape, 20px on top holds the tall nemes crown).
   Generated from `kid.png` by `tools/make_pharaoh_skin.py`. Black-and-gold
-  striped nemes with a smooth oval opening around James's face. The lappets
-  drape down and in over the chest. Side views keep James's own profile
-  (eye, brow, nose, mouth, ear, jaw) and wrap stripes over the hair only.
+  striped nemes with a tall crown and a smooth oval opening around James's
+  face (the cloth meets the skin on that curve, with no dark fringe). The
+  lappets drape down and in over the chest. Side views keep James's own
+  profile (eye, brow, nose, mouth, ear, jaw) and wrap stripes over the hair
+  only. The Skins card draws this sheet at a whole-pixel scale so the
+  stripes stay sharp.
   Back views are all headdress. Sleeveless black tunic, gold-rimmed collar, champagne cape
   to the calves, gold forearm gauntlets, black shendyt with a gold sash
   and jeweled eagle belt, pyramid pendant, and black gladiator sandals.
