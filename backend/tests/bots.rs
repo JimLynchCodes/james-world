@@ -1,6 +1,6 @@
 use taggame_backend::game::{
     bot::{choose_target, BOT_COUNT},
-    world::{PlayerInput, World},
+    world::{PlayerInput, World, SPAWN, SPAWN_GAP},
 };
 use uuid::Uuid;
 
@@ -231,4 +231,39 @@ fn spectators_keep_bots_and_joining_keeps_them() {
     // Human leaves with no spectators: bots go.
     let removed = world.remove_player(human);
     assert_eq!(removed.len(), BOT_COUNT);
+}
+
+#[test]
+fn joining_humans_never_spawn_on_top_of_someone() {
+    // Everyone used to appear at exactly (400, 300): two idle kids there drew
+    // their sprites and IT / YOU / name labels on top of each other.
+    let mut world = World::new();
+    let first = Uuid::new_v4();
+    world.add_player(first);
+    let p = &world.players[&first].position;
+    assert_eq!((p.x, p.y), SPAWN);
+
+    let mut humans = vec![first];
+    for _ in 0..15 {
+        let id = Uuid::new_v4();
+        world.add_player(id);
+        humans.push(id);
+    }
+    for (i, a) in humans.iter().enumerate() {
+        for b in &world.players {
+            if b.0 != a {
+                assert!(dist(&world, *a, *b.0) >= SPAWN_GAP - 0.01, "human {i} spawned on another player");
+            }
+        }
+        let pos = &world.players[a].position;
+        assert!(pos.x >= taggame_backend::game::world::MIN_X && pos.x <= taggame_backend::game::world::MAX_X);
+        assert!(pos.y >= taggame_backend::game::world::MIN_Y && pos.y <= taggame_backend::game::world::MAX_Y);
+    }
+
+    // A spot frees up again once its player walks off.
+    world.players.get_mut(&first).unwrap().position.x = 2500.0;
+    let id = Uuid::new_v4();
+    world.add_player(id);
+    let p = &world.players[&id].position;
+    assert_eq!((p.x, p.y), SPAWN);
 }
