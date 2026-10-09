@@ -9,11 +9,12 @@
  *   trex   - public/assets/kid_trex.png    (tools/make_trex_skin.py)
  *   tuxedo - public/assets/kid_tuxedo.png  (tools/make_tuxedo_skin.py)
  *   pirate - public/assets/kid_pirate.png  (tools/make_pirate_skin.py)
+ *   pharaoh - public/assets/kid_pharaoh.png (tools/make_pharaoh_skin.py)
  *
  * The id is what goes over the wire (`skin` in Join / SetSkin /
  * PlayerSnapshot); the server falls back to "james" for unknown values.
  */
-export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate";
+export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate" | "pharaoh";
 
 export const DEFAULT_SKIN: Skin = "james";
 
@@ -96,6 +97,20 @@ export const SKINS: Record<Skin, SkinSheet> = {
     baselineY: 108,
     // hat top ~96px above the feet (the feather a touch higher)
     artHeight: 96,
+  },
+  pharaoh: {
+    id: "pharaoh",
+    label: "Pharaoh James",
+    note: "All hail, you're it!",
+    texture: "kid_pharaoh",
+    url: `${BASE}assets/kid_pharaoh.png`,
+    // padded: 15px each side for the cape, 20px on top for the tall nemes crown.
+    // 110×120 keeps the skins-card scale (1.2) on whole pixels.
+    frameWidth: 110,
+    frameHeight: 120,
+    baselineY: 116,
+    // striped crown tops out ~106px above the feet
+    artHeight: 106,
   },
 };
 

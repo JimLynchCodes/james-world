@@ -1,5 +1,8 @@
 import Phaser from "phaser";
 import { DEFAULT_SKIN, SKINS, SKIN_IDS, type Skin, type SkinSheet } from "./skins";
+import { DIRECTIONS, avatarAnimKey, type Direction } from "./tagging";
+
+export { directionFromAngle } from "./tagging";
 
 /**
  * 8-direction kid character.
@@ -18,6 +21,8 @@ import { DEFAULT_SKIN, SKINS, SKIN_IDS, type Skin, type SkinSheet } from "./skin
  * recolour of this sheet, so it keeps the same frame size and feet line.
  * Pirate James (`kid_pirate.png`, from tools/make_pirate_skin.py) has padded
  * frames (tricorn hat on top, cutlass at the sides).
+ * Pharaoh James (`kid_pharaoh.png`, from tools/make_pharaoh_skin.py) has
+ * padded frames (nemes crown on top, cape flared at the sides).
  * Animation keys are `<texture>-<anim>-<dir>`, e.g. `kid_banana-walk-SE`.
  */
 const FRAME_W = 80;
@@ -26,8 +31,8 @@ const FRAME_H = 100;
 const COLUMNS = 30;
 
 /** Order of the direction rows in the sheet (clockwise from east, y down). */
-export const KID_DIRECTIONS = ["E", "SE", "S", "SW", "W", "NW", "N", "NE"] as const;
-export type KidDirection = (typeof KID_DIRECTIONS)[number];
+export const KID_DIRECTIONS = DIRECTIONS;
+export type KidDirection = Direction;
 
 const ANIM = {
   idle: { start: 0, count: 4 },
@@ -107,12 +112,6 @@ function createSkinAnimations(scene: Phaser.Scene, sheet: SkinSheet) {
     }));
     add({ key: animKey("tag", dir), frames: tagFrames, frameRate: 16, repeat: 0 });
   });
-}
-
-/** Map a facing angle in radians (atan2(dy, dx), screen coords) to a direction. */
-export function directionFromAngle(angle: number): KidDirection {
-  const octant = Math.round(angle / (Math.PI / 4));
-  return KID_DIRECTIONS[((octant % 8) + 8) % 8];
 }
 
 export type KidRole = "self" | "it" | "bot" | "human";
@@ -305,8 +304,11 @@ export class KidAvatar {
     this.tagging = true;
     this.tagFacing = towardAngle ?? null;
 
-    const dir = directionFromAngle(this.tagFacing ?? this.facing);
-    this.sprite.anims.play(animKey("tag", dir, this.skin), true);
+    const angle = this.tagFacing ?? this.facing;
+    this.sprite.anims.play(
+      avatarAnimKey(SKINS[this.skin].texture, angle, this.moving, this.running, true),
+      true
+    );
 
     // Small forward lunge in the facing direction, synced to the reach.
     this.lungeTween?.stop();
@@ -350,13 +352,13 @@ export class KidAvatar {
   /** Call every frame after updating x/y/facing/moving/running. */
   update() {
     const facing = this.tagFacing ?? this.facing;
-    const dir = directionFromAngle(facing);
 
     if (!this.tagging) {
       // Re-evaluated every frame from the current flags only: walk / run
       // while moving, the breathing idle as soon as moving goes false.
+      // A tag swing (including northwest, while still walking) is left alone.
+      const key = avatarAnimKey(SKINS[this.skin].texture, facing, this.moving, this.running, false);
       if (this.moving) {
-        const key = animKey(this.running ? "run" : "walk", dir, this.skin);
         const current = this.sprite.anims.currentAnim?.key;
         if (current !== key) {
           // Keep the stride phase when turning or switching walk <-> run.
@@ -366,7 +368,7 @@ export class KidAvatar {
           if (progress) this.sprite.anims.setProgress(progress);
         }
       } else {
-        this.sprite.anims.play(animKey("breathe", dir, this.skin), true);
+        this.sprite.anims.play(key, true);
       }
     }
 

@@ -14,7 +14,7 @@
 
 import type { Mood, Settings } from "./settings";
 
-export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "click";
+export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "click";
 
 const CROSSFADE_S = 1.5;
 const LOOKAHEAD_S = 0.15;
@@ -488,6 +488,8 @@ export class GameAudio {
   private pirateFoot = false;
   /** Pirate James: the deck creaks now and then, not on every step. */
   private pirateSteps = 0;
+  /** Pharaoh James alternates feet so the sand shuffle isn't a machine gun. */
+  private pharaohFoot = false;
   private lastJoin = 0;
   private buffers = new Map<Mood, AudioBuffer>();
   private loads = new Map<Mood, LoadStatus>();
@@ -687,6 +689,42 @@ export class GameAudio {
         syn.tone(t + 0.1, 2950, { gain: 0.025 * v, attack: 0.002, release: 0.25 });
         syn.tone(t + 0.1, 4420, { gain: 0.012 * v, attack: 0.002, release: 0.18 });
         break;
+      case "pharaohStep": { // Pharaoh James: soft sand shuffle (filtered noise), feet alternate
+        // Lowpassed noise falls from a dull hiss to a muffled scuff — grains of sand,
+        // not a hard sole. The second foot is a little quieter and lower.
+        this.pharaohFoot = !this.pharaohFoot;
+        const p = (this.pharaohFoot ? 1 : 0.84) * (0.94 + Math.random() * 0.1);
+        syn.noise(t, {
+          filter: "lowpass",
+          freq: 1600 * p,
+          sweepTo: 240,
+          q: 0.6,
+          gain: 0.2 * v,
+          attack: 0.01,
+          release: 0.1,
+        });
+        // a few brighter grains in the middle of the scuff
+        syn.noise(t + 0.012, {
+          filter: "bandpass",
+          freq: 2400 * p,
+          sweepTo: 900,
+          q: 0.8,
+          gain: 0.07 * v,
+          attack: 0.004,
+          release: 0.06,
+        });
+        syn.tone(t, 78 * p, { gain: 0.035 * v, attack: 0.004, release: 0.05 });
+        break;
+      }
+      case "pharaohSwing": { // Pharaoh James's tag: cloth whoosh plus a short muted horn (open fifth)
+        // Same family of whoosh as the plain swing, a little rounder (cape, not a stick).
+        syn.noise(t, { filter: "bandpass", freq: 380, sweepTo: 2000, q: 1.1, gain: 0.36 * v, attack: 0.03, release: 0.18 });
+        // Soft brass: G4 + D5 (a fifth) over a quiet G3, triangle so it stays a blip not a fanfare.
+        syn.tone(t + 0.02, 196, { type: "sine", gain: 0.05 * v, attack: 0.01, hold: 0.05, release: 0.16, filter: 800 });
+        syn.tone(t + 0.02, 392, { type: "triangle", gain: 0.07 * v, attack: 0.012, hold: 0.06, release: 0.18, filter: 1800 });
+        syn.tone(t + 0.025, 587, { type: "triangle", gain: 0.04 * v, attack: 0.014, hold: 0.05, release: 0.2, filter: 2000 });
+        break;
+      }
       case "click":
         syn.tone(t, 1250, { type: "triangle", gain: 0.08 * v, release: 0.035 });
         break;

@@ -9,7 +9,7 @@ A minimal fullscreen Phaser client for the Rust WebSocket protocol.
 - WASD / arrow-key movement, or Mobile mode (tap where to walk, or a
   virtual joystick with Tag and Run buttons)
 - Settings panel (cog, top right): controls mode, volumes, music mood, skin
-- Skins: James (default), Banana James, or T-rex James, seen by every player
+- Skins: James (default), Banana James, T-rex James, Tuxedo James, Pirate James, or Pharaoh James, seen by every player
 - Music and sound effects: procedural (Web Audio) plus one CC0 lo-fi loop
 - SHIFT to request running
 - SPACE to attempt tagging the nearest player
@@ -227,10 +227,10 @@ player stops.
   mobile UA, iPadOS touch points, coarse primary pointer without hover).
 - **Sound**: Master volume, Background music, Sound effects (0-100), and
   a Mood dropdown (Happy, Spooky, Relaxed, Chillin) that picks the music.
-- **Skins**: three cards with a live preview of James in each skin: **James** (default),
-  **Banana James** (banana costume, squeaky shoes on the SFX bus), and
-  **T-rex James** (T-rex onesie, deep scary stomp on the SFX bus). See
-  "Skins" below.
+- **Skins**: a card per outfit, with a live preview: **James** (default),
+  **Banana James** (squeaky shoes), **T-rex James** (scary stomp),
+  **Tuxedo James** (dress-shoe click), **Pirate James** (boot clomp), and
+  **Pharaoh James** (sand shuffle, short horn on a tag). See "Skins" below.
 
 Only settings the user has actually chosen are saved in `localStorage`
 (`tag26.settings`), and they are applied on load. Invalid or unknown saved
@@ -305,6 +305,22 @@ skin carries its own frame size and feet line. Animation keys are
   tail), claw mittens and booties, and a prominent spiked tail. Footsteps
   use a deep scary stomp on the SFX bus (`trexStep`). Re-run:
   `python3 tools/make_trex_skin.py [--preview /tmp/trex.png]`.
+- `pharaoh`: `public/assets/kid_pharaoh.png` (110x120 frames, feet on y = 116;
+  15px each side holds the cape, 20px on top holds the tall nemes crown).
+  Generated from `kid.png` by `tools/make_pharaoh_skin.py`. Black-and-gold
+  striped nemes with a tall crown and a smooth oval opening around James's
+  face (the cloth meets the skin on that curve, with no dark fringe). The
+  lappets drape down and in over the chest. Side views keep James's own
+  profile (eye, brow, nose, mouth, ear, jaw) and wrap stripes over the hair
+  only. The Skins card draws this sheet at a whole-pixel scale so the
+  stripes stay sharp.
+  Back views are all headdress. Sleeveless black tunic, gold-rimmed collar, champagne cape
+  to the calves, gold forearm gauntlets, black shendyt with a gold sash
+  and jeweled eagle belt, pyramid pendant, and black gladiator sandals.
+  Footsteps are a soft sand shuffle (`pharaohStep`); the tag is a cloth
+  whoosh plus a short muted horn, an open fifth (`pharaohSwing`), both on
+  the SFX bus. Re-run:
+  `python3 tools/make_pharaoh_skin.py [--preview /tmp/pharaoh.png]`.
 
 Multiplayer: the client sends its skin in `Join` (`skin`, optional) and
 `SetSkin { skin }` when it changes in Settings. The server stores it on the
