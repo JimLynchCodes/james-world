@@ -7,11 +7,12 @@
  *   james  - public/assets/kid.png         (tools/slice_kid_sheet.py)
  *   banana - public/assets/kid_banana.png  (tools/make_banana_skin.py)
  *   trex   - public/assets/kid_trex.png    (tools/make_trex_skin.py)
+ *   tuxedo - public/assets/kid_tuxedo.png  (tools/make_tuxedo_skin.py)
  *
  * The id is what goes over the wire (`skin` in Join / SetSkin /
  * PlayerSnapshot); the server falls back to "james" for unknown values.
  */
-export type Skin = "james" | "banana" | "trex";
+export type Skin = "james" | "banana" | "trex" | "tuxedo";
 
 export const DEFAULT_SKIN: Skin = "james";
 
@@ -69,6 +70,18 @@ export const SKINS: Record<Skin, SkinSheet> = {
     baselineY: 112,
     // crest + spikes sit ~108px above the feet; padded sides hold the tail
     artHeight: 108,
+  },
+  tuxedo: {
+    id: "tuxedo",
+    label: "Tuxedo James",
+    note: "Dressed to tag",
+    texture: "kid_tuxedo",
+    url: `${BASE}assets/kid_tuxedo.png`,
+    // a re-colour of the kid's own clothes: same frames and feet line
+    frameWidth: 80,
+    frameHeight: 100,
+    baselineY: 96,
+    artHeight: 90,
   },
 };
 

@@ -14,7 +14,7 @@
 
 import type { Mood, Settings } from "./settings";
 
-export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "click";
+export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "click";
 
 const CROSSFADE_S = 1.5;
 const LOOKAHEAD_S = 0.15;
@@ -484,6 +484,7 @@ export class GameAudio {
   /** Banana James alternates feet: left / right squeak at slightly different pitches. */
   private bananaFoot = false;
   private trexFoot = false;
+  private tuxedoFoot = false;
   private lastJoin = 0;
   private buffers = new Map<Mood, AudioBuffer>();
   private loads = new Map<Mood, LoadStatus>();
@@ -649,6 +650,17 @@ export class GameAudio {
           attack: 0.001,
           release: 0.05,
         });
+        break;
+      }
+      case "tuxedoStep": { // Tuxedo James: crisp dress-shoe heel click + toe tap
+        this.tuxedoFoot = !this.tuxedoFoot;
+        const p = (this.tuxedoFoot ? 1 : 0.9) * (0.96 + Math.random() * 0.08);
+        // hard heel: bright, very short, a little woody ring
+        syn.noise(t, { filter: "bandpass", freq: 3600 * p, q: 5, gain: 0.34 * v, attack: 0.001, release: 0.022 });
+        syn.tone(t, 1850 * p, { type: "triangle", gain: 0.05 * v, attack: 0.001, release: 0.03, filter: 5000 });
+        syn.tone(t, 240 * p, { gain: 0.05 * v, attack: 0.001, release: 0.025 });
+        // softer toe tap right after
+        syn.noise(t + 0.055, { filter: "bandpass", freq: 2600 * p, q: 4, gain: 0.16 * v, attack: 0.001, release: 0.018 });
         break;
       }
       case "click":
