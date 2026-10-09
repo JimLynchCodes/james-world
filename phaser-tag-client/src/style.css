@@ -1098,7 +1098,7 @@ canvas {
   --gap: 16px;
   display: flex;
   flex-wrap: wrap;
-  /* a short last row (5 skins) sits centred */
+  /* a short last row (six skins) sits centred */
   justify-content: center;
   gap: var(--gap);
   margin-bottom: 14px;
@@ -1228,7 +1228,7 @@ canvas {
   .skin-name { align-self: center; font-size: 14px; text-align: center; }
   .skin-note { align-self: center; font-size: 11px; text-align: center; }
 }
-/* Short laptop screens: a tighter 3-up so all five skins fit unscrolled. */
+/* Short laptop screens: a tighter 3-up so all six skins fit unscrolled. */
 @media (max-height: 700px) {
   @container pane (min-width: 670px) {
     .skin-card { --s: .9; gap: 2px; padding: 8px 10px 10px; }

@@ -18,6 +18,8 @@ import { DEFAULT_SKIN, SKINS, SKIN_IDS, type Skin, type SkinSheet } from "./skin
  * recolour of this sheet, so it keeps the same frame size and feet line.
  * Pirate James (`kid_pirate.png`, from tools/make_pirate_skin.py) has padded
  * frames (tricorn hat on top, cutlass at the sides).
+ * Pharaoh James (`kid_pharaoh.png`, from tools/make_pharaoh_skin.py) has
+ * padded frames (nemes crown on top, cape flared at the sides).
  * Animation keys are `<texture>-<anim>-<dir>`, e.g. `kid_banana-walk-SE`.
  */
 const FRAME_W = 80;

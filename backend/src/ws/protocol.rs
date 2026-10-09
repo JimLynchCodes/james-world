@@ -8,7 +8,7 @@ use crate::game::skin::Skin;
 pub enum ClientMessage {
     Join {
         room_id: String,
-        /// Skin to wear ("james" | "banana" | "trex" | "tuxedo" | "pirate"). Optional for older clients;
+        /// Skin to wear ("james" | "banana" | "trex" | "tuxedo" | "pirate" | "pharaoh"). Optional for older clients;
         /// unknown values fall back to "james" (see `Skin::parse`).
         #[serde(default)]
         skin: Option<String>,
