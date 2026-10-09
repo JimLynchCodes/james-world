@@ -17,9 +17,9 @@ read at game zoom. Every frame keeps the kid's own motion:
      an opaque layer over the arms and hands; from the front and sides the
      arms stay in front of the wings. Dark outline and a 2px gold trim;
   5. striped nemes over the hair and ears, two lappets on the shoulders.
-     The face hole is James's own face (eyes, mouth, cheeks, chin), so the
-     headcloth frames it instead of cropping an ellipse through it. Back
-     views are all headdress;
+     The face hole is a smooth anti-aliased oval fitted to James's face
+     (brow, cheeks, chin, eyes, mouth) so the stripes meet a continuous
+     curve and run on down the lappets. Back views are all headdress;
   6. wide black collar with a gold rim, gold belt, jeweled eagle, pyramid
      pendant.
 
@@ -113,28 +113,26 @@ def ellipse(yy, xx, cx, cy, rx, ry) -> np.ndarray:
     return ((xx - cx) / max(rx, 0.4)) ** 2 + ((yy - cy) / max(ry, 0.4)) ** 2 <= 1.0
 
 
-def face_opening(f: np.ndarray, g: Geometry, direction: str) -> np.ndarray:
-    """James's face, framed by the nemes — not a hard ellipse cut through it.
+def _face_keep(f: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndarray, np.ndarray]:
+    """James's face (skin + eyes + mouth) and the ears, which stay under the cloth.
 
-    The hole is the face itself (forehead, cheeks, chin, and the eyes and
-    mouth, which are holes in the skin). Ears are separate blobs and stay
-    under the cloth. A one-pixel close knocks the jagged notches off the
-    outline so the gold rim reads as a headcloth edge.
+    The returned face is the real features, used only to *fit* the oval and to
+    know which pixels keep their original colour. The hole itself is the oval.
     """
     h, w = f.shape[:2]
-    opening = np.zeros((h, w), dtype=bool)
+    empty = np.zeros((h, w), dtype=bool)
     if direction in BACK:
-        return opening
+        return empty, empty
     yy, xx = np.mgrid[0:h, 0:w]
     # skull only: a tagging arm can reach the head zone and must not become the face
     zone = (yy >= g.top + 8) & (yy <= g.neck + 1)
     zone &= np.abs(xx - g.head_cx) <= g.head_hw + 1
     if direction in PROFILE:
-        # the back of the skull is hair; keep the opening on the nose side
+        # the back of the skull is hair; the visible face is the nose side
         zone &= (xx - g.head_cx) * PROFILE[direction] >= -4
     comps = [c for c in components8(skin_mask(f) & zone) if c.sum() >= 8]
     if not comps:
-        return opening
+        return empty, empty
     comps.sort(key=lambda c: -c.sum())
     face = comps[0]
     ys, xs = np.nonzero(face)
@@ -143,21 +141,16 @@ def face_opening(f: np.ndarray, g: Geometry, direction: str) -> np.ndarray:
     for c in comps[1:]:
         cys, cxs = np.nonzero(c)
         ccx = (float(cxs.min()) + float(cxs.max())) / 2
-        # ears (and a stray pixel) sit outside the cheeks
         if ccx < span_l - 1 or ccx > span_r + 1:
             ears |= c
             continue
-        # chin / a cheek fragment still inside the face's width
         if cys.min() <= int(ys.max()) + 4:
             face |= c
-    # eyes and mouth are enclosed non-skin pixels
     face = fill_holes(face)
     enclosed = fill_holes(dilate(face, 1)) & ~face & zone
     r, gc, b = (f[..., i].astype(np.int16) for i in range(3))
-    # reddish hair around the face. The mouth is red too, but it sits inside
-    # the face; keep that, and the dark eyes, and drop the hair.
-    lum = r.astype(np.int32) + gc.astype(np.int32) + b.astype(np.int32)
-    features = enclosed & ((lum < 220) | ((r > 140) & (gc < 130) & (b < 130)))
+    lumv = r.astype(np.int32) + gc.astype(np.int32) + b.astype(np.int32)
+    features = enclosed & ((lumv < 220) | ((r > 140) & (gc < 130) & (b < 130)))
     hair = (
         alpha_mask(f)
         & ~skin_mask(f)
@@ -167,17 +160,137 @@ def face_opening(f: np.ndarray, g: Geometry, direction: str) -> np.ndarray:
         & (b < r - 8)
         & ~features
     )
-    # peach shading tucked against the cheeks, not the hair and not the ears
     shade = loose_skin(f) & dilate(face, 1) & zone & ~dilate(ears, 1) & ~hair
-    core = fill_holes(face | features | shade)
-    top = int(np.nonzero(core)[0].min())
-    # close 1px bays so the rim isn't a sawtooth, without climbing into the hair
-    closed = erode(dilate(core, 1), 1)
-    closed &= (yy >= top) & ~dilate(ears, 1) & ~hair
-    opening = (core | closed) & ~hair & ~dilate(ears, 1)
-    # hair test can punch the eyes and the outline inside the cheeks; close those
-    # back up so the nemes never stripes across the face
-    return fill_holes(opening)
+    keep = fill_holes(face | features | shade) & ~hair & ~dilate(ears, 1)
+    return fill_holes(keep), ears
+
+
+def _fit_oval(mask: np.ndarray) -> tuple[float, float, float, float] | None:
+    """Axis-aligned oval that holds the face. Centres are pixel centres."""
+    ys, xs = np.nonzero(mask)
+    if xs.size < 20:
+        return None
+    cx = float(np.median(xs)) + 0.5
+    cy = float(np.median(ys)) + 0.5
+    dx = np.abs(xs + 0.5 - cx)
+    dy = np.abs(ys + 0.5 - cy)
+    rx = max(float(np.quantile(dx, 0.9)), 3.5)
+    ry = max(float(np.quantile(dy, 0.92)), 4.5)
+    radial = np.sqrt(((xs + 0.5 - cx) / rx) ** 2 + ((ys + 0.5 - cy) / ry) ** 2)
+    # A box-fitted ellipse misses the diagonal cheek pixels. Grow until the
+    # face sits inside, with a little cloth-side padding so the brow and chin
+    # aren't cut by the stripe.
+    scale = max(1.0, float(np.quantile(radial, 0.99))) * 1.06
+    return cx, cy, max(rx * scale, 4.0), max(ry * scale, 5.0)
+
+
+def _ellipse_coverage(
+    h: int, w: int, cx: float, cy: float, rx: float, ry: float, samples: int = 4
+) -> np.ndarray:
+    """Subpixel coverage of an ellipse. 1 = inside the face hole."""
+    cov = np.zeros((h, w), dtype=np.float32)
+    y0 = max(0, int(math.floor(cy - ry - 1)))
+    y1 = min(h, int(math.ceil(cy + ry + 2)))
+    x0 = max(0, int(math.floor(cx - rx - 1)))
+    x1 = min(w, int(math.ceil(cx + rx + 2)))
+    if y1 <= y0 or x1 <= x0 or rx < 0.5 or ry < 0.5:
+        return cov
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    acc = np.zeros(yy.shape, dtype=np.float32)
+    offs = (np.arange(samples) + 0.5) / samples - 0.5
+    for oy in offs:
+        for ox in offs:
+            acc += ((xx + ox - cx) / rx) ** 2 + ((yy + oy - cy) / ry) ** 2 <= 1.0
+    cov[y0:y1, x0:x1] = acc / float(samples * samples)
+    return cov
+
+
+def face_window(
+    f: np.ndarray, g: Geometry, direction: str
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[float, float, float, float] | None]:
+    """Smooth nemes opening.
+
+    Returns (coverage 0..1, binary opening, pixels that keep the real face,
+    oval or None). Coverage is a continuous oval — brow to cheek to chin —
+    not the stair-stepped outline of the skin mask. Back views have no hole.
+    """
+    h, w = f.shape[:2]
+    keep, _ears = _face_keep(f, g, direction)
+    coverage = np.zeros((h, w), dtype=np.float32)
+    oval = _fit_oval(keep) if keep.any() else None
+    if oval is None:
+        return coverage, np.zeros((h, w), dtype=bool), keep, None
+    cx, cy, rx, ry = oval
+    coverage = _ellipse_coverage(h, w, cx, cy, rx, ry)
+    # Don't let the oval float off the head. Two pixels of room so the curve
+    # itself isn't clipped back into the old silhouette.
+    yy, xx = np.mgrid[0:h, 0:w]
+    # room around the head so the curve isn't clipped back to the silhouette.
+    # ears are left out of `keep` (they take skin colour if the oval grazes
+    # them) rather than punched out, which would stair-step the cloth edge.
+    head = dilate(alpha_mask(f) & (yy <= g.neck + 3) & (yy >= g.top - 2), 3)
+    coverage *= head
+    opening = coverage >= 0.5
+    return coverage, opening, keep, oval
+
+
+def blend_lappet_edges(
+    shown: np.ndarray,
+    lcov: np.ndarray,
+    g: Geometry,
+    face_cov: np.ndarray,
+) -> None:
+    """Soften the outer edge of the shoulder flaps. The face oval is left alone."""
+    band = (lcov > 0.05) & (lcov < 0.98) & (face_cov <= 0.02)
+    if not band.any():
+        return
+    rel = (np.arange(shown.shape[0]) - (g.top - 4))[:, None]
+    gold = np.broadcast_to((rel % 5) <= 1, lcov.shape)
+    stripe = np.empty(shown.shape[:2] + (3,), dtype=np.float32)
+    stripe[:] = NEMES.astype(np.float32)
+    stripe[gold] = GOLD.astype(np.float32)
+    c = lcov[..., None]
+    base = shown[..., :3].astype(np.float32)
+    opaque = shown[..., 3] > 20
+    mixed = np.where(opaque[..., None], stripe * c + base * (1.0 - c), stripe)
+    shown[band, :3] = np.clip(mixed[band], 0, 255).astype(np.uint8)
+    soft = (lcov * 255.0).astype(np.uint8)
+    shown[band, 3] = np.where(opaque[band], 255, np.maximum(shown[band, 3], soft[band]))
+
+
+def blend_face_oval(
+    shown: np.ndarray,
+    original: np.ndarray,
+    coverage: np.ndarray,
+    keep: np.ndarray,
+    g: Geometry,
+) -> None:
+    """Anti-alias the stripes into the oval.
+
+    The hard 0.5 contour is replaced by a subpixel mix, so the cloth edge is
+    a curve instead of a staircase. Gaps inside the oval (a hair pixel, a
+    transparent nick) take the face's own skin colour so the hole never shows
+    the yard. Stripe rows match paint_stripes.
+    """
+    band = coverage > 0.02
+    if not band.any():
+        return
+    skin_px = original[keep & skin_mask(original)]
+    if len(skin_px):
+        skin_rgb = np.median(skin_px[:, :3].astype(np.float32), axis=0)
+    else:
+        skin_rgb = np.array([232.0, 186.0, 154.0], dtype=np.float32)
+    face = original[..., :3].astype(np.float32)
+    face[band & ~keep] = skin_rgb
+    rel = (np.arange(shown.shape[0]) - (g.top - 4))[:, None]
+    gold = np.broadcast_to((rel % 5) <= 1, coverage.shape)
+    stripe = np.empty(shown.shape[:2] + (3,), dtype=np.float32)
+    stripe[:] = NEMES.astype(np.float32)
+    stripe[gold] = GOLD.astype(np.float32)
+    c = coverage[..., None]
+    mixed = face * c + stripe * (1.0 - c)
+    shown[band, :3] = np.clip(mixed[band], 0, 255).astype(np.uint8)
+    shown[band, 3] = 255
 
 
 def phase_sway(anim: str, col: int) -> float:
@@ -287,8 +400,60 @@ def paint_collar(img: np.ndarray, g: Geometry, direction: str, opening: np.ndarr
     return band
 
 
-def nemes_cloth(f: np.ndarray, g: Geometry, direction: str, opening: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Striped crown (stops at the jaw) plus two separate lappets."""
+def _hanging_lappets(
+    h: int,
+    w: int,
+    cx: float,
+    cy: float,
+    rx: float,
+    ry: float,
+    y_end: int,
+    width: float,
+    centers: list[float] | None = None,
+) -> np.ndarray:
+    """Striped flaps from the cheeks down over the shoulders.
+
+    The inner edge starts on the oval (so the crown's stripes continue into
+    the flap) and drifts outward as the cloth falls. `centers`, when given,
+    is a single back-of-head flap for a profile.
+    """
+    cov = np.zeros((h, w), dtype=np.float32)
+    y0 = max(0, int(math.floor(cy - ry * 0.05)))
+    y1 = min(h - 1, y_end)
+    cheek = rx * math.sqrt(max(0.0, 1.0 - 0.15 ** 2))
+    for y in range(y0, y1 + 1):
+        fall = max(0.0, (y + 0.5) - (cy + 0.05 * ry))
+        spread = fall * 0.28
+        if centers is None:
+            left_in = cx - cheek - spread
+            right_in = cx + cheek + spread
+            spans = ((left_in - width, left_in + 0.6), (right_in - 0.6, right_in + width))
+        else:
+            spans = tuple((c - width / 2.0, c + width / 2.0 + spread) for c in centers)
+        for x0, x1 in spans:
+            if x1 < x0:
+                x0, x1 = x1, x0
+            xa = max(0, int(math.floor(x0)))
+            xb = min(w - 1, int(math.floor(x1 - 1e-6)))
+            for x in range(xa, xb + 1):
+                cover = min(1.0, min(x + 1.0, x1) - max(float(x), x0))
+                if cover > cov[y, x]:
+                    cov[y, x] = cover
+    return cov
+
+
+def nemes_cloth(
+    f: np.ndarray,
+    g: Geometry,
+    direction: str,
+    opening: np.ndarray,
+    oval: tuple[float, float, float, float] | None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Striped crown plus two lappets that continue the same stripes.
+
+    The third return is lappet coverage (0..1) so the shoulder edge can be
+    anti-aliased instead of a one-pixel staircase.
+    """
     h, w = f.shape[:2]
     yy, xx = np.mgrid[0:h, 0:w]
     a = alpha_mask(f)
@@ -308,37 +473,50 @@ def nemes_cloth(f: np.ndarray, g: Geometry, direction: str, opening: np.ndarray)
         jaw = g.neck + 1
     cloth &= yy <= jaw
     cloth &= ~opening
+    # below the chin, leave a gap between the lappets (neck, not a stripe beard)
+    if oval is not None and direction not in PROFILE:
+        cx, cy, rx, ry = oval
+        bib = (yy > cy + ry * 0.72) & (np.abs(xx + 0.5 - cx) < rx * 0.42)
+        cloth &= ~bib
 
-    # lappets: narrow striped panels, a clear gap between them
-    lappets = np.zeros((h, w), dtype=bool)
-    y0 = max(0, jaw - 2)
-    y1 = min(h - 1, g.neck + 16)
-    if direction in PROFILE:
+    # lappets: the same stripes, continuing from the cheeks over the shoulders
+    if oval is not None and direction in PROFILE:
+        cx, cy, rx, ry = oval
         s = PROFILE[direction]
-        centers = [g.head_cx + s * g.head_hw * 0.22]
-        width = 5.0
-    elif opening.any():
-        oys, oxs = np.nonzero(opening)
-        left, right = float(oxs.min()), float(oxs.max())
-        centers = [left - 3.2, right + 3.2]
-        width = 5.2
+        # one flap behind the visible cheek
+        lappet_cov = _hanging_lappets(
+            h, w, cx, cy, rx, ry, g.neck + 16, 5.4, centers=[cx - s * (rx + 2.4)]
+        )
+        lappets = lappet_cov >= 0.5
+    elif oval is not None:
+        cx, cy, rx, ry = oval
+        lappet_cov = _hanging_lappets(h, w, cx, cy, rx, ry, g.neck + 18, 7.2)
+        lappets = lappet_cov >= 0.5
     else:
+        lappets = np.zeros((h, w), dtype=bool)
+        lappet_cov = None
+        y0 = max(0, jaw - 2)
+        y1 = min(h - 1, g.neck + 16)
         centers = [g.head_cx - g.head_hw * 0.58, g.head_cx + g.head_hw * 0.58]
         width = 5.4
-    for i, cx0 in enumerate(centers):
-        sign = -1 if i == 0 and len(centers) == 2 else 1
-        for y in range(y0, y1 + 1):
-            t = (y - y0) / max(1, y1 - y0)
-            cx = cx0 + sign * 1.6 * t
-            half = width * (1 - 0.15 * t) / 2
-            x0 = int(round(cx - half))
-            x1 = int(round(cx + half))
-            lappets[y, max(0, x0):min(w, x1 + 1)] = True
+        for i, cx0 in enumerate(centers):
+            sign = -1 if i == 0 else 1
+            for y in range(y0, y1 + 1):
+                t = (y - y0) / max(1, y1 - y0)
+                px = cx0 + sign * 1.6 * t
+                half = width * (1 - 0.15 * t) / 2
+                x0 = int(round(px - half))
+                x1 = int(round(px + half))
+                lappets[y, max(0, x0):min(w, x1 + 1)] = True
     lappets &= ~opening
+    if lappet_cov is None:
+        lappet_cov = lappets.astype(np.float32)
+    else:
+        lappet_cov *= ~opening
     # ears (face skin outside the window) stay under the cloth
     face_skin = (yy <= g.neck + 1) & skin_mask(f)
     cloth |= face_skin & ~opening & (yy <= jaw)
-    return cloth, lappets
+    return cloth, lappets, lappet_cov
 
 
 def paint_stripes(img: np.ndarray, mask: np.ndarray, g: Geometry) -> None:
@@ -512,7 +690,7 @@ def pharaohify(frame: np.ndarray, direction: str, anim: str, col: int) -> np.nda
     yy, xx = np.mgrid[0:h, 0:w]
     L = lum(f)
 
-    opening = face_opening(f, g, direction)
+    coverage, opening, face_pixels, oval = face_window(f, g, direction)
     face = (yy <= g.neck + 1) & skin_mask(f)
     arms, hands = arms_and_hands(f, g, face)
     hands = grow(hands, loose_skin(f) & arms, 1)
@@ -573,7 +751,7 @@ def pharaohify(frame: np.ndarray, direction: str, anim: str, col: int) -> np.nda
     saved = img.copy()
     saved[opening] = f[opening]  # original eyes, mouth, freckles — not recoloured neighbours
 
-    cloth, lappets = nemes_cloth(img, g, direction, opening)
+    cloth, lappets, lappet_cov = nemes_cloth(img, g, direction, opening, oval)
     cloth &= ~protect
     lappets &= ~protect & ~hands
 
@@ -611,11 +789,6 @@ def pharaohify(frame: np.ndarray, direction: str, anim: str, col: int) -> np.nda
     # nemes over the collar at the jaw, lappets over the shoulders
     paint_stripes(shown, cloth & ~protect, g)
     paint_stripes(shown, lappets & ~protect, g)
-    # gold rim around the face opening
-    if opening.any():
-        rim = dilate(opening, 1) & ~opening & ~protect & (cloth | dilate(cloth, 1) | (yy <= g.neck))
-        rim &= yy < g.neck + 2
-        stamp(shown, rim & (shown[..., 3] > 0), GOLD)
 
     paint_belt_eagle(shown, g, direction, (tunic | skirt) & ~arms)
     paint_pendant(shown, g, direction, opening)
@@ -632,6 +805,9 @@ def pharaohify(frame: np.ndarray, direction: str, anim: str, col: int) -> np.nda
     paint_skirt_gold(shown, skirt & (shown[..., 3] > 0) & ~protect, g, direction)
     paint_belt_eagle(shown, g, direction, (tunic | skirt) & ~protect)
     paint_pendant(shown, g, direction, opening)
+    # smooth the stripes into the oval last, so nothing restamps a hard edge
+    blend_lappet_edges(shown, lappet_cov, g, coverage)
+    blend_face_oval(shown, f, coverage, face_pixels, g)
 
     shown[shown[..., 3] < 8] = 0
     return shown

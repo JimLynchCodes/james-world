@@ -4,6 +4,7 @@ import { GameSocket } from "./network";
 import type { ServerMessage, PlayerSnapshot } from "./protocol";
 import type { UUID } from "./types";
 import { KidAvatar, createKidAnimations, preloadKid } from "./kid";
+import { latchTagPress } from "./tagging";
 import { createSchoolyard, type Occluder } from "./schoolyard";
 import { PLAYER_RADIUS, PLAY_AREA, WORLD_HEIGHT, WORLD_WIDTH } from "./world";
 import { GameAudio, type Sfx } from "./audio";
@@ -85,6 +86,12 @@ class GameScene extends Phaser.Scene {
   private sequence = 0;
   private inputTimer = 0;
   private tagCooldown = 0;
+  /**
+   * Space went down since the last step. Latched from the key itself, not
+   * JustDown: a keyup in the same step clears JustDown, so Up+Left+Space
+   * (a northwest walk-and-tag) was dropping the swing entirely.
+   */
+  private tagQueued = false;
 
   private connected = false;
 
@@ -135,6 +142,16 @@ class GameScene extends Phaser.Scene {
       string,
       Phaser.Input.Keyboard.Key
     >;
+    // Latch Space on the key event. JustDown is false when the keyup is
+    // processed in the same step (Key.onUp clears it first), which is how a
+    // short tap arrives while two movement keys are already held.
+    this.keys.SPACE.on("down", () => {
+      if (!this.playing || this.uiOpen) return;
+      this.tagQueued = latchTagPress(this.tagQueued, "down");
+    });
+    this.keys.SPACE.on("up", () => {
+      this.tagQueued = latchTagPress(this.tagQueued, "up");
+    });
 
     this.createTapControls();
     this.setUiOpen(this.uiOpen);
@@ -218,8 +235,10 @@ class GameScene extends Phaser.Scene {
 
       this.tagCooldown = Math.max(0, this.tagCooldown - delta);
 
-      // SPACE tags (captured, so it never scrolls the page).
-      if (Phaser.Input.Keyboard.JustDown(this.keys.SPACE)) {
+      // SPACE tags (captured, so it never scrolls the page). Consumed from
+      // the latch so a same-step press+release still swings.
+      if (this.tagQueued) {
+        this.tagQueued = false;
         this.tryTagNearest();
       }
     } else {
@@ -717,6 +736,7 @@ class GameScene extends Phaser.Scene {
   /** Pause game input while the Settings modal is open. */
   setUiOpen(open: boolean) {
     this.uiOpen = open;
+    this.tagQueued = false;
     this.tapDragging = false;
     const keyboard = this.input?.keyboard;
     if (!keyboard) return; // not created yet; create() applies it
