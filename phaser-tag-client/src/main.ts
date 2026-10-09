@@ -24,6 +24,7 @@ const STEP_SFX: Record<Skin, Sfx> = {
   banana: "bananaStep",
   trex: "trexStep",
   tuxedo: "tuxedoStep",
+  pirate: "pirateStep",
 };
 
 const WS_URL =
@@ -531,7 +532,7 @@ class GameScene extends Phaser.Scene {
       );
     }
     this.player.facing = this.playerFacingAngle;
-    if (!this.player.isTagging) this.audio?.playSfx("swing");
+    if (!this.player.isTagging) this.audio?.playSfx(this.localSkin === "pirate" ? "pirateSwing" : "swing");
     this.player.playTag(this.playerFacingAngle);
 
     if (!closest) return;
