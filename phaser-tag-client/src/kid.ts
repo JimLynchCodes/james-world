@@ -14,6 +14,8 @@ import { DEFAULT_SKIN, SKINS, SKIN_IDS, type Skin, type SkinSheet } from "./skin
  *
  * Skins (see skins.ts) use the same layout; Banana James
  * (`kid_banana.png`, from tools/make_banana_skin.py) has taller frames.
+ * Tuxedo James (`kid_tuxedo.png`, from tools/make_tuxedo_skin.py) is a
+ * recolour of this sheet, so it keeps the same frame size and feet line.
  * Animation keys are `<texture>-<anim>-<dir>`, e.g. `kid_banana-walk-SE`.
  */
 const FRAME_W = 80;

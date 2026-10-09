@@ -6,7 +6,7 @@ import type { UUID } from "./types";
 import { KidAvatar, createKidAnimations, preloadKid } from "./kid";
 import { createSchoolyard, type Occluder } from "./schoolyard";
 import { PLAYER_RADIUS, PLAY_AREA, WORLD_HEIGHT, WORLD_WIDTH } from "./world";
-import { GameAudio } from "./audio";
+import { GameAudio, type Sfx } from "./audio";
 import { DEFAULT_SKIN, toSkin, type Skin } from "./skins";
 import { MobileControls } from "./mobileControls";
 import {
@@ -17,6 +17,14 @@ import {
   type Settings,
 } from "./settings";
 import { TitleScreen } from "./title";
+
+/** Footstep sound for the local kid, per skin. */
+const STEP_SFX: Record<Skin, Sfx> = {
+  james: "step",
+  banana: "bananaStep",
+  trex: "trexStep",
+  tuxedo: "tuxedoStep",
+};
 
 const WS_URL =
   import.meta.env.VITE_WS_URL ||
@@ -255,8 +263,8 @@ class GameScene extends Phaser.Scene {
     if (moving) {
       this.stepTimer -= delta;
       if (this.stepTimer <= 0) {
-        // Banana James has squeaky costume shoes.
-        this.audio?.playSfx(this.localSkin === "banana" ? "bananaStep" : this.localSkin === "trex" ? "trexStep" : "step");
+        // Costumes have their own footsteps (squeaky / stomp / dress-shoe click).
+        this.audio?.playSfx(STEP_SFX[this.localSkin]);
         this.stepTimer = running ? STEP_MS.run : STEP_MS.walk;
       }
     } else {

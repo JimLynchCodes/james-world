@@ -222,14 +222,15 @@ canvas {
 .settings-modal {
   position: relative;
   box-sizing: border-box;
-  width: min(580px, 100%);
+  /* Wide enough on desktop/tablet for roomy 2-up skin cards. */
+  width: min(860px, 100%);
   /* Grow with the options, but never past the screen. 100vh first so older
      browsers still cap it; svh/dvh then keep mobile browser toolbars from
      covering the close button. Percentage clamps it inside the backdrop. */
-  max-height: min(640px, calc(100vh - 48px));
-  max-height: min(640px, calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 44px));
-  max-height: min(640px, calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 44px));
-  max-height: min(640px, 100%);
+  max-height: min(700px, calc(100vh - 48px));
+  max-height: min(700px, calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 44px));
+  max-height: min(700px, calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 44px));
+  max-height: min(700px, 100%);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -242,16 +243,16 @@ canvas {
 
 @media (max-height: 740px) {
   .settings-modal {
-    height: min(640px, calc(100vh - 48px));
-    height: min(640px, calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 44px));
-    height: min(640px, calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 44px));
+    height: min(700px, calc(100vh - 48px));
+    height: min(700px, calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 44px));
+    height: min(700px, calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 44px));
   }
 }
 
 /* Wide screens: keep the panel about as tall as the Sound tab so switching
    tabs doesn't resize it, without the big empty stretch used on phones. */
 @media (min-width: 561px) and (min-height: 741px) {
-  .settings-modal { min-height: min(470px, 100%); }
+  .settings-modal { min-height: min(560px, 100%); }
 }
 .settings-frame {
   position: relative;
@@ -303,7 +304,7 @@ canvas {
 
 .settings-body {
   display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
+  grid-template-columns: 170px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   gap: 18px;
   flex: 1 1 auto;
@@ -409,6 +410,10 @@ canvas {
   box-shadow: inset 0 -5px 0 rgba(43, 33, 64, .08);
 }
 .settings-pane[hidden] { display: none; }
+/* Controls / Sound read best at a comfortable line length, even when the
+   panel is wide for the skin cards. */
+.settings-pane[data-pane="controls"] > *,
+.settings-pane[data-pane="sound"] > * { max-width: 480px; }
 .settings-pane h3 {
   margin: 0 0 14px;
   font-size: 20px;
@@ -879,23 +884,27 @@ canvas {
 
 /* Settings > Skins: one card per skin with a live sprite preview */
 /* Cards per row follow the options pane's width (container "pane"):
-   3-up when wide, 2-up only when each card still gets ~135px, else one per
-   row: a wide card with the preview beside the name, or stacked when tiny. */
+   4-up only on a very wide pane (each card >= ~180px), roomy 2-up on
+   desktop / tablet, 2-up compact while each card still gets ~140px, else
+   one per row: preview beside the name, or stacked when tiny. */
 .skin-cards {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
   margin-bottom: 14px;
 }
+@container pane (min-width: 820px) {
+  .skin-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
 .skin-card {
-  --s: 1.05; /* preview scale (3 cards; trex frames are wide) */
+  --s: 1.2; /* preview scale (big 2-up cards; trex frames are wide) */
   box-sizing: border-box;
   min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 10px 8px 12px;
+  padding: 12px 12px 14px;
   border: 3px solid var(--ink);
   border-radius: 18px;
   background: #f4f1ff;
@@ -953,18 +962,24 @@ canvas {
   overflow-wrap: normal;
   word-break: normal;
   hyphens: none;
-  font-size: 16px;
+  font-size: 19px;
   font-weight: 900;
   line-height: 1.2;
   text-align: center;
 }
 .skin-note {
   max-width: 100%;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   line-height: 1.2;
   text-align: center;
   color: #5b4f73;
+}
+@container pane (max-width: 479px) {
+  .skin-cards { gap: 12px; }
+  .skin-card { --s: 1; }
+  .skin-name { font-size: 16px; }
+  .skin-note { font-size: 12px; }
 }
 @container pane (max-width: 339px) {
   .skin-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
