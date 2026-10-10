@@ -4,7 +4,7 @@ import { GameSocket } from "./network";
 import type { ServerMessage, PlayerSnapshot } from "./protocol";
 import type { UUID } from "./types";
 import { KidAvatar, createKidAnimations, preloadKid } from "./kid";
-import { latchTagPress } from "./tagging";
+import { applyPhysicalKey, movementAxes, noteTagKey, physicalCode } from "./tagging";
 import { createSchoolyard, type Occluder } from "./schoolyard";
 import { PLAYER_RADIUS, PLAY_AREA, WORLD_HEIGHT, WORLD_WIDTH } from "./world";
 import { GameAudio, type Sfx } from "./audio";
@@ -68,8 +68,11 @@ type RemoteSprite = {
 
 class GameScene extends Phaser.Scene {
   private socket!: GameSocket;
-  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private keys!: Record<string, Phaser.Input.Keyboard.Key>;
+  /**
+   * Physical keys held right now (`event.code`, not Phaser keyCode).
+   * Arrows and WASD share this set; Space is latched separately.
+   */
+  private held = new Set<string>();
   /** Local kid: null on the title screen until Start. */
   private player: KidAvatar | null = null;
   /** True after Start / Welcome: we are a player, not a spectator. */
@@ -87,9 +90,12 @@ class GameScene extends Phaser.Scene {
   private inputTimer = 0;
   private tagCooldown = 0;
   /**
-   * Space went down since the last step. Latched from the key itself, not
-   * JustDown: a keyup in the same step clears JustDown, so Up+Left+Space
-   * (a northwest walk-and-tag) was dropping the swing entirely.
+   * Space went down since the last step. Latched from the DOM `code`
+   * ("Space"), not from Phaser's Space Key: that object only updates when
+   * `keyCode === 32`. Arrow Up+Left still walk (their keyCodes arrive) while
+   * a Space mash in the same step, or a Space event whose keyCode is 0, never
+   * reached the latch — walk only, no swing. Keyup of an arrow must not clear
+   * this; only a fresh step consumes it.
    */
   private tagQueued = false;
 
@@ -137,21 +143,12 @@ class GameScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
     this.cameras.main.centerOn(900, 700);
 
-    this.cursors = this.input.keyboard!.createCursorKeys();
-    this.keys = this.input.keyboard!.addKeys("W,A,S,D,SHIFT,SPACE") as Record<
-      string,
-      Phaser.Input.Keyboard.Key
-    >;
-    // Latch Space on the key event. JustDown is false when the keyup is
-    // processed in the same step (Key.onUp clears it first), which is how a
-    // short tap arrives while two movement keys are already held.
-    this.keys.SPACE.on("down", () => {
-      if (!this.playing || this.uiOpen) return;
-      this.tagQueued = latchTagPress(this.tagQueued, "down");
-    });
-    this.keys.SPACE.on("up", () => {
-      this.tagQueued = latchTagPress(this.tagQueued, "up");
-    });
+    // One listener for arrows and WASD. Capture phase runs before Phaser's
+    // bubble listener, which drops the event when keyCode is 0 or when
+    // defaultPrevented is already set — the Up+Left+Space miss. preventDefault
+    // here also stops the browser from treating the arrows as scroll.
+    window.addEventListener("keydown", this.onDomKey, true);
+    window.addEventListener("keyup", this.onDomKey, true);
 
     this.createTapControls();
     this.setUiOpen(this.uiOpen);
@@ -213,33 +210,61 @@ class GameScene extends Phaser.Scene {
     // when the tab is hidden so a key-up we never saw can't leave the kid
     // walking.
     const releaseKeys = () => {
-      if (document.hidden) this.input.keyboard?.resetKeys();
+      if (document.hidden) {
+        this.input.keyboard?.resetKeys();
+        this.held.clear();
+      }
     };
+    const onBlur = () => this.held.clear();
     document.addEventListener("visibilitychange", releaseKeys);
+    window.addEventListener("blur", onBlur);
 
     this.events.on("shutdown", () => {
       document.removeEventListener("visibilitychange", releaseKeys);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("keydown", this.onDomKey, true);
+      window.removeEventListener("keyup", this.onDomKey, true);
       this.socket.close();
     });
   }
 
+  /**
+   * Arrows, WASD, Shift, Space, and T. Space and T share one latch: either
+   * keyup does not forget a press that landed in this same step (see
+   * noteTagKey), and an arrow keyup doesn't either.
+   */
+  private readonly onDomKey = (event: KeyboardEvent) => {
+    const phase: "down" | "up" = event.type === "keydown" ? "down" : "up";
+    if (this.uiOpen) {
+      // Settings owns the keyboard. Drop movement keys as they release so
+      // closing the modal can't leave a stuck walk.
+      if (phase === "up") this.held = applyPhysicalKey(this.held, event, "up");
+      return;
+    }
+    if (physicalCode(event)) event.preventDefault();
+    this.held = applyPhysicalKey(this.held, event, phase);
+    if (!this.playing) return;
+    this.tagQueued = noteTagKey(this.tagQueued, event, phase);
+  };
+
   update(_time: number, delta: number) {
     if (this.playing) {
+      this.tagCooldown = Math.max(0, this.tagCooldown - delta);
+
+      // Space or T (captured, so Space never scrolls the page). Consumed
+      // before movement so the swing starts in the facing we already have,
+      // and the walk clip this frame cannot replace it.
+      if (this.tagQueued) {
+        this.tagQueued = false;
+        this.tryTagNearest();
+      }
+
       this.updateLocalMovement(delta);
 
       this.inputTimer -= delta;
       if (this.inputTimer <= 0) {
         this.sendMovement();
         this.inputTimer = 50;
-      }
-
-      this.tagCooldown = Math.max(0, this.tagCooldown - delta);
-
-      // SPACE tags (captured, so it never scrolls the page). Consumed from
-      // the latch so a same-step press+release still swings.
-      if (this.tagQueued) {
-        this.tagQueued = false;
-        this.tryTagNearest();
       }
     } else {
       this.updateSpectatorCamera();
@@ -326,15 +351,11 @@ class GameScene extends Phaser.Scene {
     if (this.controlMode === "mobile") {
       if (this.joystick.x !== 0 || this.joystick.y !== 0) ({ x: dx, y: dy } = this.joystick);
       else if (this.tapDir) ({ x: dx, y: dy } = this.tapDir);
-      const runKey = this.keys.SHIFT.isDown || this.runHeld;
-      return { dx, dy, running: runKey && (dx !== 0 || dy !== 0) };
+      const shift =
+        this.held.has("ShiftLeft") || this.held.has("ShiftRight") || this.held.has("Shift");
+      return { dx, dy, running: (shift || this.runHeld) && (dx !== 0 || dy !== 0) };
     }
-    if (this.cursors.left.isDown || this.keys.A.isDown) dx -= 1;
-    if (this.cursors.right.isDown || this.keys.D.isDown) dx += 1;
-    if (this.cursors.up.isDown || this.keys.W.isDown) dy -= 1;
-    if (this.cursors.down.isDown || this.keys.S.isDown) dy += 1;
-    const running = this.keys.SHIFT.isDown && (dx !== 0 || dy !== 0);
-    return { dx, dy, running };
+    return movementAxes(this.held);
   }
 
   private sendMovement() {
@@ -549,17 +570,10 @@ class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Optimistic: swing the arm right away (toward the target if there is
-    // one, otherwise straight ahead) without waiting for the server.
-    if (closest) {
-      this.playerFacingAngle = Math.atan2(
-        closest.avatar.y - this.player.y,
-        closest.avatar.x - this.player.x
-      );
-    }
-    this.player.facing = this.playerFacingAngle;
+    // Optimistic: swing right away in the direction we're already facing.
+    // A nearby player does not turn the clip, and walking does not cancel it.
     if (!this.player.isTagging) this.audio?.playSfx(SWING_SFX[this.localSkin] ?? "swing");
-    this.player.playTag(this.playerFacingAngle);
+    this.player.playTag();
 
     if (!closest) return;
 
@@ -737,13 +751,14 @@ class GameScene extends Phaser.Scene {
   setUiOpen(open: boolean) {
     this.uiOpen = open;
     this.tagQueued = false;
+    this.held.clear();
     this.tapDragging = false;
     const keyboard = this.input?.keyboard;
     if (!keyboard) return; // not created yet; create() applies it
     keyboard.enabled = !open;
     keyboard.resetKeys();
-    // Phaser preventDefault()s captured keys (arrows, WASD, Space...) on the
-    // window; release them so sliders, the dropdown and Tab work in the modal.
+    // The DOM listener stops calling preventDefault while this is open, so
+    // arrows, Space and Tab reach the modal. Release Phaser's capture too.
     if (open) keyboard.disableGlobalCapture();
     else keyboard.enableGlobalCapture();
   }

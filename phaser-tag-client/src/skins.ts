@@ -51,7 +51,7 @@ export const SKINS: Record<Skin, SkinSheet> = {
   banana: {
     id: "banana",
     label: "Banana James",
-    note: "Squeaky shoes",
+    note: "lickity split",
     texture: "kid_banana",
     url: `${BASE}assets/kid_banana.png`,
     frameWidth: 80,
@@ -101,7 +101,7 @@ export const SKINS: Record<Skin, SkinSheet> = {
   pharaoh: {
     id: "pharaoh",
     label: "Pharaoh James",
-    note: "All hail, you're it!",
+    note: "walk like an egyptian",
     texture: "kid_pharaoh",
     url: `${BASE}assets/kid_pharaoh.png`,
     // padded: 15px each side for the cape, 20px on top for the tall nemes crown.
