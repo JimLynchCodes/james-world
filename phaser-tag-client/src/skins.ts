@@ -40,7 +40,7 @@ export const SKINS: Record<Skin, SkinSheet> = {
   james: {
     id: "james",
     label: "James",
-    note: "Default",
+    note: "Regular James",
     texture: "kid",
     url: `${BASE}assets/kid.png`,
     frameWidth: 80,
@@ -51,7 +51,7 @@ export const SKINS: Record<Skin, SkinSheet> = {
   banana: {
     id: "banana",
     label: "Banana James",
-    note: "lickity split",
+    note: "Lickity Split!",
     texture: "kid_banana",
     url: `${BASE}assets/kid_banana.png`,
     frameWidth: 80,
@@ -63,8 +63,8 @@ export const SKINS: Record<Skin, SkinSheet> = {
   },
   trex: {
     id: "trex",
-    label: "T-rex James",
-    note: "Scary stomps",
+    label: "Dino James",
+    note: "T-Rex Tag!",
     texture: "kid_trex",
     url: `${BASE}assets/kid_trex.png`,
     frameWidth: 120,
@@ -76,7 +76,7 @@ export const SKINS: Record<Skin, SkinSheet> = {
   tuxedo: {
     id: "tuxedo",
     label: "Tuxedo James",
-    note: "Dressed to tag",
+    note: "Dressed To Impress!",
     texture: "kid_tuxedo",
     url: `${BASE}assets/kid_tuxedo.png`,
     // a re-colour of the kid's own clothes: same frames and feet line
@@ -88,7 +88,7 @@ export const SKINS: Record<Skin, SkinSheet> = {
   pirate: {
     id: "pirate",
     label: "Pirate James",
-    note: "Arrr, you're it!",
+    note: "Arrr, You're It!",
     texture: "kid_pirate",
     url: `${BASE}assets/kid_pirate.png`,
     // padded: 20px each side for the cutlass, 12px on top for the tricorn
@@ -101,7 +101,7 @@ export const SKINS: Record<Skin, SkinSheet> = {
   pharaoh: {
     id: "pharaoh",
     label: "Pharaoh James",
-    note: "walk like an egyptian",
+    note: "Walk Like An Egyptian!",
     texture: "kid_pharaoh",
     url: `${BASE}assets/kid_pharaoh.png`,
     // padded: 15px each side for the cape, 20px on top for the tall nemes crown.

@@ -363,12 +363,12 @@ export class SettingsPanel {
               </div>
             </div>
             <div class="setting-row" data-mobile-only>
-              <span class="setting-label" id="lefty-label">Lefty Joystick</span>
+              <span class="setting-label" id="lefty-label">Flip Joystick</span>
               <div class="mode-switch">
-                <button type="button" class="mode-option" data-flag="leftyJoystick" data-value="false">Left</button>
+                <button type="button" class="mode-option" data-flag="leftyJoystick" data-value="false">Off</button>
                 <button type="button" class="switch side-switch" role="switch" aria-labelledby="lefty-label"
                         data-toggle="leftyJoystick" aria-checked="false"><span class="switch-knob"></span></button>
-                <button type="button" class="mode-option" data-flag="leftyJoystick" data-value="true">Right</button>
+                <button type="button" class="mode-option" data-flag="leftyJoystick" data-value="true">On</button>
               </div>
             </div>
             <div class="setting-row" data-mobile-only>
