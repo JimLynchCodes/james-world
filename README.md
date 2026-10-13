@@ -42,12 +42,16 @@ wss://api.jamesworld.lol/ws                         ->  VPS: Caddy :443 -> Rust 
 - **Frontend:** Netlify builds `phaser-tag-client` on every push to `main`.
   `VITE_WS_URL=wss://api.jamesworld.lol/ws` tells the page where the server
   is.
+  
 - **Backend:** one Rust binary on an Ubuntu VPS, run by systemd, with Caddy
   in front for HTTPS. The browser connects to it directly, because Netlify
   can't proxy WebSockets.
+  
 - **DNS:** `jamesworld.lol` and `www` point at Netlify; `api` (`A`/`AAAA`)
   points at the VPS.
+  
 - **Redeploys:** Netlify deploys are atomic, so nobody notices them. A
   backend deploy restarts the server: the in-memory world starts fresh, and
   players see "Not Connected" for about 1–2 seconds while their clients
   reconnect and rejoin automatically.
+  
