@@ -22,6 +22,8 @@ target
 
 # Vite client: build output and machine-local env overrides
 phaser-tag-client/dist/
+phaser-tag-client/node_modules
+
 *.local
 .env.*.local
 
