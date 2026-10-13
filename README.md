@@ -1,11 +1,19 @@
 # James World
 
-A multiplayer game of tag in the browser: every player is a "James", the
-server decides who's IT, and you run around a schoolyard trying not to get
+A multiplayer game of tag in the browser: every player is ***James.***
+
+The server decides who's IT, and you run around a schoolyard trying not to get
 tagged.
+
+Play the live demo here! 👉 [https://jamesworld.lol](https://jamesworld.lol)
+
+---
+
+### Sub Projects
 
 - [`backend/`](backend): the game server. Rust (Axum + Tokio), server-authoritative,
   WebSockets. It owns the whole world: movement, energy, tagging, bots.
+  
 - [`phaser-tag-client/`](phaser-tag-client): the browser client. Phaser 3 +
   TypeScript, built with Vite. It sends inputs and draws the server's snapshots.
 
