@@ -469,7 +469,8 @@ canvas {
 .mode-option:focus-visible,
 .switch:focus-visible,
 .settings-select:focus-visible,
-.settings-slider:focus-visible {
+.settings-slider:focus-visible,
+.credit-link:focus-visible {
   outline: 3px dashed var(--tangerine);
   outline-offset: 3px;
 }
@@ -796,19 +797,28 @@ canvas {
     grid-template-rows: auto minmax(0, 1fr);
     gap: 12px;
   }
-  .settings-tabs { flex-direction: row; gap: 8px; align-self: stretch; }
+  /* Four labelled tabs don't fit one row here. Two by two keeps every
+     name readable (a single row clips "Controls" / "Credits"). */
+  .settings-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    align-self: stretch;
+  }
   .settings-tab {
-    flex: 1 1 auto;
     justify-content: center;
     gap: 5px;
     padding: 8px 8px;
     font-size: 14px;
   }
   .settings-tab svg { width: 20px; height: 20px; }
+  /* Sun fill marks the active tab. A nudge would knock it out of line
+     with the tab beside it in this two-by-two grid. */
+  .settings-tab:hover { transform: none; }
+  .settings-tab[aria-selected="true"] { transform: none; }
   .settings-pane { min-width: 0; padding: 14px 12px 16px; }
   .mode-switch { gap: 8px; }
   .mode-option { font-size: 14px; }
-  .settings-tab[aria-selected="true"] { transform: translateY(2px); }
   .settings-title { font-size: 26px; }
   .setting-row { gap: 8px 10px; }
   .switch { flex: none; }
@@ -821,10 +831,10 @@ canvas {
   .settings-tab svg { width: 18px; height: 18px; }
 }
 
-/* Too narrow for three labelled tabs side by side: stack them, full width. */
+/* Too narrow for a 2-by-2 of labelled tabs: stack them, full width. */
 @container settings (max-width: 299px) {
-  .settings-tabs { flex-direction: column; gap: 8px; }
-  .settings-tab { flex: none; justify-content: flex-start; gap: 8px; padding: 7px 12px; font-size: 14px; }
+  .settings-tabs { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .settings-tab { justify-content: flex-start; gap: 8px; padding: 7px 12px; font-size: 14px; }
   .settings-tab svg { width: 20px; height: 20px; }
   .settings-tab:hover { transform: none; }
   .settings-tab[aria-selected="true"] { transform: none; }
@@ -1251,6 +1261,169 @@ canvas {
 }
 @media (prefers-reduced-motion: reduce) {
   .skin-preview, .skin-card.picked .skin-preview { animation: none; background-position-x: calc(var(--fw) * var(--draw) * -12px); }
+}
+
+/* Settings > Credits: portrait, then one card per link. Narrow panes stack
+   every card; a wide pane puts the two links side by side. */
+.credit-cards {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+.credit-card {
+  box-sizing: border-box;
+  min-width: 0;
+  border: 3px solid var(--ink);
+  border-radius: 18px;
+  background: #f4f1ff;
+  box-shadow: 0 4px 0 var(--ink);
+}
+.credit-bio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 16px 18px;
+  text-align: center;
+}
+.credit-photo-ring {
+  flex: none;
+  width: 140px;
+  height: 140px;
+  box-sizing: border-box;
+  padding: 5px;
+  border: 4px solid var(--ink);
+  border-radius: 50%;
+  background: var(--sun);
+  box-shadow: 0 4px 0 var(--ink);
+}
+.credit-photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: center center;
+  background: var(--cream);
+  /* Sprite previews are pixelated on purpose. This photo is not. */
+  image-rendering: auto;
+}
+.credit-copy {
+  margin: 0;
+  max-width: 40rem;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.45;
+  color: var(--ink);
+}
+.credit-link {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  color: var(--ink);
+  font-family: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .15s cubic-bezier(.34, 1.8, .5, 1), background .15s;
+}
+.credit-link:hover { transform: translateY(-3px); background: #fff; }
+.credit-link:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+.credit-badge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border: 3px solid var(--ink);
+  border-radius: 16px;
+  box-shadow: 0 3px 0 var(--ink);
+}
+.credit-badge svg { display: block; width: 26px; height: 26px; }
+.credit-badge-li { background: var(--sky); color: var(--ink); }
+.credit-badge-gh { background: var(--ink); color: #fff; }
+.credit-link-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+.credit-lead {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+.credit-url-row {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  max-width: 100%;
+  color: #1e4db7;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+.credit-url {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+.credit-ext {
+  display: inline-flex;
+  flex: none;
+  text-decoration: none;
+}
+.credit-ext svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.credit-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@container pane (min-width: 560px) {
+  .credit-cards { grid-template-columns: 1fr 1fr; gap: 14px; }
+  .credit-bio {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    align-items: center;
+    text-align: left;
+    gap: 20px;
+    padding: 16px 20px;
+  }
+  .credit-link { height: 100%; }
+}
+@container pane (max-width: 280px) {
+  .credit-photo-ring { width: 112px; height: 112px; }
+  .credit-copy { font-size: 15px; }
+  .credit-link { padding: 12px; gap: 10px; }
+  .credit-badge { width: 42px; height: 42px; border-radius: 14px; }
+  .credit-badge svg { width: 22px; height: 22px; }
+  .credit-lead { font-size: 14px; }
+  .credit-url-row { font-size: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .credit-link { transition: none; }
 }
 
 /* ------------------------------------------------------------------------
