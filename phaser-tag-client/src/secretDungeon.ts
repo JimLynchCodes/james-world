@@ -25,27 +25,36 @@ export const CAVE = {
 
 /** A bit under full-bleed so the cave reads as a room, not a close-up. */
 const CAVE_ZOOM = 0.86;
-/** Kid height as a fraction of the room. Small enough to stand under the sword. */
+/** Kid height as a fraction of the room. The old man and the fires match it. */
 const PLAYER_ROOM_FRACTION = 0.11;
+/** Sword length relative to the player, head to feet. */
+const SWORD_HEIGHT_FRACTION = 0.6;
+const PLAYER_CAVE_H = CAVE.h * PLAYER_ROOM_FRACTION;
+
+const BASE = import.meta.env.BASE_URL;
 
 const DOOR_X = (CAVE.w - CAVE.doorW) / 2;
 
 export type CaveRect = { x: number; y: number; w: number; h: number };
 
-/**
- * Feet for the man and the fires; sword x/y is the sprite center.
- * Art is 16×20 for the man and each fire (about the player's height)
- * and 10×10 for the sword (about half that).
- */
-const MAN = { x: 128, y: 84, w: 16, h: 18 };
-const FIRE_L = { x: 98, y: 84, w: 14, h: 16 };
-const FIRE_R = { x: 158, y: 84, w: 14, h: 16 };
-const SWORD = { x: 128, y: 102, w: 10, h: 10 };
 /** Feet in the bottom doorway, well below the sword. */
 const SPAWN = { x: CAVE.w / 2, y: CAVE.h - 24 };
+/** Feet line for the old man and both fires, under the typed lines. */
+const FIGURE_FEET_Y = 86;
+/** Gap between the man's robe and each fire, in cave pixels. */
+const FIGURE_GAP = 4;
 
-/** Solid rectangles in cave pixels (the sword is deliberately not here). */
-export function caveSolids(): CaveRect[] {
+/** x/y are feet for the man and fires, and the center for the sword. w/h are the drawn size. */
+type PlacedSprite = { x: number; y: number; w: number; h: number };
+
+type CaveSprites = {
+  man: PlacedSprite;
+  fireL: PlacedSprite;
+  fireR: PlacedSprite;
+  sword: PlacedSprite;
+};
+
+function wallSolids(): CaveRect[] {
   const { w, h, wall, doorW } = CAVE;
   const doorX = (w - doorW) / 2;
   return [
@@ -54,18 +63,26 @@ export function caveSolids(): CaveRect[] {
     { x: w - wall, y: 0, w: wall, h },
     { x: 0, y: h - wall, w: doorX, h: wall },
     { x: doorX + doorW, y: h - wall, w: w - (doorX + doorW), h: wall },
-    { x: MAN.x - MAN.w / 2, y: MAN.y - MAN.h, w: MAN.w, h: MAN.h },
-    { x: FIRE_L.x - FIRE_L.w / 2, y: FIRE_L.y - FIRE_L.h, w: FIRE_L.w, h: FIRE_L.h },
-    { x: FIRE_R.x - FIRE_R.w / 2, y: FIRE_R.y - FIRE_R.h, w: FIRE_R.w, h: FIRE_R.h },
   ];
 }
 
-export function caveSword(): CaveRect {
+function figureSolids(sprites: CaveSprites): CaveRect[] {
+  const box = (s: PlacedSprite): CaveRect => ({
+    x: s.x - s.w / 2,
+    y: s.y - s.h,
+    w: s.w,
+    h: s.h,
+  });
+  return [box(sprites.man), box(sprites.fireL), box(sprites.fireR)];
+}
+
+function swordRect(sword: PlacedSprite): CaveRect {
+  const pad = 1;
   return {
-    x: SWORD.x - SWORD.w / 2 - 1,
-    y: SWORD.y - SWORD.h / 2 - 1,
-    w: SWORD.w + 2,
-    h: SWORD.h + 2,
+    x: sword.x - sword.w / 2 - pad,
+    y: sword.y - sword.h / 2 - pad,
+    w: sword.w + pad * 2,
+    h: sword.h + pad * 2,
   };
 }
 
@@ -106,87 +123,7 @@ const FONT: Record<string, readonly string[]> = {
   " ": ["00000", "00000", "00000", "00000", "00000", "00000", "00000"],
 };
 
-/** 16×20. Bald head, side tufts, beard, A-line robe. Every row is 16 wide. */
-const OLD_MAN = [
-  "....PPPPPP......",
-  "...PPPPPPPP.....",
-  "..WPPPPPPPPW....",
-  "..WPP.EE.PPW....",
-  "..WPPPPPPPPW....",
-  "...WWWWWWWW.....",
-  "..WWWWWWWWWW....",
-  ".WWWWWWWWWWWW...",
-  ".WWWWWWWWWWWW...",
-  "..WWWWWWWWWW....",
-  "...WWWWWWWW.....",
-  "....WWWWWW......",
-  "..OORRRRRROO....",
-  "..OORRRRRRRROO..",
-  ".oRRRRRRRRRRRRo.",
-  "RRRRRRRRRRRRRRRR",
-  "RRRRRRRRRRRRRRRR",
-  ".RRRR....RRRR...",
-  "..DD......DD....",
-  "....D....D......",
-];
-
-/**
- * 16×20 spiky flame. Orange shell, yellow inside, white core low.
- * Frame B is the horizontal mirror, so the tongues jump like an NES fire.
- */
-const FIRE_A = [
-  "...........O.O..",
-  "..........OO.OO.",
-  ".........OOO.OO.",
-  "........OOOO....",
-  "....O..OOOOO....",
-  "...OO.OOOOOO....",
-  "..OOOOOOOOOO....",
-  ".OOOOOOOOOOOO...",
-  "OOOOOOOOOOOOOO..",
-  ".OOOOOOYYOOOOO..",
-  "OOOOOYYYYYYOOOO.",
-  ".OOOOYYYWWYOOOO.",
-  "..OOOYYWWWWYOO..",
-  "...OOYWWWWWY....",
-  "....OYWWWWWY....",
-  ".....YWWWWY.....",
-  "......YWWY......",
-  ".......YYY......",
-  "........Y.......",
-  "........o.......",
-];
-
-const FIRE_B = FIRE_A.map((row) => [...row].reverse().join(""));
-
-/** Steep diagonal, about half the old man's height. Tip up-left, hilt down-right. */
-const SWORD_ART = [
-  ".WWW......",
-  ".WWW......",
-  "..WWW.....",
-  "..WWW.....",
-  "...OOO....",
-  "....RRR...",
-  "....RRR...",
-  ".....RR...",
-  "......R...",
-  ".......D..",
-];
-
 type RGB = [number, number, number];
-
-const INK: Record<string, RGB | null> = {
-  ".": null,
-  " ": null,
-  P: [232, 168, 104],
-  E: [24, 12, 12],
-  W: [250, 250, 246],
-  R: [186, 32, 28],
-  O: [236, 116, 36],
-  o: [168, 56, 20],
-  D: [96, 52, 28],
-  Y: [255, 208, 48],
-};
 
 const BSOD_TEXT = `A problem has been detected and James World has been shut down to prevent damage
 to your computer.
@@ -220,23 +157,6 @@ function hash(x: number, y: number): number {
   return (n ^ (n >>> 16)) >>> 0;
 }
 
-function blit(
-  ctx: CanvasRenderingContext2D,
-  rows: readonly string[],
-  x: number,
-  y: number,
-  palette: Record<string, RGB | null> = INK
-) {
-  rows.forEach((row, iy) => {
-    for (let ix = 0; ix < row.length; ix++) {
-      const rgb = palette[row[ix]];
-      if (!rgb) continue;
-      ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
-      ctx.fillRect(x + ix, y + iy, 1, 1);
-    }
-  });
-}
-
 function circleHits(x: number, y: number, r: number, rect: CaveRect): boolean {
   const cx = Math.max(rect.x, Math.min(x, rect.x + rect.w));
   const cy = Math.max(rect.y, Math.min(y, rect.y + rect.h));
@@ -256,14 +176,6 @@ function makeCanvas(scene: Phaser.Scene, key: string, w: number, h: number, draw
   tex.refresh();
   tex.setFilter(Phaser.Textures.FilterMode.NEAREST);
   return tex;
-}
-
-function paintArt(scene: Phaser.Scene, key: string, rows: readonly string[]) {
-  const w = Math.max(...rows.map(row => row.length));
-  const h = rows.length;
-  return makeCanvas(scene, key, w, h, ctx => {
-    rows.forEach((row, iy) => blit(ctx, [row], Math.floor((w - row.length) / 2), iy));
-  });
 }
 
 function drawRocks(ctx: CanvasRenderingContext2D) {
@@ -323,7 +235,8 @@ export class SecretDungeonScene extends Phaser.Scene {
   private man!: Phaser.GameObjects.Image;
   private sword!: Phaser.GameObjects.Image;
   private fires: Phaser.GameObjects.Image[] = [];
-  private solids: CaveRect[] = caveSolids();
+  private solids: CaveRect[] = wallSolids();
+  private sprites!: CaveSprites;
   private fit = { scale: 1, ox: 0, oy: 0 };
   /** Feet, in cave pixels. */
   private lx = SPAWN.x;
@@ -360,16 +273,28 @@ export class SecretDungeonScene extends Phaser.Scene {
     this.bsodEl = null;
   }
 
+  preload() {
+    const load = (key: string, file: string) => {
+      if (!this.textures.exists(key)) this.load.image(key, `${BASE}assets/cave/${file}`);
+    };
+    load("dungeon-man", "old-man.png");
+    load("dungeon-fire-0", "fire-0.png");
+    load("dungeon-fire-1", "fire-1.png");
+    load("dungeon-sword", "sword.png");
+  }
+
   create() {
     this.cameras.main.setBackgroundColor("#000000");
     this.cameras.main.setRoundPixels(true);
 
+    for (const key of ["dungeon-man", "dungeon-fire-0", "dungeon-fire-1", "dungeon-sword"]) {
+      this.textures.get(key).setFilter(Phaser.Textures.FilterMode.NEAREST);
+    }
+    this.sprites = this.measureSprites();
+    this.solids = [...wallSolids(), ...figureSolids(this.sprites)];
+
     makeCanvas(this, "dungeon-room", CAVE.w, CAVE.h, drawRocks);
     this.textTex = makeCanvas(this, "dungeon-text", CAVE.w, CAVE.h, () => {});
-    paintArt(this, "dungeon-man", OLD_MAN);
-    paintArt(this, "dungeon-sword", SWORD_ART);
-    paintArt(this, "dungeon-fire-0", FIRE_A);
-    paintArt(this, "dungeon-fire-1", FIRE_B);
 
     this.roomImage = this.add.image(0, 0, "dungeon-room").setOrigin(0, 0).setDepth(0);
     this.sword = this.add.image(0, 0, "dungeon-sword").setOrigin(0.5, 0.5).setDepth(2);
@@ -426,8 +351,56 @@ export class SecretDungeonScene extends Phaser.Scene {
       y: this.ly,
       bsod: this.bsodEl != null,
       solids: this.solids,
-      sword: caveSword(),
+      sword: swordRect(this.sprites.sword),
       playerR: CAVE.playerR,
+      playerH: PLAYER_CAVE_H,
+      sprites: this.sprites,
+      screen: {
+        man: this.screenBox(this.man),
+        fireL: this.screenBox(this.fires[0]),
+        fireR: this.screenBox(this.fires[1]),
+        sword: this.screenBox(this.sword),
+        playerH: CAVE.h * this.fit.scale * PLAYER_ROOM_FRACTION,
+      },
+    };
+  }
+
+  private sourceSize(key: string): { w: number; h: number } {
+    const image = this.textures.get(key).getSourceImage() as { width: number; height: number };
+    return { w: image.width, h: image.height };
+  }
+
+  /** Drawn width and height in cave pixels for a target height. */
+  private drawn(key: string, targetH: number): { w: number; h: number } {
+    const src = this.sourceSize(key);
+    return { w: (src.w * targetH) / src.h, h: targetH };
+  }
+
+  private measureSprites(): CaveSprites {
+    const man = this.drawn("dungeon-man", PLAYER_CAVE_H);
+    const fire = this.drawn("dungeon-fire-0", PLAYER_CAVE_H);
+    const sword = this.drawn("dungeon-sword", PLAYER_CAVE_H * SWORD_HEIGHT_FRACTION);
+    const x = CAVE.w / 2;
+    const y = FIGURE_FEET_Y;
+    return {
+      man: { x, y, w: man.w, h: man.h },
+      fireL: { x: x - man.w / 2 - FIGURE_GAP - fire.w / 2, y, w: fire.w, h: fire.h },
+      fireR: { x: x + man.w / 2 + FIGURE_GAP + fire.w / 2, y, w: fire.w, h: fire.h },
+      sword: { x, y: y + 8 + sword.h / 2, w: sword.w, h: sword.h },
+    };
+  }
+
+  /** Nearest-neighbor scale that makes `targetH` cave pixels tall on screen. */
+  private pixelScale(key: string, targetH: number): number {
+    return this.fit.scale * (targetH / this.sourceSize(key).h);
+  }
+
+  private screenBox(img: Phaser.GameObjects.Image) {
+    return {
+      x: img.x - img.displayWidth * img.originX,
+      y: img.y - img.displayHeight * img.originY,
+      w: img.displayWidth,
+      h: img.displayHeight,
     };
   }
 
@@ -445,13 +418,16 @@ export class SecretDungeonScene extends Phaser.Scene {
     this.cameras.main.setSize(viewW, viewH);
     this.roomImage.setPosition(ox, oy).setScale(scale);
     this.textImage.setPosition(ox, oy).setScale(scale);
-    const placeFeet = (img: Phaser.GameObjects.Image, x: number, y: number) => {
-      img.setPosition(ox + x * scale, oy + y * scale).setScale(scale);
+    const sprites = this.sprites;
+    const placeFeet = (img: Phaser.GameObjects.Image, sprite: PlacedSprite, key: string) => {
+      img.setPosition(ox + sprite.x * scale, oy + sprite.y * scale).setScale(this.pixelScale(key, sprite.h));
     };
-    placeFeet(this.man, MAN.x, MAN.y);
-    placeFeet(this.fires[0], FIRE_L.x, FIRE_L.y);
-    placeFeet(this.fires[1], FIRE_R.x, FIRE_R.y);
-    this.sword.setPosition(ox + SWORD.x * scale, oy + SWORD.y * scale).setScale(scale);
+    placeFeet(this.man, sprites.man, "dungeon-man");
+    placeFeet(this.fires[0], sprites.fireL, "dungeon-fire-0");
+    placeFeet(this.fires[1], sprites.fireR, "dungeon-fire-1");
+    this.sword
+      .setPosition(ox + sprites.sword.x * scale, oy + sprites.sword.y * scale)
+      .setScale(this.pixelScale("dungeon-sword", sprites.sword.h));
     this.placeAvatar();
   };
 
@@ -487,7 +463,7 @@ export class SecretDungeonScene extends Phaser.Scene {
     }
     this.walk(delta);
     if (this.left) return;
-    if (circleHits(this.lx, this.ly, CAVE.playerR, caveSword())) this.showBsod();
+    if (circleHits(this.lx, this.ly, CAVE.playerR, swordRect(this.sprites.sword))) this.showBsod();
   }
 
   private reveal(time: number) {
@@ -542,14 +518,13 @@ export class SecretDungeonScene extends Phaser.Scene {
       const frame = Math.floor(time / 110 + i) % 2;
       const key = frame === 0 ? "dungeon-fire-0" : "dungeon-fire-1";
       if (fire.texture.key !== key) fire.setTexture(key);
-      const feet = i === 0 ? FIRE_L.y : FIRE_R.y;
+      const feet = i === 0 ? this.sprites.fireL.y : this.sprites.fireR.y;
       fire.setDepth(this.groundDepth(feet));
     });
-    this.man.setDepth(this.groundDepth(MAN.y));
-    // Sort with the hilt, the sword's lowest point, so a kid standing
-    // under it (the door) draws in front and a kid behind it does not
-    // cover the blade.
-    this.sword.setDepth(this.groundDepth(SWORD.y + SWORD.h / 2));
+    this.man.setDepth(this.groundDepth(this.sprites.man.y));
+    // Sort with the sword's lowest point, so a kid standing under it
+    // draws in front and a kid behind it does not cover the blade.
+    this.sword.setDepth(this.groundDepth(this.sprites.sword.y + this.sprites.sword.h / 2));
   }
 
   private groundDepth(caveY: number): number {
