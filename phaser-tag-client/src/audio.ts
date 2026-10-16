@@ -14,7 +14,7 @@
 
 import type { Mood, Settings } from "./settings";
 
-export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "click";
+export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "click" | "blip" | "secret";
 
 const CROSSFADE_S = 1.5;
 const LOOKAHEAD_S = 0.15;
@@ -494,6 +494,9 @@ export class GameAudio {
   private buffers = new Map<Mood, AudioBuffer>();
   private loads = new Map<Mood, LoadStatus>();
   private loadedFrom = new Map<Mood, string>();
+  /** Decoded secret-quest sting, played through the sfx bus. */
+  private secretBuffer: AudioBuffer | null = null;
+  private secretPromise: Promise<AudioBuffer | null> | null = null;
 
   constructor(settings: Settings) {
     this.settings = { ...settings };
@@ -549,6 +552,7 @@ export class GameAudio {
       this.sfxSynth = new Synth(ctx, this.sfx, this.noise);
 
       this.applyVolumes(true);
+      void this.ensureSecret();
     }
     if (this.ctx.state === "suspended") {
       void this.ctx.resume().then(() => this.ensureMusic());
@@ -728,9 +732,70 @@ export class GameAudio {
       case "click":
         syn.tone(t, 1250, { type: "triangle", gain: 0.08 * v, release: 0.035 });
         break;
+      case "blip":
+        // Short text tick, in the neighbourhood of a cave-message blip.
+        syn.tone(t, 980, { type: "square", gain: 0.045 * v, attack: 0.001, release: 0.04, filter: 2800 });
+        break;
+      case "secret":
+        // The quest sting is a file on the sfx bus; see playSecret.
+        break;
     }
     this.sfxPlayed++;
     this.lastSfx = name;
+  }
+
+  /**
+   * Secret-quest sting (`audio/secret-quest.mp3`) through the sfx bus, so the
+   * sound-effects slider and mute cover it. No-op until the AudioContext is
+   * running (a gesture already unlocked it on the way into the tree).
+   */
+  playSecret() {
+    const start = (buffer: AudioBuffer) => {
+      const ctx = this.ctx;
+      if (!ctx) return;
+      const go = () => {
+        if (!this.ctx || this.ctx.state !== "running") return;
+        const src = this.ctx.createBufferSource();
+        src.buffer = buffer;
+        src.connect(this.sfx);
+        src.start();
+        this.sfxPlayed++;
+        this.lastSfx = "secret";
+      };
+      if (ctx.state === "running") go();
+      else void ctx.resume().then(go);
+    };
+    if (this.secretBuffer) {
+      start(this.secretBuffer);
+      return;
+    }
+    void this.ensureSecret().then(buffer => {
+      if (buffer) start(buffer);
+    });
+  }
+
+  /** Fetch and decode the quest sting once. */
+  private ensureSecret(): Promise<AudioBuffer | null> {
+    if (this.secretBuffer) return Promise.resolve(this.secretBuffer);
+    const ctx = this.ctx;
+    if (!ctx) return Promise.resolve(null);
+    if (!this.secretPromise) {
+      const url = `${BASE}audio/secret-quest.mp3`;
+      this.secretPromise = (async () => {
+        try {
+          const response = await fetch(url);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const buffer = await ctx.decodeAudioData(await response.arrayBuffer());
+          this.secretBuffer = buffer;
+          return buffer;
+        } catch (error) {
+          console.warn("[audio] couldn't load secret sting:", error);
+          this.secretPromise = null;
+          return null;
+        }
+      })();
+    }
+    return this.secretPromise;
   }
 
   /** Snapshot for debugging / tests. */

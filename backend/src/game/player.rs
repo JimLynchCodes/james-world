@@ -35,6 +35,10 @@ pub struct Player {
     pub tag_immunity_ticks: u32,
 
     pub escape_boost_ticks: u32,
+
+    /// In the secret cave. Still in the world (position, energy, IT) but
+    /// omitted from snapshots and not taggable. See `World::set_away`.
+    pub away: bool,
 }
 
 impl Player {
@@ -68,6 +72,8 @@ impl Player {
             tag_immunity_ticks: 0,
 
             escape_boost_ticks: 0,
+
+            away: false,
         }
     }
 }

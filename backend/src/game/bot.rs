@@ -258,7 +258,7 @@ pub fn choose_target(
 ) -> Option<Uuid> {
     players
         .values()
-        .filter(|p| p.id != me.id && p.tag_immunity_ticks == 0)
+        .filter(|p| p.id != me.id && p.tag_immunity_ticks == 0 && !p.away)
         .map(|p| {
             let mut score = dist(me, p);
 
@@ -385,7 +385,7 @@ fn refresh_target(
     let current_ok = brain
         .target
         .and_then(|id| players.get(&id))
-        .is_some_and(|p| p.tag_immunity_ticks == 0);
+        .is_some_and(|p| p.tag_immunity_ticks == 0 && !p.away);
 
     if brain.retarget_in == 0 || !current_ok {
         brain.target = choose_target(me, players, brain.target, profile.human_preference);
@@ -399,7 +399,9 @@ fn refresh_target(
 fn tag_candidate(me: &Player, players: &HashMap<Uuid, Player>, tag_range: f32) -> Option<Uuid> {
     players
         .values()
-        .filter(|p| p.id != me.id && p.tag_immunity_ticks == 0 && dist(me, p) <= tag_range)
+        .filter(|p| {
+            p.id != me.id && !p.away && p.tag_immunity_ticks == 0 && dist(me, p) <= tag_range
+        })
         .min_by(|a, b| dist(me, a).total_cmp(&dist(me, b)))
         .map(|p| p.id)
 }
@@ -473,7 +475,9 @@ fn desired_steer(
             None => wander(me, brain, sep),
         }
     } else {
-        let threat = players.values().find(|p| p.is_it && p.id != me.id);
+        let threat = players
+            .values()
+            .find(|p| p.is_it && p.id != me.id && !p.away);
 
         match threat {
             Some(it) if dist(me, it) < profile.flee_radius => {

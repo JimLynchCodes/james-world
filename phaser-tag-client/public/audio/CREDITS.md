@@ -26,5 +26,11 @@ Files here:
 
 CC0 doesn't require attribution. We credit the author here anyway.
 
+## Secret quest sting
+
+`secret-quest.mp3` plays once when the hidden tree sequence is completed.
+It is routed through the sound-effects bus (the SFX slider). The file is a
+bundled sting supplied for that quest.
+
 All other music and sound effects are synthesised at runtime by
-`src/audio.ts`. No other audio assets are used.
+`src/audio.ts`.
