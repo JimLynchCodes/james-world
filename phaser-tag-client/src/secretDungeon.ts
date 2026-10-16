@@ -32,11 +32,15 @@ const DOOR_X = (CAVE.w - CAVE.doorW) / 2;
 
 export type CaveRect = { x: number; y: number; w: number; h: number };
 
-/** Feet for the man and the fires; sword x/y is the sprite center. */
-const MAN = { x: 128, y: 84, w: 18, h: 22 };
-const FIRE_L = { x: 74, y: 86, w: 14, h: 14 };
-const FIRE_R = { x: 182, y: 86, w: 14, h: 14 };
-const SWORD = { x: 128, y: 104, w: 20, h: 14 };
+/**
+ * Feet for the man and the fires; sword x/y is the sprite center.
+ * Art is 16×20 for the man and each fire (about the player's height)
+ * and 10×10 for the sword (about half that).
+ */
+const MAN = { x: 128, y: 84, w: 16, h: 18 };
+const FIRE_L = { x: 98, y: 84, w: 14, h: 16 };
+const FIRE_R = { x: 158, y: 84, w: 14, h: 16 };
+const SWORD = { x: 128, y: 102, w: 10, h: 10 };
 /** Feet in the bottom doorway, well below the sword. */
 const SPAWN = { x: CAVE.w / 2, y: CAVE.h - 24 };
 
@@ -102,86 +106,71 @@ const FONT: Record<string, readonly string[]> = {
   " ": ["00000", "00000", "00000", "00000", "00000", "00000", "00000"],
 };
 
+/** 16×20. Bald head, side tufts, beard, A-line robe. Every row is 16 wide. */
 const OLD_MAN = [
-  "......WW..........WW......",
-  ".....WWW..........WWW.....",
-  "......W.PPPPPPPP.W........",
-  ".....W.PPPPPPPPPP.W.......",
-  ".....W.PP.EEEE.PP.W.......",
-  ".....W.PPPPPPPPPP.W.......",
-  "......W.WWWWWWWW.W........",
-  ".......WWWWWWWWWW.........",
-  "......WWWWWWWWWWWW........",
-  "...ooo............ooo.....",
-  "..oooo.oooooooooo.oooo....",
-  "..ooo.OOOOOOOOOOOO.ooo....",
-  "......OOOOOOOOOOOO........",
-  ".....rRRRRRRRRRRRRr.......",
-  "....rRRRRRRRRRRRRRRr......",
-  "...rRRRRRRRRRRRRRRRRr.....",
-  "..rRRRRRRRRRRRRRRRRRRr....",
-  "..RRRRRRRRRRRRRRRRRRRR....",
-  ".RRRRRRRRRRRRRRRRRRRRRR...",
-  ".RRRrRRRRRRRRRRRRrRRRRR...",
-  "..RRRRRRRRRRRRRRRRRRRR....",
-  "...RRRRRRRRRRRRRRRRRR.....",
-  "....RRRR........RRRR......",
-  "....DDDD........DDDD......",
-  ".....DD..........DD.......",
+  "....PPPPPP......",
+  "...PPPPPPPP.....",
+  "..WPPPPPPPPW....",
+  "..WPP.EE.PPW....",
+  "..WPPPPPPPPW....",
+  "...WWWWWWWW.....",
+  "..WWWWWWWWWW....",
+  ".WWWWWWWWWWWW...",
+  ".WWWWWWWWWWWW...",
+  "..WWWWWWWWWW....",
+  "...WWWWWWWW.....",
+  "....WWWWWW......",
+  "..OORRRRRROO....",
+  "..OORRRRRRRROO..",
+  ".oRRRRRRRRRRRRo.",
+  "RRRRRRRRRRRRRRRR",
+  "RRRRRRRRRRRRRRRR",
+  ".RRRR....RRRR...",
+  "..DD......DD....",
+  "....D....D......",
 ];
 
+/**
+ * 16×20 spiky flame. Orange shell, yellow inside, white core low.
+ * Frame B is the horizontal mirror, so the tongues jump like an NES fire.
+ */
 const FIRE_A = [
-  ".......yy.......",
-  "......yYYy......",
-  ".....yYOOYy.....",
-  "....yyOOOOyy....",
-  "...yOOORROOYy...",
-  "..yOOORRRROOYy..",
-  "..OOORRRRRRROO..",
-  ".oOORRRRRRRRROo.",
-  ".oORRRRRRRRRRRo.",
-  "..RRRRRRRRRRRR..",
-  "...RRRRRRRRRR...",
-  "....RRRRRRRR....",
-  ".....RRRRRR.....",
-  "......RRRR......",
-  ".......RR.......",
+  "...........O.O..",
+  "..........OO.OO.",
+  ".........OOO.OO.",
+  "........OOOO....",
+  "....O..OOOOO....",
+  "...OO.OOOOOO....",
+  "..OOOOOOOOOO....",
+  ".OOOOOOOOOOOO...",
+  "OOOOOOOOOOOOOO..",
+  ".OOOOOOYYOOOOO..",
+  "OOOOOYYYYYYOOOO.",
+  ".OOOOYYYWWYOOOO.",
+  "..OOOYYWWWWYOO..",
+  "...OOYWWWWWY....",
+  "....OYWWWWWY....",
+  ".....YWWWWY.....",
+  "......YWWY......",
+  ".......YYY......",
+  "........Y.......",
+  "........o.......",
 ];
 
-const FIRE_B = [
-  "........yy......",
-  ".......yYYy.....",
-  "......yYOOYy....",
-  ".....yyOOOOyy...",
-  "....yOOORROOyy..",
-  "...yOORRRRRROy..",
-  "..oOORRRRRRROo..",
-  "..oORRRRRRRRRo..",
-  "...RRRRRRRRRR...",
-  "....RRRRRRRRR...",
-  ".....RRRRRRR....",
-  "......RRRRR.....",
-  ".......RRR......",
-  "........R.......",
-  "................",
-];
+const FIRE_B = FIRE_A.map((row) => [...row].reverse().join(""));
 
-/** Blade points up-left; the hilt sits down-right. Rows stay the same width. */
+/** Steep diagonal, about half the old man's height. Tip up-left, hilt down-right. */
 const SWORD_ART = [
-  "WW..................",
-  "WWW.................",
-  ".WWW................",
-  "..WWW...............",
-  "...WWW..............",
-  "....WWW.............",
-  ".....WWW............",
-  "......WWW...........",
-  ".......oGGG.........",
-  "........GGGo........",
-  ".........HHH........",
-  "..........HHH.......",
-  "...........HH.......",
-  "............H.......",
+  ".WWW......",
+  ".WWW......",
+  "..WWW.....",
+  "..WWW.....",
+  "...OOO....",
+  "....RRR...",
+  "....RRR...",
+  ".....RR...",
+  "......R...",
+  ".......D..",
 ];
 
 type RGB = [number, number, number];
@@ -189,18 +178,14 @@ type RGB = [number, number, number];
 const INK: Record<string, RGB | null> = {
   ".": null,
   " ": null,
-  P: [244, 190, 142],
-  E: [28, 16, 14],
+  P: [232, 168, 104],
+  E: [24, 12, 12],
   W: [250, 250, 246],
-  R: [186, 32, 32],
-  r: [214, 48, 36],
-  O: [228, 104, 32],
-  o: [246, 156, 56],
-  D: [92, 46, 26],
-  y: [255, 246, 190],
-  Y: [255, 214, 72],
-  G: [196, 108, 40],
-  H: [112, 58, 28],
+  R: [186, 32, 28],
+  O: [236, 116, 36],
+  o: [168, 56, 20],
+  D: [96, 52, 28],
+  Y: [255, 208, 48],
 };
 
 const BSOD_TEXT = `A problem has been detected and James World has been shut down to prevent damage
@@ -449,7 +434,11 @@ export class SecretDungeonScene extends Phaser.Scene {
   private readonly layout = () => {
     const viewW = this.scale.width;
     const viewH = this.scale.height;
-    const scale = Math.min(viewW / CAVE.w, viewH / CAVE.h) * CAVE_ZOOM;
+    const contain = Math.min(viewW / CAVE.w, viewH / CAVE.h);
+    // Portrait phones otherwise letterbox a tiny landscape room. Fill the
+    // width (the room can crop vertically if the screen is shorter).
+    const portrait = viewH > viewW;
+    const scale = portrait ? contain : contain * CAVE_ZOOM;
     const ox = (viewW - CAVE.w * scale) / 2;
     const oy = (viewH - CAVE.h * scale) / 2;
     this.fit = { scale, ox, oy };
