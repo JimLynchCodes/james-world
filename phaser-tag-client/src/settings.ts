@@ -1,6 +1,6 @@
 /**
  * Settings: persisted preferences (localStorage) plus the cog button and
- * the Settings modal (tabs: Controls, Sound, Skins). The header and tabs stay
+ * the Settings modal (tabs: Controls, Sound, Skins, Credits). The header and tabs stay
  * put; the option panes scroll inside the rounded frame. Plain DOM on
  * top of the Phaser canvas; styles live in style.css under "Settings".
  */
@@ -164,7 +164,38 @@ export interface SettingsPanelOptions {
   onSound?(kind: "click" | "preview"): void;
 }
 
-type Tab = "controls" | "sound" | "skins";
+type Tab = "controls" | "sound" | "skins" | "credits";
+
+/** Portrait on the Credits tab. Square source, framed in CSS (not stretched). */
+const JAMES_PORTRAIT = `${import.meta.env.BASE_URL}assets/james.webp`;
+
+const CREDIT_COPY = {
+  bio: "This game was made by James, a software engineer living in New York City (also known by many other names such as Jim, Jimbo, Jimothy, and Sir Jims-a-lot).",
+  linkedinLead: "Feel free to connect with me on LinkedIn:",
+  linkedinUrl: "https://linkedin.com/in/jimlynchcodes",
+  linkedinLabel: "linkedin.com/in/jimlynchcodes",
+  githubLead: "Take a peek at the source code for this game, fork it, and give it a star! 😉",
+  githubUrl: "https://github.com/JimLynchCodes/james-world",
+  githubLabel: "github.com/JimLynchCodes/james-world",
+} as const;
+
+/**
+ * Visible link label. Breaks only after a slash, and the last segment stays
+ * on the same line as the external-link icon.
+ */
+function creditUrlRow(label: string, icon: string): string {
+  const parts = label.split("/");
+  const tail = parts.pop() ?? label;
+  const head = parts.map(part => `${part}/<wbr>`).join("");
+  return `<span class="credit-url-row"><span class="credit-url">${head}</span><span class="credit-url-tail"><span class="credit-url">${tail}</span><span class="credit-ext">${icon}</span></span></span>`;
+}
+
+/** Filled marks, drawn in the same chunky badges as the rest of the panel. */
+const CREDIT_ICONS = {
+  linkedin: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20.45 20.45h-3.55v-5.57c0-1.33-.03-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.41v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45z"/></svg>`,
+  github: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12.02c0 4.42 2.87 8.18 6.84 9.5.5.09.68-.22.68-.48 0-.24-.01-.87-.01-1.7-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.89 1.53 2.34 1.09 2.91.83.09-.65.35-1.09.64-1.34-2.22-.25-4.56-1.11-4.56-4.95 0-1.09.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.03A9.56 9.56 0 0 1 12 6.84c.85 0 1.71.11 2.51.34 1.91-1.3 2.75-1.03 2.75-1.03.55 1.38.2 2.4.1 2.65.64.7 1.03 1.6 1.03 2.69 0 3.85-2.34 4.7-4.57 4.94.36.31.68.92.68 1.86 0 1.34-.01 2.42-.01 2.75 0 .26.18.58.69.48A10.02 10.02 0 0 0 22 12.02C22 6.48 17.52 2 12 2z"/></svg>`,
+  external: `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 5h5v5"/><path d="M13 11l6-6"/><path d="M18 13.5V18a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h4.5"/></svg>`,
+};
 
 /** On/off settings shown as switches in the Controls tab (Mobile only). */
 const FLAGS = ["leftyJoystick", "flipTagRun"] as const;
@@ -198,6 +229,7 @@ const ICONS = {
   controls: `<svg ${SVG_NS} viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="7" width="19" height="11" rx="5.5"/><path d="M7.5 10.5v4M5.5 12.5h4"/><circle cx="15.5" cy="11.5" r="1.1"/><circle cx="18" cy="14" r="1.1"/></svg>`,
   sound: `<svg ${SVG_NS} viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11"/></svg>`,
   skins: `<svg ${SVG_NS} viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 3.5 5 5.5 2.5 9.5l3 2 1.5-1.5V20.5h10V10l1.5 1.5 3-2L19 5.5l-3.5-2a3.5 3.5 0 0 1-7 0z"/></svg>`,
+  credits: `<svg ${SVG_NS} viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.2"/><path d="M5.2 19.6c.7-3.4 3.1-5.1 6.8-5.1s6.1 1.7 6.8 5.1"/></svg>`,
   close: `<svg ${SVG_NS} viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>`,
 };
 
@@ -344,6 +376,8 @@ export class SettingsPanel {
                     data-tab="sound" aria-controls="pane-sound">${ICONS.sound}<span>Sound</span></button>
             <button type="button" class="settings-tab" role="tab" id="tab-skins"
                     data-tab="skins" aria-controls="pane-skins">${ICONS.skins}<span>Skins</span></button>
+            <button type="button" class="settings-tab" role="tab" id="tab-credits"
+                    data-tab="credits" aria-controls="pane-credits">${ICONS.credits}<span>Credits</span></button>
           </div>
           <div class="settings-main">
           <div class="settings-scroll">
@@ -444,6 +478,37 @@ export class SettingsPanel {
             <p class="setting-help">Same hero, different drip.</p>
             <div class="skin-cards" role="radiogroup" aria-label="Skin">${skinCards}</div>
           </section>
+
+          <section class="settings-pane" role="tabpanel" id="pane-credits"
+                   aria-labelledby="tab-credits" data-pane="credits">
+            <h3>Credits</h3>
+            <div class="credit-cards">
+              <article class="credit-card credit-bio">
+                <span class="credit-photo-ring">
+                  <img class="credit-photo" src="${JAMES_PORTRAIT}" alt="James" width="256" height="256" draggable="false">
+                </span>
+                <p class="credit-copy">${CREDIT_COPY.bio}</p>
+              </article>
+              <a class="credit-card credit-link" data-credit="linkedin" draggable="false"
+                 href="${CREDIT_COPY.linkedinUrl}" target="_blank" rel="noopener noreferrer">
+                <span class="credit-badge credit-badge-li" aria-hidden="true">${CREDIT_ICONS.linkedin}</span>
+                <span class="credit-link-text">
+                  <span class="credit-lead">${CREDIT_COPY.linkedinLead}</span>
+                  ${creditUrlRow(CREDIT_COPY.linkedinLabel, CREDIT_ICONS.external)}
+                </span>
+                <span class="credit-sr">Opens in a new tab.</span>
+              </a>
+              <a class="credit-card credit-link" data-credit="github" draggable="false"
+                 href="${CREDIT_COPY.githubUrl}" target="_blank" rel="noopener noreferrer">
+                <span class="credit-badge credit-badge-gh" aria-hidden="true">${CREDIT_ICONS.github}</span>
+                <span class="credit-link-text">
+                  <span class="credit-lead">${CREDIT_COPY.githubLead}</span>
+                  ${creditUrlRow(CREDIT_COPY.githubLabel, CREDIT_ICONS.external)}
+                </span>
+                <span class="credit-sr">Opens in a new tab.</span>
+              </a>
+            </div>
+          </section>
           </div>
           <div class="settings-fade" hidden></div>
           </div>
@@ -490,7 +555,10 @@ export class SettingsPanel {
         this.selectTab(tab.dataset.tab as Tab);
       });
       tab.addEventListener("keydown", event => {
-        const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+        const step =
+          event.key === "ArrowDown" || event.key === "ArrowRight" ? 1
+          : event.key === "ArrowUp" || event.key === "ArrowLeft" ? -1
+          : 0;
         if (!step) return;
         event.preventDefault();
         const next = tabs[(i + step + tabs.length) % tabs.length];
@@ -534,6 +602,18 @@ export class SettingsPanel {
     const mood = this.q<HTMLSelectElement>(".settings-select");
     mood.addEventListener("change", () => this.set("mood", mood.value as Mood));
 
+    // Real <a target="_blank"> links. Stop the gesture before it reaches window,
+    // where Phaser's mouse/touch listeners would treat it as tap-to-move.
+    // Don't preventDefault: the browser has to follow the link, including on
+    // touch, where window.open is what popup blockers throw away.
+    this.backdrop.querySelectorAll<HTMLAnchorElement>("a.credit-link").forEach(link => {
+      const stop = (event: Event) => event.stopPropagation();
+      for (const type of ["pointerdown", "pointerup", "mousedown", "mouseup", "touchstart", "touchend", "click"] as const) {
+        link.addEventListener(type, stop);
+      }
+      link.addEventListener("click", () => this.options.onSound?.("click"));
+    });
+
     const cards = [...this.backdrop.querySelectorAll<HTMLButtonElement>(".skin-card")];
     cards.forEach((card, i) => {
       card.addEventListener("click", () => {
@@ -567,7 +647,7 @@ export class SettingsPanel {
   /** Keep Tab / Shift+Tab cycling inside the dialog while it's open. */
   private trapFocus(event: KeyboardEvent) {
     const focusable = [
-      ...this.modal.querySelectorAll<HTMLElement>("button, input, select"),
+      ...this.modal.querySelectorAll<HTMLElement>("button, input, select, a[href]"),
     ].filter(el => el.offsetParent !== null);
     if (focusable.length === 0) return;
     const first = focusable[0];
