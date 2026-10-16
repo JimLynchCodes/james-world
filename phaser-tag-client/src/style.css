@@ -368,9 +368,10 @@ canvas {
 }
 .settings-tab:hover { transform: translateY(-2px); }
 .settings-tab:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+/* Selected is only a colour change. A translate would slide that tab out of
+   the column the others sit in. */
 .settings-tab[aria-selected="true"] {
   background: var(--sun);
-  transform: translateX(6px);
 }
 
 /* Tabs stay put; only this region scrolls, inside the rounded frame. */
@@ -1361,24 +1362,30 @@ canvas {
   line-height: 1.35;
 }
 .credit-url-row {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 2px 6px;
+  display: block;
   max-width: 100%;
   color: #1e4db7;
   font-size: 13px;
   font-weight: 800;
   line-height: 1.35;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 .credit-url {
   text-decoration: underline;
   text-underline-offset: 3px;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+/* Last path segment and the external icon stay on one line. Earlier
+   segments may break only where a <wbr> sits, after a slash. */
+.credit-url-tail {
+  white-space: nowrap;
 }
 .credit-ext {
   display: inline-flex;
-  flex: none;
+  vertical-align: -2px;
+  margin-left: 4px;
   text-decoration: none;
 }
 .credit-ext svg {

@@ -173,9 +173,22 @@ const CREDIT_COPY = {
   bio: "This game was made by James, a software engineer living in New York City (also known by many other names such as Jim, Jimbo, Jimothy, and Sir Jims-a-lot).",
   linkedinLead: "Feel free to connect with me on LinkedIn:",
   linkedinUrl: "https://linkedin.com/in/jimlynchcodes",
+  linkedinLabel: "linkedin.com/in/jimlynchcodes",
   githubLead: "Take a peek at the source code for this game, fork it, and give it a star! 😉",
   githubUrl: "https://github.com/JimLynchCodes/james-world",
+  githubLabel: "github.com/JimLynchCodes/james-world",
 } as const;
+
+/**
+ * Visible link label. Breaks only after a slash, and the last segment stays
+ * on the same line as the external-link icon.
+ */
+function creditUrlRow(label: string, icon: string): string {
+  const parts = label.split("/");
+  const tail = parts.pop() ?? label;
+  const head = parts.map(part => `${part}/<wbr>`).join("");
+  return `<span class="credit-url-row"><span class="credit-url">${head}</span><span class="credit-url-tail"><span class="credit-url">${tail}</span><span class="credit-ext">${icon}</span></span></span>`;
+}
 
 /** Filled marks, drawn in the same chunky badges as the rest of the panel. */
 const CREDIT_ICONS = {
@@ -481,7 +494,7 @@ export class SettingsPanel {
                 <span class="credit-badge credit-badge-li" aria-hidden="true">${CREDIT_ICONS.linkedin}</span>
                 <span class="credit-link-text">
                   <span class="credit-lead">${CREDIT_COPY.linkedinLead}</span>
-                  <span class="credit-url-row"><span class="credit-url">${CREDIT_COPY.linkedinUrl}</span><span class="credit-ext">${CREDIT_ICONS.external}</span></span>
+                  ${creditUrlRow(CREDIT_COPY.linkedinLabel, CREDIT_ICONS.external)}
                 </span>
                 <span class="credit-sr">Opens in a new tab.</span>
               </a>
@@ -490,7 +503,7 @@ export class SettingsPanel {
                 <span class="credit-badge credit-badge-gh" aria-hidden="true">${CREDIT_ICONS.github}</span>
                 <span class="credit-link-text">
                   <span class="credit-lead">${CREDIT_COPY.githubLead}</span>
-                  <span class="credit-url-row"><span class="credit-url">${CREDIT_COPY.githubUrl}</span><span class="credit-ext">${CREDIT_ICONS.external}</span></span>
+                  ${creditUrlRow(CREDIT_COPY.githubLabel, CREDIT_ICONS.external)}
                 </span>
                 <span class="credit-sr">Opens in a new tab.</span>
               </a>
