@@ -4,7 +4,7 @@ use rand::{seq::IteratorRandom, Rng};
 use uuid::Uuid;
 
 use super::{
-    bot::{self, BotBrain, BOT_COUNT},
+    bot::{self, BotBrain, BotSkill, BOT_COUNT},
     energy,
     movement,
     player::Player,
@@ -257,11 +257,33 @@ impl World {
 
             self.players.insert(id, bot_player);
             self.inputs.insert(id, PlayerInput::default());
-            self.bots.insert(id, BotBrain::default());
+            let skill = self.next_bot_skill();
+            self.bots.insert(id, BotBrain::with_skill(skill));
             spawned.push(id);
         }
 
         spawned
+    }
+
+    /// One of each skill, easy first, so a room is never three copies of the
+    /// same opponent. A replacement fills whichever skill is missing.
+    fn next_bot_skill(&self) -> BotSkill {
+        let mut easy = false;
+        let mut medium = false;
+        for brain in self.bots.values() {
+            match brain.skill {
+                BotSkill::Easy => easy = true,
+                BotSkill::Medium => medium = true,
+                BotSkill::Hard => {}
+            }
+        }
+        if !easy {
+            BotSkill::Easy
+        } else if !medium {
+            BotSkill::Medium
+        } else {
+            BotSkill::Hard
+        }
     }
 
     /// Removes a player. When nobody is left (no humans and no spectators),
@@ -446,6 +468,14 @@ impl World {
                 input.dx != 0.0
                     || input.dy != 0.0;
 
+            // Humans stay at full speed. A bot is scaled by its skill so
+            // sprinting doesn't match the human who is chasing or fleeing it.
+            let bot_speed_scale = self
+                .bots
+                .get(&id)
+                .map(|brain| brain.skill.profile().speed_scale)
+                .unwrap_or(1.0);
+
             let Some(player) =
                 self.players.get_mut(&id)
             else {
@@ -478,6 +508,8 @@ impl World {
                 speed *=
                     energy::ESCAPE_BOOST_MULTIPLIER;
             }
+
+            speed *= bot_speed_scale;
 
             movement::move_player(
                 &mut player.position,
