@@ -938,20 +938,20 @@ function treeTexture(scene: Phaser.Scene, variant: number, secret = false) {
     ][secret ? 1 : variant % 3];
     const cx = w / 2;
     const cy = 78;
-    const trunkW = secret ? 18 : 14;
-    const trunkH = secret ? 46 : 42;
-    const trunkTop = secret ? 106 : 110;
-    const canopyR = secret ? 64 : 62;
+    const trunkW = secret ? 20 : 14;
+    const trunkH = secret ? 48 : 42;
+    const trunkTop = secret ? 104 : 110;
+    const canopyR = secret ? 66 : 62;
     // ground shadow
     ctx.fillStyle = "rgba(0,0,0,0.28)";
     ctx.beginPath();
-    ctx.ellipse(cx + 16, 150, secret ? 64 : 62, 24, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx + 16, 150, secret ? 66 : 62, 24, 0, 0, Math.PI * 2);
     ctx.fill();
     // trunk
     ctx.fillStyle = "#5a3f27";
     ctx.fillRect(cx - trunkW / 2, trunkTop, trunkW, trunkH);
     ctx.fillStyle = "#6e4f33";
-    ctx.fillRect(cx - trunkW / 2, trunkTop, secret ? 6 : 5, trunkH);
+    ctx.fillRect(cx - trunkW / 2, trunkTop, secret ? 7 : 5, trunkH);
     // canopy: dark base, then lighter clusters toward the top-left
     const blob = (x: number, y: number, r: number, col: string) => {
       ctx.fillStyle = col;
@@ -977,12 +977,12 @@ function treeTexture(scene: Phaser.Scene, variant: number, secret = false) {
     }
     if (secret) {
       // A few extra clusters and flecks, still in the ordinary palette.
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 6; i++) {
         const a = rnd() * Math.PI * 2;
-        blob(cx + Math.cos(a) * 18, cy - 6 + Math.sin(a) * 14, 11 + rnd() * 5, palettes[1]);
+        blob(cx + Math.cos(a) * 20, cy - 4 + Math.sin(a) * 16, 12 + rnd() * 5, palettes[1]);
       }
-      for (let i = 0; i < 8; i++) {
-        blob(cx - 16 + rnd() * 34, cy - 18 + rnd() * 28, 3.5 + rnd() * 3.5, palettes[2 + (i % 2)]);
+      for (let i = 0; i < 12; i++) {
+        blob(cx - 18 + rnd() * 38, cy - 20 + rnd() * 32, 3.5 + rnd() * 4, palettes[2 + (i % 2)]);
       }
     }
     // outline-ish rim

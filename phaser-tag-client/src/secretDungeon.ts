@@ -23,14 +23,22 @@ export const CAVE = {
   playerR: 9,
 } as const;
 
+/** A bit under full-bleed so the cave reads as a room, not a close-up. */
+const CAVE_ZOOM = 0.86;
+/** Kid height as a fraction of the room. Small enough to stand under the sword. */
+const PLAYER_ROOM_FRACTION = 0.11;
+
 const DOOR_X = (CAVE.w - CAVE.doorW) / 2;
 
 export type CaveRect = { x: number; y: number; w: number; h: number };
 
-const MAN = { x: 128, y: 98, w: 22, h: 36 };
-const FIRE_L = { x: 84, y: 100, w: 12, h: 16 };
-const FIRE_R = { x: 172, y: 100, w: 12, h: 16 };
-const SWORD = { x: 128, y: 118, w: 8, h: 18 };
+/** Feet for the man and the fires; sword x/y is the sprite center. */
+const MAN = { x: 128, y: 84, w: 18, h: 22 };
+const FIRE_L = { x: 74, y: 86, w: 14, h: 14 };
+const FIRE_R = { x: 182, y: 86, w: 14, h: 14 };
+const SWORD = { x: 128, y: 104, w: 20, h: 14 };
+/** Feet in the bottom doorway, well below the sword. */
+const SPAWN = { x: CAVE.w / 2, y: CAVE.h - 24 };
 
 /** Solid rectangles in cave pixels (the sword is deliberately not here). */
 export function caveSolids(): CaveRect[] {
@@ -42,14 +50,19 @@ export function caveSolids(): CaveRect[] {
     { x: w - wall, y: 0, w: wall, h },
     { x: 0, y: h - wall, w: doorX, h: wall },
     { x: doorX + doorW, y: h - wall, w: w - (doorX + doorW), h: wall },
-    { x: MAN.x - MAN.w / 2, y: MAN.y - MAN.h + 2, w: MAN.w, h: MAN.h - 2 },
-    { x: FIRE_L.x - 6, y: FIRE_L.y - 14, w: 12, h: 14 },
-    { x: FIRE_R.x - 6, y: FIRE_R.y - 14, w: 12, h: 14 },
+    { x: MAN.x - MAN.w / 2, y: MAN.y - MAN.h, w: MAN.w, h: MAN.h },
+    { x: FIRE_L.x - FIRE_L.w / 2, y: FIRE_L.y - FIRE_L.h, w: FIRE_L.w, h: FIRE_L.h },
+    { x: FIRE_R.x - FIRE_R.w / 2, y: FIRE_R.y - FIRE_R.h, w: FIRE_R.w, h: FIRE_R.h },
   ];
 }
 
 export function caveSword(): CaveRect {
-  return { x: SWORD.x - 8, y: SWORD.y - SWORD.h / 2 - 2, w: 16, h: SWORD.h + 4 };
+  return {
+    x: SWORD.x - SWORD.w / 2 - 1,
+    y: SWORD.y - SWORD.h / 2 - 1,
+    w: SWORD.w + 2,
+    h: SWORD.h + 2,
+  };
 }
 
 export type DungeonHooks = {
@@ -90,78 +103,85 @@ const FONT: Record<string, readonly string[]> = {
 };
 
 const OLD_MAN = [
-  "......ssssss......",
-  ".....ssssssss.....",
-  "....ssssssssss....",
-  "...hhsssssssshh...",
-  "...hheesseesshh...",
-  "....ssssssssss....",
-  ".....swwwwws......",
-  "....wwwwwwwwww....",
-  "...wwwwwwwwwwww...",
-  "...wwwwwwwwwwww...",
-  "....wwwwwwwwww....",
-  "...RRRRRRRRRRRR...",
-  "..RRRRRRRRRRRRRR..",
-  "..RRRRRRRRRRRRRR..",
-  ".RRRRRRRRRRRRRRRR.",
-  ".RRRrRRRRRRrRRRRR.",
-  ".RRRRRRRRRRRRRRRR.",
-  ".RRRRRRRRRRRRRRRR.",
-  ".RRRdRRRRRRdRRRRR.",
-  "..RRRRRRRRRRRRRR..",
-  "..RRRRRRRRRRRRRR..",
-  "...RRRRRRRRRRRR...",
-  "...DD......DD.....",
-  "..DDD......DDD....",
+  "......WW..........WW......",
+  ".....WWW..........WWW.....",
+  "......W.PPPPPPPP.W........",
+  ".....W.PPPPPPPPPP.W.......",
+  ".....W.PP.EEEE.PP.W.......",
+  ".....W.PPPPPPPPPP.W.......",
+  "......W.WWWWWWWW.W........",
+  ".......WWWWWWWWWW.........",
+  "......WWWWWWWWWWWW........",
+  "...ooo............ooo.....",
+  "..oooo.oooooooooo.oooo....",
+  "..ooo.OOOOOOOOOOOO.ooo....",
+  "......OOOOOOOOOOOO........",
+  ".....rRRRRRRRRRRRRr.......",
+  "....rRRRRRRRRRRRRRRr......",
+  "...rRRRRRRRRRRRRRRRRr.....",
+  "..rRRRRRRRRRRRRRRRRRRr....",
+  "..RRRRRRRRRRRRRRRRRRRR....",
+  ".RRRRRRRRRRRRRRRRRRRRRR...",
+  ".RRRrRRRRRRRRRRRRrRRRRR...",
+  "..RRRRRRRRRRRRRRRRRRRR....",
+  "...RRRRRRRRRRRRRRRRRR.....",
+  "....RRRR........RRRR......",
+  "....DDDD........DDDD......",
+  ".....DD..........DD.......",
 ];
 
 const FIRE_A = [
-  ".....yy.....",
-  "....yYYy....",
-  "...yyYYyy...",
-  "...yOOOOy...",
-  "..yoORROoy..",
-  "..oORRRROo..",
-  ".ooRRRRRRoo.",
-  ".oRRRRRRRRo.",
-  "..RRRRRRRR..",
-  "...RRRRRR...",
-  "....RRRR....",
-  ".....RR.....",
-  ".....rr.....",
-  "......r.....",
+  ".......yy.......",
+  "......yYYy......",
+  ".....yYOOYy.....",
+  "....yyOOOOyy....",
+  "...yOOORROOYy...",
+  "..yOOORRRROOYy..",
+  "..OOORRRRRRROO..",
+  ".oOORRRRRRRRROo.",
+  ".oORRRRRRRRRRRo.",
+  "..RRRRRRRRRRRR..",
+  "...RRRRRRRRRR...",
+  "....RRRRRRRR....",
+  ".....RRRRRR.....",
+  "......RRRR......",
+  ".......RR.......",
 ];
 
 const FIRE_B = [
-  "......yy....",
-  ".....yYYy...",
-  "....yyYyyy..",
-  "...yOOOOyy..",
-  "..yoORROoy..",
-  ".oORRRRROo..",
-  ".oRRRRRRROo.",
-  "..RRRRRRRR..",
-  "..oRRRRRRo..",
-  "...RRRRRR...",
-  "....rRRR....",
-  ".....RR.....",
-  ".....r......",
-  "............",
+  "........yy......",
+  ".......yYYy.....",
+  "......yYOOYy....",
+  ".....yyOOOOyy...",
+  "....yOOORROOyy..",
+  "...yOORRRRRROy..",
+  "..oOORRRRRRROo..",
+  "..oORRRRRRRRRo..",
+  "...RRRRRRRRRR...",
+  "....RRRRRRRRR...",
+  ".....RRRRRRR....",
+  "......RRRRR.....",
+  ".......RRR......",
+  "........R.......",
+  "................",
 ];
 
+/** Blade points up-left; the hilt sits down-right. Rows stay the same width. */
 const SWORD_ART = [
-  "...WW...",
-  "...SS...",
-  "...SS...",
-  "...SS...",
-  "...SS...",
-  "...SS...",
-  "..GGGG..",
-  "...HH...",
-  "...HH...",
-  "..HHHH..",
-  "...HH...",
+  "WW..................",
+  "WWW.................",
+  ".WWW................",
+  "..WWW...............",
+  "...WWW..............",
+  "....WWW.............",
+  ".....WWW............",
+  "......WWW...........",
+  ".......oGGG.........",
+  "........GGGo........",
+  ".........HHH........",
+  "..........HHH.......",
+  "...........HH.......",
+  "............H.......",
 ];
 
 type RGB = [number, number, number];
@@ -169,22 +189,18 @@ type RGB = [number, number, number];
 const INK: Record<string, RGB | null> = {
   ".": null,
   " ": null,
-  s: [232, 184, 150],
-  e: [42, 26, 20],
-  h: [230, 226, 216],
-  w: [244, 244, 242],
-  R: [196, 40, 42],
-  r: [226, 74, 72],
-  d: [122, 20, 24],
-  D: [74, 44, 24],
-  y: [255, 214, 80],
-  Y: [255, 244, 170],
-  O: [255, 150, 36],
-  o: [230, 90, 24],
-  S: [214, 226, 236],
-  W: [255, 255, 255],
-  G: [230, 186, 64],
-  H: [107, 62, 34],
+  P: [244, 190, 142],
+  E: [28, 16, 14],
+  W: [250, 250, 246],
+  R: [186, 32, 32],
+  r: [214, 48, 36],
+  O: [228, 104, 32],
+  o: [246, 156, 56],
+  D: [92, 46, 26],
+  y: [255, 246, 190],
+  Y: [255, 214, 72],
+  G: [196, 108, 40],
+  H: [112, 58, 28],
 };
 
 const BSOD_TEXT = `A problem has been detected and James World has been shut down to prevent damage
@@ -325,8 +341,8 @@ export class SecretDungeonScene extends Phaser.Scene {
   private solids: CaveRect[] = caveSolids();
   private fit = { scale: 1, ox: 0, oy: 0 };
   /** Feet, in cave pixels. */
-  private lx = CAVE.w / 2;
-  private ly = CAVE.h - CAVE.wall - 18;
+  private lx = SPAWN.x;
+  private ly = SPAWN.y;
   private facing = -Math.PI / 2;
   private revealed = 0;
   private nextRevealAt = 0;
@@ -353,8 +369,8 @@ export class SecretDungeonScene extends Phaser.Scene {
     this.locked = true;
     this.tapTarget = null;
     this.startedAt = 0;
-    this.lx = CAVE.w / 2;
-    this.ly = CAVE.h - CAVE.wall - 18;
+    this.lx = SPAWN.x;
+    this.ly = SPAWN.y;
     this.facing = -Math.PI / 2;
     this.bsodEl = null;
   }
@@ -433,7 +449,7 @@ export class SecretDungeonScene extends Phaser.Scene {
   private readonly layout = () => {
     const viewW = this.scale.width;
     const viewH = this.scale.height;
-    const scale = Math.min(viewW / CAVE.w, viewH / CAVE.h);
+    const scale = Math.min(viewW / CAVE.w, viewH / CAVE.h) * CAVE_ZOOM;
     const ox = (viewW - CAVE.w * scale) / 2;
     const oy = (viewH - CAVE.h * scale) / 2;
     this.fit = { scale, ox, oy };
@@ -455,7 +471,7 @@ export class SecretDungeonScene extends Phaser.Scene {
     if (!avatar) return;
     const { scale, ox, oy } = this.fit;
     const sheet = SKINS[this.hooks.skin];
-    const targetH = CAVE.h * scale * 0.19;
+    const targetH = CAVE.h * scale * PLAYER_ROOM_FRACTION;
     avatar.sprite.setScale(targetH / sheet.frameHeight);
     avatar.shadow.setSize(targetH * 0.42, targetH * 0.12);
     avatar.x = ox + this.lx * scale;
@@ -538,11 +554,17 @@ export class SecretDungeonScene extends Phaser.Scene {
       const key = frame === 0 ? "dungeon-fire-0" : "dungeon-fire-1";
       if (fire.texture.key !== key) fire.setTexture(key);
       const feet = i === 0 ? FIRE_L.y : FIRE_R.y;
-      const screenFeet = this.fit.oy + feet * this.fit.scale;
-      fire.setDepth(10 + screenFeet / 10);
+      fire.setDepth(this.groundDepth(feet));
     });
-    const manFeet = this.fit.oy + MAN.y * this.fit.scale;
-    this.man.setDepth(10 + manFeet / 10);
+    this.man.setDepth(this.groundDepth(MAN.y));
+    // Sort with the hilt, the sword's lowest point, so a kid standing
+    // under it (the door) draws in front and a kid behind it does not
+    // cover the blade.
+    this.sword.setDepth(this.groundDepth(SWORD.y + SWORD.h / 2));
+  }
+
+  private groundDepth(caveY: number): number {
+    return 10 + (this.fit.oy + caveY * this.fit.scale) / 10;
   }
 
   private walk(delta: number) {
