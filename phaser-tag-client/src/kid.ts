@@ -419,6 +419,14 @@ export class KidAvatar {
     }
   }
 
+  /** Hide or show the sprite, the ring, and the labels together. */
+  setDrawn(visible: boolean) {
+    this.sprite.setVisible(visible);
+    this.shadow.setVisible(visible);
+    if (visible) this.update();
+    else for (const line of LABEL_LINES) this.labels[line].setVisible(false);
+  }
+
   destroy() {
     this.lungeTween?.stop();
     this.sprite.destroy();

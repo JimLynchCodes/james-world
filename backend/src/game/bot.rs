@@ -96,7 +96,7 @@ pub fn choose_target(
 ) -> Option<Uuid> {
     players
         .values()
-        .filter(|p| p.id != me.id && p.tag_immunity_ticks == 0)
+        .filter(|p| p.id != me.id && p.tag_immunity_ticks == 0 && !p.away)
         .map(|p| {
             let mut score = dist(me, p);
 
@@ -230,6 +230,7 @@ pub fn think(
                 .values()
                 .filter(|p| {
                     p.id != me.id
+                        && !p.away
                         && p.tag_immunity_ticks == 0
                         && dist(me, p) <= TAG_RANGE
                 })
@@ -267,7 +268,7 @@ pub fn think(
 
         let threat = players
             .values()
-            .find(|p| p.is_it && p.id != me.id);
+            .find(|p| p.is_it && p.id != me.id && !p.away);
 
         match threat {
             Some(it) if dist(me, it) < FLEE_RADIUS => {

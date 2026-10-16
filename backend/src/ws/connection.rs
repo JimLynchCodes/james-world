@@ -242,5 +242,13 @@ async fn handle_client_message(
                 .await
                 .set_skin(player_id, Skin::parse(&skin));
         }
+
+        ClientMessage::SetAway { away } => {
+            rooms
+                .world
+                .lock()
+                .await
+                .set_away(player_id, away);
+        }
     }
 }

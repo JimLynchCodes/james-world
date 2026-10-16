@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { pickSecretTree } from "./secretSequence";
 import { PLAYER_RADIUS, WALL_BOTTOM, WALL_LEFT, WALL_RIGHT, WALL_TOP } from "./world";
 
 /**
@@ -924,27 +925,33 @@ function playground(scene: Phaser.Scene) {
 // ---------------------------------------------------------------------------
 // Props
 
-function treeTexture(scene: Phaser.Scene, variant: number) {
-  const key = `sy-tree-${variant}`;
+function treeTexture(scene: Phaser.Scene, variant: number, secret = false) {
+  const key = secret ? "sy-tree-secret" : `sy-tree-${variant}`;
   return canvasTexture(scene, key, 170, 180, (ctx, w) => {
-    const rnd = mulberry32(100 + variant);
+    const rnd = mulberry32(secret ? 777 : 100 + variant);
+    // Same three greens as the ordinary trees. The secret one only differs
+    // by a slightly thicker trunk and a little more leaf texture.
     const palettes = [
       ["#2c5228", "#386633", "#467a3d", "#5a8f4c"],
       ["#2f4f2a", "#3d6235", "#4d7541", "#628a52"],
       ["#34512b", "#456a35", "#557c42", "#6b9354"],
-    ][variant % 3];
+    ][secret ? 1 : variant % 3];
     const cx = w / 2;
     const cy = 78;
+    const trunkW = secret ? 18 : 14;
+    const trunkH = secret ? 46 : 42;
+    const trunkTop = secret ? 106 : 110;
+    const canopyR = secret ? 64 : 62;
     // ground shadow
     ctx.fillStyle = "rgba(0,0,0,0.28)";
     ctx.beginPath();
-    ctx.ellipse(cx + 16, 150, 62, 24, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx + 16, 150, secret ? 64 : 62, 24, 0, 0, Math.PI * 2);
     ctx.fill();
     // trunk
     ctx.fillStyle = "#5a3f27";
-    ctx.fillRect(cx - 7, 110, 14, 42);
+    ctx.fillRect(cx - trunkW / 2, trunkTop, trunkW, trunkH);
     ctx.fillStyle = "#6e4f33";
-    ctx.fillRect(cx - 7, 110, 5, 42);
+    ctx.fillRect(cx - trunkW / 2, trunkTop, secret ? 6 : 5, trunkH);
     // canopy: dark base, then lighter clusters toward the top-left
     const blob = (x: number, y: number, r: number, col: string) => {
       ctx.fillStyle = col;
@@ -952,7 +959,7 @@ function treeTexture(scene: Phaser.Scene, variant: number) {
       ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fill();
     };
-    blob(cx, cy, 62, palettes[0]);
+    blob(cx, cy, canopyR, palettes[0]);
     for (let i = 0; i < 9; i++) {
       const a = rnd() * Math.PI * 2;
       blob(cx + Math.cos(a) * 34, cy + Math.sin(a) * 30, 28 + rnd() * 8, palettes[0]);
@@ -968,11 +975,21 @@ function treeTexture(scene: Phaser.Scene, variant: number) {
     for (let i = 0; i < 6; i++) {
       blob(cx - 22 + rnd() * 20, cy - 30 + rnd() * 16, 5 + rnd() * 5, palettes[3]);
     }
+    if (secret) {
+      // A few extra clusters and flecks, still in the ordinary palette.
+      for (let i = 0; i < 4; i++) {
+        const a = rnd() * Math.PI * 2;
+        blob(cx + Math.cos(a) * 18, cy - 6 + Math.sin(a) * 14, 11 + rnd() * 5, palettes[1]);
+      }
+      for (let i = 0; i < 8; i++) {
+        blob(cx - 16 + rnd() * 34, cy - 18 + rnd() * 28, 3.5 + rnd() * 3.5, palettes[2 + (i % 2)]);
+      }
+    }
     // outline-ish rim
     ctx.strokeStyle = "rgba(15,30,12,0.5)";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(cx, cy, 63, 0, Math.PI * 2);
+    ctx.arc(cx, cy, canopyR + 1, 0, Math.PI * 2);
     ctx.stroke();
   });
 }
@@ -1186,9 +1203,12 @@ export function createSchoolyard(scene: Phaser.Scene, worldW: number, worldH: nu
   const bushes = [0, 1].map(v => bushTexture(scene, v));
   const bench = benchTexture(scene);
   const picnic = picnicTexture(scene);
+  const placedTrees: { x: number; y: number; view: Phaser.GameObjects.Image }[] = [];
 
-  const placeTree = (x: number, y: number) =>
-    tallProp(trees[(rnd() * 3) | 0], x, y, { halfW: 58, up: 145, down: 18 });
+  const placeTree = (x: number, y: number) => {
+    const view = tallProp(trees[(rnd() * 3) | 0], x, y, { halfW: 58, up: 145, down: 18 });
+    placedTrees.push({ x, y, view });
+  };
   const placeBush = (x: number, y: number) =>
     tallProp(bushes[(rnd() * 2) | 0], x, y, { halfW: 38, up: 55, down: 8 });
 
@@ -1218,7 +1238,10 @@ export function createSchoolyard(scene: Phaser.Scene, worldW: number, worldH: nu
     else for (let k = 0; k < 3; k++) placeBush(x + (k - 1) * 46, y + (rnd() - 0.5) * 20);
   }
 
-  // benches by the blacktop, the track and the playground
+  // benches by the blacktop, the track and the playground.
+  // The last pair sits just south of the baseball diamond. The right-hand
+  // one is the landmark for the secret tree (the canopy directly below it).
+  const benchBelowDiamondRight: { x: number; y: number } = { x: 1300, y: 3900 };
   const benchSpots: [number, number][] = [
     [500, 1720],
     [800, 1720],
@@ -1230,10 +1253,20 @@ export function createSchoolyard(scene: Phaser.Scene, worldW: number, worldH: nu
     [3200, 4140],
     [3600, 4140],
     [4000, 4140],
-    [1300, 3900],
+    [benchBelowDiamondRight.x, benchBelowDiamondRight.y],
     [800, 3900],
   ];
   for (const [x, y] of benchSpots) shortProp(bench, x, y);
+
+  // One tree, the one directly under that right-hand bench, is a hair
+  // thicker in the trunk and a little fuller in the leaves. Nothing else
+  // about it is marked.
+  const secretSpot = pickSecretTree(placedTrees, benchBelowDiamondRight);
+  let secretTree: { x: number; y: number } | null = null;
+  if (secretSpot) {
+    secretSpot.view.setTexture(treeTexture(scene, 1, true));
+    secretTree = { x: secretSpot.x, y: secretSpot.y };
+  }
   // picnic lawn
   for (let i = 0; i < 6; i++) shortProp(picnic, 2700 + (i % 3) * 230, 4440 + Math.floor(i / 3) * 190);
 
@@ -1327,5 +1360,5 @@ export function createSchoolyard(scene: Phaser.Scene, worldW: number, worldH: nu
     }
   };
 
-  return { occluders, updateOcclusion };
+  return { occluders, updateOcclusion, secretTree };
 }

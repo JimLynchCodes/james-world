@@ -17,7 +17,12 @@ export type ClientMessage =
       };
     }
   | { type: "TagPlayer"; data: { target_id: UUID } }
-  | { type: "Ping"; data: { timestamp: number } };
+  | { type: "Ping"; data: { timestamp: number } }
+  /**
+   * Secret cave. The player stays in the world (position, IT, energy) but
+   * the server hides them from snapshots and will not tag them.
+   */
+  | { type: "SetAway"; data: { away: boolean } };
 
 export type PlayerSnapshot = {
   id: UUID;

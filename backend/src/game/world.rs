@@ -386,11 +386,37 @@ impl World {
         }
     }
 
+    /// Secret cave. Position, energy, name, and IT are left as they are.
+    /// While away the player is omitted from snapshots, cannot tag or be
+    /// tagged, and movement input is ignored (and zeroed) so they stay put.
+    pub fn set_away(&mut self, id: Uuid, away: bool) {
+        let Some(player) = self.players.get_mut(&id) else {
+            return;
+        };
+        player.away = away;
+        if away {
+            if let Some(input) = self.inputs.get_mut(&id) {
+                input.dx = 0.0;
+                input.dy = 0.0;
+                input.running = false;
+            }
+        }
+    }
+
     pub fn set_input(
         &mut self,
         id: Uuid,
         mut input: PlayerInput,
     ) {
+        // The cave is client-side; don't let a late packet walk the body.
+        if self
+            .players
+            .get(&id)
+            .is_some_and(|player| player.away)
+        {
+            return;
+        }
+
         // Normalize/validate the direction on the server.
         let length =
             (input.dx * input.dx
@@ -451,6 +477,17 @@ impl World {
             else {
                 continue;
             };
+
+            // Secret cave: hold still. Energy regens as if standing.
+            if player.away {
+                energy::update_energy(
+                    player,
+                    false,
+                    false,
+                    dt,
+                );
+                continue;
+            }
 
             energy::update_energy(
                 player,
@@ -515,6 +552,19 @@ impl World {
         target_id: Uuid,
     ) -> bool {
         if tagger_id == target_id {
+            return false;
+        }
+
+        // Neither side of a tag can be in the secret cave.
+        let involved_away = self
+            .players
+            .get(&tagger_id)
+            .is_some_and(|player| player.away)
+            || self
+                .players
+                .get(&target_id)
+                .is_some_and(|player| player.away);
+        if involved_away {
             return false;
         }
 
@@ -605,6 +655,7 @@ impl World {
     ) -> Vec<crate::ws::protocol::PlayerSnapshot> {
         self.players
             .values()
+            .filter(|player| !player.away)
             .map(|player| {
                 crate::ws::protocol::PlayerSnapshot {
                     id: player.id,

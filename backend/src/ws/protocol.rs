@@ -33,6 +33,12 @@ pub enum ClientMessage {
     Ping {
         timestamp: u64,
     },
+
+    /// Secret cave. The player stays in the world; snapshots omit them
+    /// and they cannot tag or be tagged until this is cleared.
+    SetAway {
+        away: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

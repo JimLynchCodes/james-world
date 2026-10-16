@@ -8,6 +8,14 @@ import { applyPhysicalKey, movementAxes, noteTagKey, physicalCode } from "./tagg
 import { createSchoolyard, type Occluder } from "./schoolyard";
 import { PLAYER_RADIUS, PLAY_AREA, WORLD_HEIGHT, WORLD_WIDTH } from "./world";
 import { GameAudio, type Sfx } from "./audio";
+import { SecretDungeonScene, type DungeonHooks } from "./secretDungeon";
+import {
+  nearSecretTree,
+  predominantDirection,
+  secretGate,
+  SecretSequence,
+  type SecretGate,
+} from "./secretSequence";
 import { DEFAULT_SKIN, toSkin, type Skin } from "./skins";
 import { MobileControls } from "./mobileControls";
 import {
@@ -119,6 +127,16 @@ class GameScene extends Phaser.Scene {
   private stepTimer = 0;
   /** Our chosen skin (Settings > Skins); sent on Join and with SetSkin. */
   private localSkin: Skin = DEFAULT_SKIN;
+  /**
+   * Hidden quest. While `inSecret` the kid is in the cave: we send no moves,
+   * the server marks them away (still in the world, not taggable, omitted
+   * from snapshots), and the schoolyard avatar is hidden. See enterSecret.
+   */
+  private readonly secret = new SecretSequence();
+  private secretGateState: SecretGate = { awayAt: null };
+  private secretTree: { x: number; y: number } | null = null;
+  private inSecret = false;
+  private secretReturn: { x: number; y: number } | null = null;
 
   private hudStatus!: HTMLElement;
   private hudEnergy!: HTMLElement;
@@ -248,7 +266,11 @@ class GameScene extends Phaser.Scene {
   };
 
   update(_time: number, delta: number) {
-    if (this.playing) {
+    if (this.inSecret) {
+      // The cave scene reads keys / the joystick itself. Drop tag presses
+      // so leaving the cave doesn't swing, and don't send MoveInput.
+      this.tagQueued = false;
+    } else if (this.playing) {
       this.tagCooldown = Math.max(0, this.tagCooldown - delta);
 
       // Space or T (captured, so Space never scrolls the page). Consumed
@@ -256,15 +278,17 @@ class GameScene extends Phaser.Scene {
       // and the walk clip this frame cannot replace it.
       if (this.tagQueued) {
         this.tagQueued = false;
-        this.tryTagNearest();
+        if (!this.observeSecretTag()) this.tryTagNearest();
       }
 
       this.updateLocalMovement(delta);
 
-      this.inputTimer -= delta;
-      if (this.inputTimer <= 0) {
-        this.sendMovement();
-        this.inputTimer = 50;
+      if (!this.inSecret) {
+        this.inputTimer -= delta;
+        if (this.inputTimer <= 0) {
+          this.sendMovement();
+          this.inputTimer = 50;
+        }
       }
     } else {
       this.updateSpectatorCamera();
@@ -295,6 +319,8 @@ class GameScene extends Phaser.Scene {
     // toward the server for a few frames).
     this.updateTapTarget();
     const { dx, dy, running } = this.readInput();
+    this.observeSecretMove(dx, dy);
+    if (this.inSecret) return;
     const moving = dx !== 0 || dy !== 0;
     if (moving) {
       this.playerFacingAngle = Math.atan2(dy, dx);
@@ -644,8 +670,113 @@ class GameScene extends Phaser.Scene {
 
   /** Mobile Tag button: same as SPACE. */
   tagPressed() {
-    if (!this.playing || this.uiOpen) return;
-    this.tryTagNearest();
+    if (!this.playing || this.uiOpen || this.inSecret) return;
+    if (!this.observeSecretTag()) this.tryTagNearest();
+  }
+
+  /**
+   * Axes the cave should treat as keyboard / joystick movement. Tap-to-move
+   * inside the cave is handled there; the schoolyard tap target is not.
+   */
+  dungeonAxes(): { dx: number; dy: number; mode: ControlMode } {
+    if (this.controlMode === "keyboard") {
+      const axes = movementAxes(this.held);
+      return { dx: axes.dx, dy: axes.dy, mode: "keyboard" };
+    }
+    if (this.joystick.x !== 0 || this.joystick.y !== 0) {
+      return { dx: this.joystick.x, dy: this.joystick.y, mode: "mobile" };
+    }
+    return { dx: 0, dy: 0, mode: "mobile" };
+  }
+
+  /**
+   * Feed one tag press into the hidden sequence when the kid is in the tree.
+   * True when that press opened the cave (the caller should not also swing).
+   */
+  private observeSecretTag(): boolean {
+    if (!this.feedSecret()) return false;
+    if (this.secret.tag(this.time.now)) {
+      this.enterSecret();
+      return true;
+    }
+    return false;
+  }
+
+  /** One movement sample. Holding a direction counts as a single step. */
+  private observeSecretMove(dx: number, dy: number) {
+    if (!this.feedSecret()) return;
+    if (this.secret.move(predominantDirection(dx, dy), this.time.now)) this.enterSecret();
+  }
+
+  /** True when a sample should reach the matcher. Applies the leave grace. */
+  private feedSecret(): boolean {
+    if (this.inSecret || this.uiOpen || !this.playing || !this.player || !this.secretTree) return false;
+    const near = nearSecretTree(this.player.x, this.player.y, this.secretTree);
+    const gated = secretGate(this.secretGateState, near, this.secret.inProgress, this.time.now);
+    this.secretGateState = gated.gate;
+    if (gated.reset) this.secret.reset();
+    return gated.accept;
+  }
+
+  /**
+   * Open the cave. Multiplayer: the kid stays in the server world at this
+   * spot (IT, energy, and name are untouched) but we zero movement and send
+   * SetAway. The server then ignores further MoveInput, refuses tags to or
+   * from them, and leaves them out of snapshots, so other players see them
+   * vanish and cannot tag the empty spot. Coming back clears the flag and
+   * shows them here again, next to the secret tree.
+   */
+  private enterSecret() {
+    if (this.inSecret || !this.player) return;
+    this.inSecret = true;
+    this.secret.reset();
+    this.secretGateState = { awayAt: null };
+    const x = this.localTargetX ?? this.player.x;
+    const y = this.localTargetY ?? this.player.y;
+    this.secretReturn = { x, y };
+    this.clearTapTarget();
+    this.player.setDrawn(false);
+    this.socket.send({
+      type: "MoveInput",
+      data: { seq: ++this.sequence, dx: 0, dy: 0, running: false },
+    });
+    this.socket.send({ type: "SetAway", data: { away: true } });
+    this.audio?.playSecret();
+    document.body.classList.add("in-secret");
+    const hooks: DungeonHooks = {
+      skin: this.localSkin,
+      audio: this.audio,
+      readMove: () => this.dungeonAxes(),
+      onExit: () => this.exitSecret(),
+    };
+    this.scene.launch("SecretDungeon", hooks);
+  }
+
+  /** Back to the schoolyard, on the spot we left (beside the secret tree). */
+  private exitSecret() {
+    if (!this.inSecret) return;
+    this.scene.stop("SecretDungeon");
+    this.inSecret = false;
+    document.body.classList.remove("in-secret");
+    this.socket.send({ type: "SetAway", data: { away: false } });
+    this.tagQueued = false;
+    this.held.clear();
+    this.joystick = { x: 0, y: 0 };
+    this.runHeld = false;
+    this.clearTapTarget();
+    this.secret.reset();
+    this.secretGateState = { awayAt: null };
+    const spot = this.secretReturn;
+    if (this.player && spot) {
+      this.player.x = spot.x;
+      this.player.y = spot.y;
+      this.localTargetX = spot.x;
+      this.localTargetY = spot.y;
+      this.player.setDrawn(true);
+      this.cameras.main.centerOn(spot.x, spot.y);
+    } else {
+      this.player?.setDrawn(true);
+    }
   }
 
   /**
@@ -782,11 +913,11 @@ class GameScene extends Phaser.Scene {
     // Phaser only reports presses on the canvas itself, so clicks on the
     // HUD, the cog or the modal never reach these handlers.
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
-      if (!this.playing || this.controlMode !== "mobile" || this.uiOpen) return;
+      if (!this.playing || this.controlMode !== "mobile" || this.uiOpen || this.inSecret) return;
       const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
       const kid = this.remoteAt(world.x, world.y);
       if (kid && this.distanceToPlayer(kid) < TAG_DISTANCE) {
-        this.tryTag(kid); // tap a nearby kid: tag them
+        if (!this.observeSecretTag()) this.tryTag(kid); // tap a nearby kid: tag them
         return;
       }
       // Tap the ground (or a far-away kid): walk there; drag to steer.
@@ -864,6 +995,7 @@ class GameScene extends Phaser.Scene {
     const yard = createSchoolyard(this, WORLD_WIDTH, WORLD_HEIGHT);
     this.updateOcclusion = yard.updateOcclusion;
     this.occluders = yard.occluders;
+    this.secretTree = yard.secretTree;
   }
 
   /** Feet + head-top of every on-screen kid, for schoolyard occlusion. */
@@ -980,6 +1112,7 @@ class GameScene extends Phaser.Scene {
 }
 
 const scene = new GameScene();
+const secretDungeon = new SecretDungeonScene();
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
@@ -1007,7 +1140,7 @@ const game = new Phaser.Game({
       debug: false,
     },
   },
-  scene,
+  scene: [scene, secretDungeon],
 });
 
 const hud = document.createElement("div");
