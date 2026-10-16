@@ -1,7 +1,8 @@
 /**
  * Secret cave. Original pixel room (not ripped tiles): black floor, rocky
- * brown walls, an old man in a red robe between two flickering fires, a
- * sword on the floor, and a door gap in the bottom wall.
+ * brown walls, an old man between two flickering fires, a sword on the
+ * floor, and a door gap in the bottom wall. The three sprites are derived
+ * from the reference picture by tools/make_cave_sprites.py.
  *
  * The player is locked until the two-line message finishes revealing.
  * Walls, both fires, and the old man are solid. The sword is not: touching
