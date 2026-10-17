@@ -335,8 +335,10 @@ skin carries its own frame size and feet line. Animation keys are
   `tools/make_basketball_skin.py`. Navy jersey with orange trim, an NY
   wordmark and number 11 on the front (11 on the back), white headband,
   white compression sleeve on the tagging arm, and orange sneakers. An
-  orange basketball is dribbled in every animation, on the hand that is
-  not tagging, and drawn in front of the body in every direction. Footsteps
+  orange basketball is dribbled in every animation. The dribbling arm is
+  drawn from the shoulder onto the ball (the other arm still tags), the
+  ball stays in front of the legs with a ground shadow, and the seams
+  turn a quarter rotation each bounce. Footsteps
   are a gym-floor sneaker squeak (`basketballStep`). Re-run:
   `python3 tools/make_basketball_skin.py [--preview /tmp/basketball.png]`.
 

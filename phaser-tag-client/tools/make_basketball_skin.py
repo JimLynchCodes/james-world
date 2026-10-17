@@ -16,12 +16,16 @@ Per frame:
   3. the arm James tags with -> white compression sleeve (hand stays bare);
   4. white headband across the forehead (wraps the hair on back views);
   5. sneakers -> orange with a white sole, side stripe and toe;
-  6. an orange basketball with dark seams, dribbled on every frame by the
-     other hand. It bounces from that hand toward the ground in step with
-     the animation and is always drawn in front of the body, off to the
-     dribbling side, so it stays fully visible in every direction.
+  6. an orange basketball with dark seams, dribbled on every frame. The
+     ball sits in front of the legs (low on the screen, contact at or
+     below the feet) with a ground shadow. The dribbling arm is redrawn
+     from the shoulder onto the ball so the hand tracks the bounce. Seams
+     turn 90 degrees per bounce. North views keep the ball just off the
+     dribbling hand, still low and drawn over the body. The sleeve arm
+     still reaches on the tag frames.
 
-Face, hair (under the headband) and hands are untouched.
+Face and hair (under the headband) are untouched. The tagging hand stays
+the original skin; the dribbling arm is painted over the body.
 
 Requires: Python 3 + Pillow + numpy.  Usage:
     python3 tools/make_basketball_skin.py [--preview /tmp/basketball_preview.png]
@@ -128,17 +132,26 @@ def centered_pattern(pattern: tuple[str, ...], cx: float, y: int) -> tuple[int, 
     return int(round(cx - (width - 1) / 2)), y
 
 
-# Bounce amount: 0 = up in the hand, 1 = on the ground.
-# Idle, breathe and walk (the skins-card preview) stay up by the hand.
-# A full rest on the floor reads as the ball just sitting by the feet.
-# Run and tag still bounce all the way down.
+# Bounce amount: 0 = up in the hand, 1 = on the ground in front of the feet.
+# Every loop (including idle, which the skins card plays) shows the full
+# dribble: hand on the ball, push down, contact, rebound.
 def bounce_t(anim: str, index: int) -> float:
-    if anim in ("idle", "breathe", "walk"):
-        return (0.0, 0.38, 0.62, 0.22)[index % 4]
-    if anim == "run":
-        return (0.0, 0.70, 1.0, 0.28)[index % 4]
-    # tag: 6 frames, squash on the held reach (index 3)
-    return (0.08, 0.42, 0.82, 1.0, 0.48, 0.14)[index]
+    if anim == "tag":
+        # squash on the held reach (index 3); the sleeve arm is out tagging
+        return (0.0, 0.48, 0.86, 1.0, 0.42, 0.12)[index]
+    return (0.0, 0.58, 1.0, 0.30)[index % 4]
+
+
+# Clockwise quarter-turn per bounce. The seam pattern is 90-degree
+# symmetric, so the first frame of the next bounce matches the last step
+# and the loop does not pop. Same direction in every facing.
+SPIN_PER_BOUNCE = 90.0
+
+
+def spin_deg(anim: str, index: int) -> float:
+    if anim == "tag":
+        return index * (SPIN_PER_BOUNCE / 6.0)
+    return (index % 4) * (SPIN_PER_BOUNCE / 4.0)
 
 
 def dribble_hand(f: np.ndarray, g: Geometry, direction: str) -> tuple[float, float]:
@@ -216,20 +229,22 @@ def fist_mask(arm: np.ndarray, g: Geometry, direction: str) -> np.ndarray:
     return arm & ((xx - g.head_cx) * tag >= cut) & (np.arange(h)[:, None] > g.neck)
 
 
-def ball_layer(size, cx: float, cy: float, rx: float, ry: float, shadow: float) -> np.ndarray:
-    """Premultiplied basketball + a ground shadow. `shadow` is 0..1 strength."""
+def ball_layer(size, cx: float, cy: float, rx: float, ry: float, shadow: float,
+               spin: float) -> np.ndarray:
+    """Premultiplied basketball + a ground shadow. `shadow` is 0..1 strength.
+    `spin` is degrees clockwise; only the seams turn (the highlight stays put)."""
     Y, X = grid(size)
     col = np.zeros((*Y.shape, 3), dtype=np.float64)
     alpha = np.zeros(Y.shape, dtype=np.float64)
 
-    # contact shadow, sitting on the ground line
+    # contact shadow on the ground, under the ball, a hair in front of the feet
     if shadow > 0.02:
-        sx = (X - cx) / (rx * (0.62 + 0.45 * shadow))
-        sy = (Y - (GROUND - 0.6)) / 1.55
+        sx = (X - cx) / (rx * (0.55 + 0.28 * shadow))
+        sy = (Y - (GROUND + 1.5)) / 2.05
         sd = sx * sx + sy * sy
-        sa = np.clip(1.15 - sd, 0.0, 1.0) * (0.16 + 0.42 * shadow)
+        sa = np.clip(1.2 - sd, 0.0, 1.0) * (0.28 + 0.55 * shadow)
         # don't let the shadow paint over the ball fill; ball wins later
-        alpha = np.maximum(alpha, sa * 0.85)
+        alpha = np.maximum(alpha, sa * 0.9)
         col = np.where(sa[..., None] > 0.04, INK, col)
 
     nx = (X - cx) / max(rx, 0.1)
@@ -248,17 +263,31 @@ def ball_layer(size, cx: float, cy: float, rx: float, ry: float, shadow: float) 
     col = np.where(inside[..., None], base, col)
     alpha = np.where(inside, np.maximum(alpha, aa), alpha)
 
-    # seams in normalised ball space, so they follow the squash
+    # seams in normalised ball space, so they follow the squash.
+    # Sampled through a clockwise rotation. The motif itself (cross plus
+    # four copied panel arcs) has 90-degree symmetry, so a quarter-turn
+    # per bounce lands back on the same picture.
+    ang = np.deg2rad(spin)
+    ca, sa = np.cos(ang), np.sin(ang)
+    px = nx * ca + ny * sa
+    py = -nx * sa + ny * ca
+
     def seam(mask: np.ndarray) -> None:
         m = mask & (r < 0.96)
         col[m] = SEAM
         alpha[m] = np.maximum(alpha[m], aa[m])
 
-    seam(np.abs(ny) < 0.055)
-    seam(np.abs(nx - 0.12 * np.sin(ny * np.pi)) < 0.05)
-    seam((np.abs(np.abs(nx) - 0.55) < 0.045) & (np.abs(ny) < 0.62))
+    band = 0.072
+    seam((np.abs(px) < band) | (np.abs(py) < band))
+    for k in range(4):
+        a = k * (np.pi / 2.0)
+        c, s = np.cos(a), np.sin(a)
+        qx = px * c + py * s
+        qy = -px * s + py * c
+        arc = np.abs(np.hypot(qx - 0.20, qy) - 0.68) < 0.055
+        seam(arc & (qx > 0.22) & (np.abs(qy) < 0.70))
     # outline
-    edge = inside & (r > 0.84)
+    edge = inside & (r > 0.76)
     col[edge] = BALL_EDGE
     return down(col, alpha, size)
 
@@ -418,31 +447,138 @@ def paint_uniform(f: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndarra
     return out, chest, hands | fist
 
 
-def place_ball(body: np.ndarray, g: Geometry, direction: str, anim: str, index: int) -> tuple[float, float, float, float, bool]:
-    """cx, cy, rx, ry. The ball is always beside the dribbling hand and
-    drawn in front of the body (see baller)."""
+def place_ball(g: Geometry, direction: str, anim: str, index: int) -> tuple[float, float, float, float]:
+    """Ball in front of the kid: overlapping the legs, contact at or below
+    the feet line (toward the camera). Back views shift it onto the
+    dribbling-hand side so it isn't buried in the torso, but the contact
+    stays on the near side of the feet."""
     side = -TAG_SIDE[direction]
-    _hx, hy = dribble_hand(body, g, direction)
+    # screen-x of the direction he faces. Depth ("in front") is always +y.
+    ahead = {"E": 1.0, "SE": 0.70, "S": 0.0, "SW": -0.70, "W": -1.0,
+             "NW": -0.40, "N": 0.0, "NE": 0.40}[direction]
     t = bounce_t(anim, index)
     squashed = t > 0.92
-    ry = BALL_R * (0.70 if squashed else 1.0)
-    rx = BALL_R * (1.10 if squashed else 1.0)
-    # Far enough out that the ball sits beside the body instead of inside
-    # the silhouette. Back views push a little further so the circle clears
-    # the shoulders. X does not follow the swinging arm.
-    outward = {"E": 22.0, "SE": 22.4, "S": 23.0, "SW": 22.4,
-               "W": 22.0, "NW": 23.6, "N": 24.2, "NE": 23.6}[direction]
-    if anim == "tag":
-        outward += 1.6
-    bx = g.head_cx + side * outward
-    # Top of the bounce is up by the hand. A raised run arm must not
-    # carry the ball into the face.
-    cy_hand = float(np.clip(hy - BALL_R * 0.15, g.hem - 22.0, g.hem - 10.0))
-    cy_ground = GROUND - ry
-    cy = cy_hand + (cy_ground - cy_hand) * (t ** 1.15)
+    ry = BALL_R * (0.64 if squashed else 1.0)
+    rx = BALL_R * (1.16 if squashed else 1.0)
+    if direction in BACK:
+        # just off the dribbling hand, still overlapping that leg
+        bx = g.head_cx + side * 9.0 + ahead * 2.5
+    elif direction in PROFILE:
+        bx = g.head_cx + ahead * 3.5 + side * 2.0
+    else:
+        bx = g.head_cx + side * 3.5 + ahead * 3.0
+    # unsquashed contact: bottom ~2px below the feet. The high point only
+    # lifts a little, so the ball stays in front of the legs instead of
+    # riding up beside the hip. Squash keeps the same bottom.
+    contact_y = GROUND + 2.2
+    cy_contact = contact_y - BALL_R
+    lift = 6.0
+    if squashed:
+        cy = contact_y - ry
+    else:
+        cy = (cy_contact - lift) + lift * (t ** 1.05)
     margin = 1.0
-    bx = float(np.clip(bx, rx + margin, body.shape[1] - rx - margin))
+    bx = float(np.clip(bx, rx + margin, 100.0 - rx - margin))
     return bx, float(cy), float(rx), float(ry)
+
+
+def drop_limp_arm(body: np.ndarray, g: Geometry, direction: str) -> np.ndarray:
+    """Remove the hanging arm on the dribble side. The sleeve (tag) arm is
+    white, so the skin arm left on that side is the one we replace. The
+    tag-side fist stays, including on the reach frames."""
+    h, w = body.shape[:2]
+    yy = np.arange(h)[:, None]
+    xx = np.arange(w)[None, :].astype(np.float64)
+    side = float(-TAG_SIDE[direction])
+    face = (yy <= g.neck + 1) & skin_mask(body)
+    arms, _hands = arms_and_hands(body, g, face)
+    on_side = (xx - g.head_cx) * side > 3.0
+    limp = arms & on_side & (yy > g.neck + 1)
+    dark = alpha_mask(body) & (lum(body) < 70) & on_side & (yy > g.neck + 1)
+    limp = limp | grow(limp, dark, 1)
+    out = body.copy()
+    out[limp] = 0
+    return out
+
+
+def _stamp(rgba: np.ndarray, pts: np.ndarray, rx: float, ry: float, color: np.ndarray) -> None:
+    """Hard-edged discs. rx == ry is a circle; a wider rx reads as a mitt."""
+    h, w = rgba.shape[:2]
+    ys = np.arange(h)[:, None]
+    xs = np.arange(w)[None, :]
+    mask = np.zeros((h, w), dtype=bool)
+    for x, y in pts:
+        mask |= ((xs - x) / rx) ** 2 + ((ys - y) / ry) ** 2 <= 1.0
+    rgba[mask, :3] = np.clip(color, 0, 255)
+    rgba[mask, 3] = 255
+
+
+def _segment(p0: tuple[float, float], p1: tuple[float, float], n: int = 14) -> np.ndarray:
+    ts = np.linspace(0.0, 1.0, n)
+    return np.stack([p0[0] * (1 - ts) + p1[0] * ts, p0[1] * (1 - ts) + p1[1] * ts], axis=1)
+
+
+def draw_dribble_arm(rgba: np.ndarray, g: Geometry, direction: str,
+                     bx: float, by: float, ry: float, t: float) -> None:
+    """Slim arm from the shoulder to a mitt on the crown of the ball.
+    A small outward bow while the ball is up, straightening as the hand
+    pushes down. The forearm stops at the wrist so it doesn't stab
+    through the ball. Drawn after the ball."""
+    side = float(-TAG_SIDE[direction])
+    if direction in PROFILE:
+        sx = g.head_cx + side * 6.0
+        sy = float(g.neck + 14)
+    elif direction in BACK:
+        sx = g.head_cx + side * 9.0
+        sy = float(g.neck + 15)
+    else:
+        sx = g.head_cx + side * 8.5
+        sy = float(g.neck + 13)
+    # start inside the shirt so the arm grows out of the shoulder
+    sx0, sy0 = sx - side * 2.0, sy
+
+    # mitt centred on the crown, overlapping the leather
+    hx = bx
+    hy = by - ry * 0.58
+    # wrist: a few pixels above the mitt, back toward the shoulder
+    wx = hx + (sx0 - hx) * 0.22
+    wy = hy - 2.6
+
+    bow = 2.6 * (1.0 - t) + 0.8
+    mx = (sx0 + wx) * 0.5 + side * bow
+    my = (sy0 + wy) * 0.5 + 0.6
+    ts = np.linspace(0.0, 1.0, 22)
+    omt = 1.0 - ts
+    limb = np.stack([
+        omt ** 2 * sx0 + 2 * omt * ts * mx + ts ** 2 * wx,
+        omt ** 2 * sy0 + 2 * omt * ts * my + ts ** 2 * wy,
+    ], axis=1)
+
+    face = skin_mask(rgba) & (np.arange(rgba.shape[0])[:, None] < g.neck - 2)
+    face = face & (np.arange(rgba.shape[0])[:, None] > g.top + 16)
+    samples = rgba[face][:, :3].astype(np.float64)
+    if len(samples) >= 8:
+        tone = np.median(samples, axis=0)
+    else:
+        tone = np.array([244.0, 190.0, 140.0])
+    shade = np.clip(tone * 0.70, 0, 255)
+    edge = INK
+
+    # forearm ~6px wide, close to the kid's own arms
+    _stamp(rgba, limb, 3.15, 3.15, edge)
+    _stamp(rgba, limb, 2.15, 2.15, shade)
+    _stamp(rgba, limb, 1.25, 1.25, tone)
+
+    # three short fingers on the leather, then the palm over their base
+    fingers = []
+    for dx in (-2.5, 0.0, 2.5):
+        fingers.append(_segment((hx + dx, hy + 0.2), (hx + dx * 0.75, hy + 3.5), 6))
+    fing = np.concatenate(fingers, axis=0)
+    _stamp(rgba, fing, 1.35, 1.35, edge)
+    _stamp(rgba, fing, 0.75, 0.75, tone)
+    _stamp(rgba, np.array([[hx, hy + 0.3]]), 5.3, 3.5, edge)
+    _stamp(rgba, np.array([[hx, hy]]), 3.9, 2.4, tone)
+    _stamp(rgba, np.array([[hx, hy - 0.7]]), 2.2, 1.15, shade)
 
 
 def baller(frame: np.ndarray, direction: str, anim: str, index: int) -> np.ndarray:
@@ -451,13 +587,15 @@ def baller(frame: np.ndarray, direction: str, anim: str, index: int) -> np.ndarr
         return src
     g = Geometry(src)
     body, _chest, _hands = paint_uniform(src, g, direction)
-    # geometry may have shifted a pixel after streak-filling; re-read it
     g = Geometry(body)
-    bx, by, rx, ry = place_ball(body, g, direction, anim, index)
+    body = drop_limp_arm(body, g, direction)
     t = bounce_t(anim, index)
-    layer = ball_layer(body.shape[:2], bx, by, rx, ry, shadow=0.25 + 0.75 * t)
-    # Always in front. Nothing, including the back of the jersey, covers it.
-    return to_u8(over(premul(body), layer))
+    bx, by, rx, ry = place_ball(g, direction, anim, index)
+    layer = ball_layer(body.shape[:2], bx, by, rx, ry, shadow=0.40 + 0.60 * t, spin=spin_deg(anim, index))
+    merged = to_u8(over(premul(body), layer))
+    # arm and hand over the body and over the top of the ball
+    draw_dribble_arm(merged, g, direction, bx, by, ry, t)
+    return merged
 
 
 def anim_of(col: int, meta: dict) -> tuple[str, int]:
