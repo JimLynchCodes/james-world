@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use rand::{seq::IteratorRandom, Rng};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use uuid::Uuid;
 
 use super::{
@@ -8,6 +8,7 @@ use super::{
     energy,
     movement,
     player::Player,
+    scenery,
     skin::Skin,
 };
 
@@ -41,11 +42,22 @@ pub const MAX_Y: f32 = WORLD_HEIGHT - WALL_BOTTOM - PLAYER_RADIUS;
 pub const PLAYER_FIRST_NAME: &str = "James";
 pub const TAG_COOLDOWN_SECONDS: f32 = 5.0;
 
-/// Where humans join (kept clear of props by the client's schoolyard).
+/// Old fixed join point. The client's schoolyard still keeps a clearing
+/// here; players do not spawn on it anymore.
 pub const SPAWN: (f32, f32) = (400.0, 300.0);
-/// Joining humans are placed at least this far from every other player, so
+/// Joining players are placed at least this far from every other player, so
 /// sprites and label stacks never start on top of each other.
 pub const SPAWN_GAP: f32 = 110.0;
+/// Extra inset inside the fence so a new kid is not pressed against the wall
+/// (or the fence mesh that sits on it).
+pub const SPAWN_MARGIN: f32 = 80.0;
+/// Stay this far from whoever is currently IT. IT sprints at about 385px/s
+/// and tags at 50px, so this is a bit over a second of warning.
+pub const IT_SPAWN_GAP: f32 = 420.0;
+/// Samples drawn per constraint pass before that pass gives up.
+pub const SPAWN_ATTEMPTS: u32 = 40;
+/// Bots prefer to appear this far from humans so a join is not an instant tag.
+const BOT_SPAWN_FROM_HUMANS: f32 = 800.0;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PlayerInput {
@@ -76,10 +88,22 @@ pub struct World {
     /// Connected sockets that have not (yet) sent Join. They keep bots
     /// alive so the title screen isn't empty when you're alone.
     spectators: u32,
+    /// Spawn points and the opening IT pick. Tests inject a seed.
+    rng: StdRng,
 }
 
 impl World {
     pub fn new() -> Self {
+        Self::with_rng(StdRng::from_os_rng())
+    }
+
+    /// Same rules as [`World::new`], but spawn points (and who starts IT)
+    /// come only from `seed`.
+    pub fn with_seed(seed: u64) -> Self {
+        Self::with_rng(StdRng::seed_from_u64(seed))
+    }
+
+    fn with_rng(rng: StdRng) -> Self {
         Self {
             players: HashMap::new(),
             inputs: HashMap::new(),
@@ -87,6 +111,7 @@ impl World {
             tag_events: Vec::new(),
             joins: 0,
             spectators: 0,
+            rng,
         }
     }
 
@@ -185,33 +210,94 @@ impl World {
         spawned
     }
 
-    /// Where a joining human appears: the spawn point (the clearing the
-    /// client keeps free of props), or the nearest free spot beside it.
-    /// Two kids on the exact same spot draw their sprites and label stacks
-    /// (IT / YOU / name) on top of each other, and nobody moves you apart
-    /// (players don't collide), so never stack a new player on anyone.
-    pub fn human_spawn_spot(&self) -> (f32, f32) {
-        let free = |x: f32, y: f32| {
-            self.players.values().all(|p| {
-                let dx = p.position.x - x;
-                let dy = p.position.y - y;
-                dx * dx + dy * dy >= SPAWN_GAP * SPAWN_GAP
-            })
-        };
-        // Rows of spots fanning out sideways from the spawn point, then
-        // further down the yard; clamped inside the fence.
-        for row in 0..12 {
-            for k in 0..12 {
-                let side = if k % 2 == 0 { 1.0 } else { -1.0 };
-                let dx = side * ((k + 1) / 2) as f32 * SPAWN_GAP;
-                let x = (SPAWN.0 + dx).clamp(MIN_X, MAX_X);
-                let y = (SPAWN.1 + row as f32 * SPAWN_GAP).clamp(MIN_Y, MAX_Y);
-                if free(x, y) {
-                    return (x, y);
-                }
+    /// Where a joining human appears: a uniform random point inside the
+    /// fenced yard, inset by [`SPAWN_MARGIN`], clear of scenery and of other
+    /// players, and not beside whoever is IT.
+    ///
+    /// Sampling is bounded ([`SPAWN_ATTEMPTS`] per pass). Later passes drop
+    /// the IT clearance, then scenery, and the last resort is the centre of
+    /// that inset box — still inside the fence, even if it is occupied.
+    pub fn human_spawn_spot(&mut self) -> (f32, f32) {
+        self.pick_spawn(SPAWN_GAP)
+    }
+
+    /// Inclusive spawn box: playable fence bounds inset by [`SPAWN_MARGIN`].
+    pub fn spawn_box() -> (f32, f32, f32, f32) {
+        (
+            MIN_X + SPAWN_MARGIN,
+            MIN_Y + SPAWN_MARGIN,
+            MAX_X - SPAWN_MARGIN,
+            MAX_Y - SPAWN_MARGIN,
+        )
+    }
+
+    /// True when a player centre would sit in a tree, bush, bench, or picnic table.
+    pub fn spawn_hits_scenery(x: f32, y: f32) -> bool {
+        scenery::blocks_spawn(x, y)
+    }
+
+    /// `human_gap` is the minimum distance from every non-bot. Humans pass
+    /// [`SPAWN_GAP`]; bots pass a larger gap so they don't open on top of you.
+    fn pick_spawn(&mut self, human_gap: f32) -> (f32, f32) {
+        // (gap from humans, reject scenery, reject the IT neighbourhood).
+        // Humans already use SPAWN_GAP, so the last two passes would repeat.
+        let passes = [
+            (human_gap, true, true),
+            (human_gap, true, false),
+            (human_gap, false, false),
+            (SPAWN_GAP, true, false),
+            (SPAWN_GAP, false, false),
+        ];
+        let n = if human_gap > SPAWN_GAP { 5 } else { 3 };
+        for &(gap, scenery, it_gap) in passes.iter().take(n) {
+            if let Some(spot) = self.sample_spawn(gap, scenery, it_gap) {
+                return spot;
             }
         }
-        SPAWN
+        let (min_x, min_y, max_x, max_y) = Self::spawn_box();
+        ((min_x + max_x) * 0.5, (min_y + max_y) * 0.5)
+    }
+
+    fn sample_spawn(
+        &mut self,
+        human_gap: f32,
+        avoid_scenery: bool,
+        avoid_it: bool,
+    ) -> Option<(f32, f32)> {
+        let (min_x, min_y, max_x, max_y) = Self::spawn_box();
+        for _ in 0..SPAWN_ATTEMPTS {
+            let x = self.rng.random_range(min_x..max_x);
+            let y = self.rng.random_range(min_y..max_y);
+            if self.spot_free(x, y, human_gap, avoid_scenery, avoid_it) {
+                return Some((x, y));
+            }
+        }
+        None
+    }
+
+    fn spot_free(
+        &self,
+        x: f32,
+        y: f32,
+        human_gap: f32,
+        avoid_scenery: bool,
+        avoid_it: bool,
+    ) -> bool {
+        if avoid_scenery && scenery::blocks_spawn(x, y) {
+            return false;
+        }
+        self.players.values().all(|player| {
+            let dx = player.position.x - x;
+            let dy = player.position.y - y;
+            let mut need = SPAWN_GAP;
+            if !player.is_bot {
+                need = need.max(human_gap);
+            }
+            if avoid_it && player.is_it {
+                need = need.max(IT_SPAWN_GAP);
+            }
+            dx * dx + dy * dy >= need * need
+        })
     }
 
     fn spawn_missing_bots(&mut self) -> Vec<Uuid> {
@@ -221,34 +307,11 @@ impl World {
             return spawned;
         }
 
-        let mut rng = rand::rng();
-
         while self.bots.len() < BOT_COUNT {
-            let humans = self
-                .players
-                .values()
-                .filter(|p| !p.is_bot)
-                .map(|p| p.position)
-                .collect::<Vec<_>>();
-
-            // Spawn well away from humans so a join isn't an instant tag.
-            let mut spot = (0.0, 0.0);
-            for _ in 0..16 {
-                spot = (
-                    rng.random_range(200.0..WORLD_WIDTH - 200.0),
-                    rng.random_range(200.0..WORLD_HEIGHT - 200.0),
-                );
-
-                let far_enough = humans.iter().all(|h| {
-                    let dx = h.x - spot.0;
-                    let dy = h.y - spot.1;
-                    dx * dx + dy * dy > 800.0 * 800.0
-                });
-
-                if far_enough {
-                    break;
-                }
-            }
+            // Same sampler as humans: inside the margin, off the scenery,
+            // and at least SPAWN_GAP from everyone. The larger human gap
+            // keeps a bot from opening the round on top of a person.
+            let spot = self.pick_spawn(BOT_SPAWN_FROM_HUMANS);
 
             let id = Uuid::new_v4();
             let mut bot_player = Player::new(id, spot.0, spot.1);
@@ -390,16 +453,15 @@ impl World {
     fn assign_random_it(
         &mut self,
     ) {
-        let mut rng = rand::rng();
-
-        let Some(id) = self
-            .players
-            .keys()
-            .copied()
-            .choose(&mut rng)
-        else {
+        // Sort by name so the pick depends on the seed, not HashMap order.
+        // Names are unique ("James N") and assigned before this runs.
+        let mut ids: Vec<Uuid> = self.players.keys().copied().collect();
+        ids.sort_by_key(|id| self.players[id].name.clone());
+        if ids.is_empty() {
             return;
-        };
+        }
+        let index = self.rng.random_range(0..ids.len());
+        let id = ids[index];
 
         if let Some(player) =
             self.players.get_mut(&id)

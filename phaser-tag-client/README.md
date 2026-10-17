@@ -100,10 +100,13 @@ retries can't pile up on the server.
 
 ## Which player is you
 
-After `Join`, the server sends `Welcome { player_id, name }` to the joining
+After `Join`, the server sends `Welcome { player_id, name, x, y }` to the joining
 client only. The client stores `player_id` as `localPlayerId` to tell its own
-`PlayerSnapshot` apart from everyone else's, and shows `name` (`James N`). A
-reconnect is a new `Join`, so it gets a new `Welcome`.
+`PlayerSnapshot` apart from everyone else's, shows `name` (`James N`), and
+snaps the kid and the camera to `(x, y)` so a random spawn is not a slide
+from the old spot. A reconnect is a new `Join`, so it gets a new `Welcome`
+and a new spot. Leaving the secret cave is not a spawn: you return beside
+the secret tree.
 
 ## Coordinate model
 
@@ -116,7 +119,11 @@ in `src/world.ts` and mirror `backend/src/game/world.rs`;
 `backend/tests/bounds.rs` parses `src/world.ts` and fails if they drift.
 
 The local player is drawn as a kid sprite (see "Character sprites")
-at their authoritative world coordinate. Phaser's camera follows that object, so the player
+at their authoritative world coordinate. Joining (and rejoining) places
+that coordinate uniformly at random inside the fence, inset from the walls,
+clear of trees, bushes, benches and picnic tables, at least 110px from
+anyone else, and not beside whoever is IT. Phaser's camera follows that
+object and jumps there on the frame you appear, so the player
 stays approximately in the center of the viewport while the world
 moves underneath them.
 
@@ -271,8 +278,9 @@ and your "James N" name once you've joined, and a red light with
 "Connected" (green) while spectating, but the panel stays hidden there, as
 before.
 
-Pressing **Start** sends `Join`. The server replies with `Welcome` (your id
-and "James N" name), the local kid appears, and the overlay dismisses.
+Pressing **Start** sends `Join`. The server replies with `Welcome` (your id,
+"James N" name, and spawn coordinates), the local kid appears on that spot
+with the camera already there, and the overlay dismisses.
 
 Spectators count toward "someone is here" on the server, so bots keep
 running even when you're alone on the title screen — the yard never looks

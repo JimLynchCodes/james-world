@@ -61,12 +61,21 @@ impl RoomManager {
             let existing = world
                 .players
                 .values()
-                .map(|p| (p.id, p.name.clone(), p.skin))
+                .map(|p| (p.id, p.name.clone(), p.skin, p.position.x, p.position.y))
                 .collect::<Vec<_>>();
             let spawned_bots = world
                 .add_spectator()
                 .into_iter()
-                .map(|id| (id, world.name_of(&id), world.skin_of(&id)))
+                .map(|id| {
+                    let player = &world.players[&id];
+                    (
+                        id,
+                        player.name.clone(),
+                        player.skin,
+                        player.position.x,
+                        player.position.y,
+                    )
+                })
                 .collect::<Vec<_>>();
             (existing, spawned_bots)
         };
@@ -79,21 +88,25 @@ impl RoomManager {
             connections.insert(connection_id, sender.clone());
         }
 
-        for (id, name, skin) in existing_players {
+        for (id, name, skin, x, y) in existing_players {
             let _ = sender
                 .send(ServerMessage::PlayerJoined {
                     player_id: id,
                     name,
                     skin,
+                    x,
+                    y,
                 })
                 .await;
         }
 
-        for (bot_id, bot_name, bot_skin) in spawned_bots {
+        for (bot_id, bot_name, bot_skin, x, y) in spawned_bots {
             self.broadcast(ServerMessage::PlayerJoined {
                 player_id: bot_id,
                 name: bot_name,
                 skin: bot_skin,
+                x,
+                y,
             })
             .await;
         }
@@ -124,7 +137,7 @@ impl RoomManager {
 
         // Leaving spectator status before becoming a human so bot presence
         // stays continuous (spectators→humans never dips to zero).
-        let (name, player_skin, spawned_bots) = {
+        let (name, player_skin, spawn_x, spawn_y, spawned_bots) = {
             let mut world = self.world.lock().await;
             // Spectator → human: drop the spectator seat first so presence
             // never dips to zero (bots stay).
@@ -132,12 +145,28 @@ impl RoomManager {
             let spawned = world
                 .add_player(player_id)
                 .into_iter()
-                .map(|id| (id, world.name_of(&id), world.skin_of(&id)))
+                .map(|id| {
+                    let player = &world.players[&id];
+                    (
+                        id,
+                        player.name.clone(),
+                        player.skin,
+                        player.position.x,
+                        player.position.y,
+                    )
+                })
                 .collect::<Vec<_>>();
             if let Some(skin) = skin {
                 world.set_skin(player_id, Skin::parse(&skin));
             }
-            (world.name_of(&player_id), world.skin_of(&player_id), spawned)
+            let player = &world.players[&player_id];
+            (
+                player.name.clone(),
+                player.skin,
+                player.position.x,
+                player.position.y,
+                spawned,
+            )
         };
 
         self.send_to(
@@ -145,6 +174,8 @@ impl RoomManager {
             ServerMessage::Welcome {
                 player_id,
                 name: name.clone(),
+                x: spawn_x,
+                y: spawn_y,
             },
         )
         .await;
@@ -155,15 +186,19 @@ impl RoomManager {
                 player_id,
                 name,
                 skin: player_skin,
+                x: spawn_x,
+                y: spawn_y,
             },
         )
         .await;
 
-        for (bot_id, bot_name, bot_skin) in spawned_bots {
+        for (bot_id, bot_name, bot_skin, x, y) in spawned_bots {
             self.broadcast(ServerMessage::PlayerJoined {
                 player_id: bot_id,
                 name: bot_name,
                 skin: bot_skin,
+                x,
+                y,
             })
             .await;
         }

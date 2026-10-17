@@ -1,6 +1,6 @@
 use taggame_backend::game::{
     bot::{choose_target, BotSkill, BOT_COUNT},
-    world::{PlayerInput, World, SPAWN, SPAWN_GAP},
+    world::{PlayerInput, World, SPAWN_GAP},
 };
 use uuid::Uuid;
 
@@ -107,12 +107,16 @@ fn it_bot_chases_down_and_tags_a_stationary_human() {
         world.add_player(human);
 
         // Park the human; make one bot IT and put it a bit away, others far.
+        // The human used to join at (400, 300); spawn is random now, so place
+        // them there explicitly. The hunter starts 900px to the east.
         let ids = bots(&world);
         for p in world.players.values_mut() {
             p.is_it = false;
         }
         let hunter = ids[0];
         world.bots.get_mut(&hunter).unwrap().skill = skill;
+        world.players.get_mut(&human).unwrap().position.x = 400.0;
+        world.players.get_mut(&human).unwrap().position.y = 300.0;
         world.players.get_mut(&hunter).unwrap().is_it = true;
         world.players.get_mut(&hunter).unwrap().position.x = 400.0 + 900.0;
         world.players.get_mut(&hunter).unwrap().position.y = 300.0;
@@ -519,14 +523,9 @@ fn spectators_keep_bots_and_joining_keeps_them() {
 fn joining_humans_never_spawn_on_top_of_someone() {
     // Everyone used to appear at exactly (400, 300): two idle kids there drew
     // their sprites and IT / YOU / name labels on top of each other.
-    let mut world = World::new();
-    let first = Uuid::new_v4();
-    world.add_player(first);
-    let p = &world.players[&first].position;
-    assert_eq!((p.x, p.y), SPAWN);
-
-    let mut humans = vec![first];
-    for _ in 0..15 {
+    let mut world = World::with_seed(7);
+    let mut humans = Vec::new();
+    for _ in 0..12 {
         let id = Uuid::new_v4();
         world.add_player(id);
         humans.push(id);
@@ -536,25 +535,22 @@ fn joining_humans_never_spawn_on_top_of_someone() {
             if b.0 != a {
                 assert!(
                     dist(&world, *a, *b.0) >= SPAWN_GAP - 0.01,
-                    "human {i} spawned on another player"
+                    "human {i} spawned on another player ({})",
+                    dist(&world, *a, *b.0)
                 );
             }
         }
         let pos = &world.players[a].position;
+        let (min_x, min_y, max_x, max_y) = World::spawn_box();
         assert!(
-            pos.x >= taggame_backend::game::world::MIN_X
-                && pos.x <= taggame_backend::game::world::MAX_X
+            pos.x >= min_x && pos.x <= max_x && pos.y >= min_y && pos.y <= max_y,
+            "human {i} spawned outside the inset yard: ({}, {})",
+            pos.x,
+            pos.y
         );
         assert!(
-            pos.y >= taggame_backend::game::world::MIN_Y
-                && pos.y <= taggame_backend::game::world::MAX_Y
+            !World::spawn_hits_scenery(pos.x, pos.y),
+            "human {i} spawned inside scenery"
         );
     }
-
-    // A spot frees up again once its player walks off.
-    world.players.get_mut(&first).unwrap().position.x = 2500.0;
-    let id = Uuid::new_v4();
-    world.add_player(id);
-    let p = &world.players[&id].position;
-    assert_eq!((p.x, p.y), SPAWN);
 }

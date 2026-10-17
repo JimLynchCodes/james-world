@@ -48,10 +48,14 @@ pub enum ServerMessage {
     /// events follow; the client is not a player until it sends `Join`.
     Hello {},
 
-    /// Sent only to the client that just joined as a player: its id and name.
+    /// Sent only to the client that just joined as a player: its id, name,
+    /// and the spot it should appear at. The client snaps there immediately
+    /// (a reconnect is a new body, not a walk from the old one).
     Welcome {
         player_id: Uuid,
         name: String,
+        x: f32,
+        y: f32,
     },
 
     Snapshot {
@@ -63,6 +67,10 @@ pub enum ServerMessage {
         name: String,
         /// Skin at join time; live changes arrive in snapshots.
         skin: Skin,
+        /// Where they are standing, so other clients don't draw them at the
+        /// world centre for a frame and then jump.
+        x: f32,
+        y: f32,
     },
 
     PlayerLeft {
