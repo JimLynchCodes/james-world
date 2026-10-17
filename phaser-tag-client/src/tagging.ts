@@ -8,10 +8,24 @@
 export const DIRECTIONS = ["E", "SE", "S", "SW", "W", "NW", "N", "NE"] as const;
 export type Direction = (typeof DIRECTIONS)[number];
 
-/** Map a facing angle in radians (atan2(dy, dx), screen coords) to a direction. */
+/** South: atan2(1, 0), and the avatar's starting facing. */
+const FALLBACK_FACING = Math.PI / 2;
+
+/** Use `angle` when it is a real number; otherwise `fallback` (then south). */
+function finiteAngle(angle: number | null | undefined, fallback: number): number {
+  if (typeof angle === "number" && Number.isFinite(angle)) return angle;
+  return Number.isFinite(fallback) ? fallback : FALLBACK_FACING;
+}
+
+/**
+ * Map a facing angle in radians (atan2(dy, dx), screen coords) to a direction.
+ * A non-finite angle is south, so a key built from this is never `undefined`.
+ */
 export function directionFromAngle(angle: number): Direction {
+  if (!Number.isFinite(angle)) return "S";
   const octant = Math.round(angle / (Math.PI / 4));
-  return DIRECTIONS[((octant % 8) + 8) % 8];
+  const index = ((octant % 8) + 8) % 8;
+  return DIRECTIONS[index] ?? "S";
 }
 
 /**
@@ -25,14 +39,14 @@ export function avatarAnimKey(
   running: boolean,
   tagging: boolean
 ): string {
-  const dir = directionFromAngle(angle);
+  const dir = directionFromAngle(finiteAngle(angle, FALLBACK_FACING));
   const name = tagging ? "tag" : moving ? (running ? "run" : "walk") : "breathe";
   return `${texture}-${name}-${dir}`;
 }
 
 /** Tag clip for a facing angle. Movement does not choose this row. */
 export function tagClipKey(texture: string, facing: number): string {
-  return `${texture}-tag-${directionFromAngle(facing)}`;
+  return `${texture}-tag-${directionFromAngle(finiteAngle(facing, FALLBACK_FACING))}`;
 }
 
 /**
@@ -48,8 +62,11 @@ export function nextAvatarAnim(opts: {
   /** Facing locked when the swing started. */
   tagFacing?: number | null;
 }): string {
-  if (opts.tagging) return tagClipKey(opts.texture, opts.tagFacing ?? opts.facing);
-  return avatarAnimKey(opts.texture, opts.facing, opts.moving, opts.running, false);
+  // A NaN swing angle (atan2 of a NaN position) keeps the facing the kid
+  // already has, instead of asking Phaser for `kid-tag-undefined`.
+  const facing = finiteAngle(opts.facing, FALLBACK_FACING);
+  if (opts.tagging) return tagClipKey(opts.texture, finiteAngle(opts.tagFacing, facing));
+  return avatarAnimKey(opts.texture, facing, opts.moving, opts.running, false);
 }
 
 /**

@@ -55,11 +55,19 @@ export class GameSocket {
 
     socket.addEventListener("message", event => {
       if (socket !== this.socket) return;
+      let message: ServerMessage;
       try {
-        const message = JSON.parse(event.data) as ServerMessage;
-        this.handlers.onMessage(message);
+        message = JSON.parse(event.data) as ServerMessage;
       } catch (error) {
         console.error("Invalid server message:", error, event.data);
+        return;
+      }
+      try {
+        this.handlers.onMessage(message);
+      } catch (error) {
+        // Game-state updates before the throw still stand. A bad sound
+        // effect must not be reported as a message we couldn't parse.
+        console.error("Server message handler failed:", error, message);
       }
     });
 

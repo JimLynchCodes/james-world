@@ -69,7 +69,27 @@ class Synth {
     const attack = o.attack ?? 0.005;
     const hold = o.hold ?? 0;
     const release = o.release ?? 0.2;
+    const gain = o.gain ?? 0.2;
     const end = t + attack + hold + release;
+    // linearRampToValueAtTime throws on a non-finite value or time. An
+    // exponential ramp also throws unless both ends are strictly positive.
+    if (
+      !Number.isFinite(t) ||
+      !Number.isFinite(freq) ||
+      !Number.isFinite(attack) ||
+      !Number.isFinite(hold) ||
+      !Number.isFinite(release) ||
+      !Number.isFinite(end) ||
+      end < t ||
+      !Number.isFinite(gain) ||
+      !(gain > 0)
+    ) {
+      return;
+    }
+    if (o.glideTo !== undefined && (!Number.isFinite(o.glideTo) || !(o.glideTo > 0) || !(freq > 0))) return;
+    if (o.filter !== undefined && !Number.isFinite(o.filter)) return;
+    if (o.detune !== undefined && !Number.isFinite(o.detune)) return;
+    if (o.vibrato && (!Number.isFinite(o.vibrato[0]) || !Number.isFinite(o.vibrato[1]))) return;
 
     const osc = ctx.createOscillator();
     osc.type = o.type ?? "sine";
@@ -79,8 +99,8 @@ class Synth {
 
     const env = ctx.createGain();
     env.gain.setValueAtTime(0, t);
-    env.gain.linearRampToValueAtTime(o.gain ?? 0.2, t + attack);
-    env.gain.setValueAtTime(o.gain ?? 0.2, t + attack + hold);
+    env.gain.linearRampToValueAtTime(gain, t + attack);
+    env.gain.setValueAtTime(gain, t + attack + hold);
     env.gain.exponentialRampToValueAtTime(0.0001, end);
 
     let head: AudioNode = osc;
@@ -110,21 +130,41 @@ class Synth {
     const { ctx } = this;
     const attack = o.attack ?? 0.002;
     const release = o.release ?? 0.08;
-    const src = ctx.createBufferSource();
-    src.buffer = this.noiseBuffer;
+    const gain = o.gain ?? 0.1;
+    const freq = o.freq ?? 6000;
+    const q = o.q ?? 0.7;
+    const end = t + attack + release;
+    if (
+      !Number.isFinite(t) ||
+      !Number.isFinite(attack) ||
+      !Number.isFinite(release) ||
+      !Number.isFinite(end) ||
+      end < t ||
+      !Number.isFinite(gain) ||
+      !(gain > 0) ||
+      !Number.isFinite(freq) ||
+      !Number.isFinite(q)
+    ) {
+      return;
+    }
+    if (o.sweepTo !== undefined && (!Number.isFinite(o.sweepTo) || !(o.sweepTo > 0) || !(freq > 0))) return;
     // Start somewhere random in the buffer so repeated hits don't sound identical.
     const offset = Math.random() * (this.noiseBuffer.duration - 0.5);
+    if (!Number.isFinite(offset) || offset < 0) return;
+
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
 
     const filter = ctx.createBiquadFilter();
     filter.type = o.filter ?? "highpass";
-    filter.frequency.setValueAtTime(o.freq ?? 6000, t);
-    if (o.sweepTo) filter.frequency.exponentialRampToValueAtTime(o.sweepTo, t + attack + release);
-    filter.Q.value = o.q ?? 0.7;
+    filter.frequency.setValueAtTime(freq, t);
+    if (o.sweepTo) filter.frequency.exponentialRampToValueAtTime(o.sweepTo, end);
+    filter.Q.value = q;
 
     const env = ctx.createGain();
     env.gain.setValueAtTime(0, t);
-    env.gain.linearRampToValueAtTime(o.gain ?? 0.1, t + attack);
-    env.gain.exponentialRampToValueAtTime(0.0001, t + attack + release);
+    env.gain.linearRampToValueAtTime(gain, t + attack);
+    env.gain.exponentialRampToValueAtTime(0.0001, end);
 
     src.connect(filter).connect(env).connect(this.dest);
     src.start(t, offset);
@@ -571,10 +611,16 @@ export class GameAudio {
 
   playSfx(name: Sfx, volume = 1) {
     const ctx = this.ctx;
-    if (!ctx || ctx.state !== "running" || volume <= 0) return;
+    if (!ctx || ctx.state !== "running") return;
+    // NaN slips past `volume <= 0` and becomes a non-finite gain, which
+    // WebAudio rejects. Clamp a real volume into [0, 1] and skip silence.
+    if (!Number.isFinite(volume)) return;
+    const v = Math.min(1, Math.max(0, volume));
+    if (v <= 0) return;
     const t = ctx.currentTime + 0.005;
+    if (!Number.isFinite(t)) return;
     const syn = this.sfxSynth;
-    const v = Math.min(1, volume);
+    try {
     switch (name) {
       case "swing": // whoosh
         syn.noise(t, { filter: "bandpass", freq: 500, sweepTo: 2800, q: 1.6, gain: 0.5 * v, attack: 0.04, release: 0.16 });
@@ -742,6 +788,10 @@ export class GameAudio {
     }
     this.sfxPlayed++;
     this.lastSfx = name;
+    } catch (error) {
+      // A failed voice must not escape into message handling or the game loop.
+      console.warn("[audio] sfx failed:", name, error);
+    }
   }
 
   /**
