@@ -136,6 +136,34 @@ function jp(): string {
     <circle cx="30" cy="20" r="9" fill="#bc002d"/>`;
 }
 
+/** Saffron, white, green, and a 24-spoke chakra. */
+function india(): string {
+  const spokes: string[] = [];
+  for (let i = 0; i < 24; i++) {
+    const ang = (Math.PI / 12) * i;
+    const x2 = (30 + Math.cos(ang) * 5.3).toFixed(2);
+    const y2 = (20 + Math.sin(ang) * 5.3).toFixed(2);
+    spokes.push(`<line x1="30" y1="20" x2="${x2}" y2="${y2}" stroke="#000080" stroke-width="0.45"/>`);
+  }
+  return `
+    <rect width="60" height="13.34" fill="#ff9933"/>
+    <rect y="13.33" width="60" height="13.34" fill="#ffffff"/>
+    <rect y="26.66" width="60" height="13.34" fill="#138808"/>
+    <circle cx="30" cy="20" r="5.6" fill="none" stroke="#000080" stroke-width="0.7"/>
+    ${spokes.join("")}
+    <circle cx="30" cy="20" r="0.85" fill="#000080"/>`;
+}
+
+/** Green field, white hoist stripe, crescent and star. */
+function pakistan(): string {
+  return `
+    <rect width="60" height="40" fill="#01411c"/>
+    <rect width="15" height="40" fill="#ffffff"/>
+    <circle cx="33.2" cy="20" r="7" fill="#ffffff"/>
+    <circle cx="35.4" cy="18.6" r="5.9" fill="#01411c"/>
+    <polygon points="${star(41.2, 20, 2.5, 5)}" fill="#ffffff"/>`;
+}
+
 const BODIES: Record<Locale, () => string> = {
   "en-US": us,
   "en-GB": () => unionJack(),
@@ -147,6 +175,8 @@ const BODIES: Record<Locale, () => string> = {
   "es-AR": ar,
   "zh-CN": cn,
   "ja-JP": jp,
+  "hi-IN": india,
+  "ur-PK": pakistan,
 };
 
 /** Inline SVG for `locale`'s region. GB is 2:1; the rest are 3:2. */

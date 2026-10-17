@@ -35,6 +35,8 @@ export const LOCALES = [
   "es-AR",
   "zh-CN",
   "ja-JP",
+  "hi-IN",
+  "ur-PK",
 ] as const;
 
 export type Locale = (typeof LOCALES)[number];
@@ -51,6 +53,8 @@ const LANGUAGE_DEFAULT: Readonly<Record<string, Locale>> = {
   es: "es-MX",
   zh: "zh-CN",
   ja: "ja-JP",
+  hi: "hi-IN",
+  ur: "ur-PK",
 };
 
 const MEXICO_ZONES: ReadonlySet<string> = new Set([
@@ -175,6 +179,8 @@ export function localeFromTimeZone(timeZone: string): Locale | null {
   if (timeZone === "Europe/London") return "en-GB";
   if (CHINA_ZONES.has(timeZone)) return "zh-CN";
   if (timeZone === "Asia/Tokyo") return "ja-JP";
+  if (timeZone === "Asia/Kolkata" || timeZone === "Asia/Calcutta") return "hi-IN";
+  if (timeZone === "Asia/Karachi") return "ur-PK";
   if (US_ZONES.has(timeZone)) return "en-US";
   return null;
 }

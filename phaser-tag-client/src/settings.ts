@@ -182,7 +182,7 @@ function creditUrlRow(label: string, icon: string): string {
   const parts = label.split("/");
   const tail = parts.pop() ?? label;
   const head = parts.map(part => `${part}/<wbr>`).join("");
-  return `<span class="credit-url-row"><span class="credit-url">${head}</span><span class="credit-url-tail"><span class="credit-url">${tail}</span><span class="credit-ext">${icon}</span></span></span>`;
+  return `<span class="credit-url-row" dir="ltr"><span class="credit-url">${head}</span><span class="credit-url-tail"><span class="credit-url">${tail}</span><span class="credit-ext">${icon}</span></span></span>`;
 }
 
 /** Filled marks, drawn in the same chunky badges as the rest of the panel. */

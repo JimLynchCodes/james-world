@@ -124,6 +124,21 @@ test("Chinese and Japanese follow the same language-wins rule", () => {
   assert.equal(pick({ languages: ["ja"], timeZone: "America/Chicago" }), "ja-JP");
 });
 
+test("Hindi and Urdu follow language, then their timezones", () => {
+  assert.equal(pick({ languages: ["hi"], timeZone: "Asia/Kolkata" }), "hi-IN");
+  assert.equal(pick({ languages: ["hi"], timeZone: "Asia/Calcutta" }), "hi-IN");
+  assert.equal(pick({ languages: ["hi-IN"], timeZone: "Asia/Karachi" }), "hi-IN");
+  assert.equal(pick({ languages: ["hi"], timeZone: "America/New_York" }), "hi-IN");
+  assert.equal(pick({ languages: ["ur"], timeZone: "Asia/Karachi" }), "ur-PK");
+  assert.equal(pick({ languages: ["ur"], timeZone: "Asia/Kolkata" }), "ur-PK");
+  assert.equal(pick({ languages: ["ur-PK"], timeZone: "Europe/London" }), "ur-PK");
+  assert.equal(pick({ languages: ["en"], timeZone: "Asia/Kolkata" }), "en-US");
+  assert.equal(pick({ languages: ["en"], timeZone: "Asia/Calcutta" }), "en-US");
+  assert.equal(pick({ languages: ["en"], timeZone: "Asia/Karachi" }), "en-US");
+  assert.equal(pick({ languages: ["hi", "en-IN"], timeZone: "America/Chicago" }), "hi-IN");
+  assert.equal(pick({ saved: "ur-PK", languages: ["en"], timeZone: "Asia/Kolkata" }), "ur-PK");
+});
+
 test("unsupported languages fall through, and nothing at all is en-US", () => {
   assert.equal(pick({ languages: ["fr-FR", "de", "en-GB"], timeZone: "Europe/Madrid" }), "en-GB");
   assert.equal(pick({ languages: ["fr", "de"], timeZone: "Australia/Sydney" }), "en-US");
@@ -169,6 +184,11 @@ test("regional voice shows up in the strings that should differ", () => {
   assert.equal(MESSAGES["zh-CN"]["label.it"], "鬼");
   assert.equal(MESSAGES["ja-JP"]["label.it"], "鬼");
   assert.equal(MESSAGES["ja-JP"]["label.you"], "自分");
+  assert.match(MESSAGES["hi-IN"]["title.blurb"], /[\u0900-\u097F]/);
+  assert.equal(MESSAGES["hi-IN"]["label.it"], "डेन");
+  assert.match(MESSAGES["ur-PK"]["title.blurb"], /[\u0600-\u06FF]/);
+  assert.equal(MESSAGES["ur-PK"]["label.it"], "ڈین");
+  assert.equal(MESSAGES["ur-PK"]["lang.choose"], "زبان چنو");
 });
 
 test("the cave pixel font covers Latin quotes and not CJK", () => {
@@ -179,4 +199,7 @@ test("the cave pixel font covers Latin quotes and not CJK", () => {
   assert.equal(supportsCaveGlyphs(MESSAGES["zh-CN"]["cave.line1"]), false);
   assert.equal(supportsCaveGlyphs(MESSAGES["ja-JP"]["cave.line1"]), false);
   assert.equal(supportsCaveGlyphs(MESSAGES["ja-JP"]["cave.line2"]), false);
+  assert.equal(supportsCaveGlyphs(MESSAGES["hi-IN"]["cave.line1"]), false);
+  assert.equal(supportsCaveGlyphs(MESSAGES["ur-PK"]["cave.line1"]), false);
+  assert.equal(supportsCaveGlyphs(MESSAGES["ur-PK"]["cave.line2"]), false);
 });

@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { t } from "./i18n";
+import { getLocale, t } from "./i18n";
 import { DEFAULT_SKIN, SKINS, SKIN_IDS, type Skin, type SkinSheet } from "./skins";
 import { DIRECTIONS, nextAvatarAnim, type Direction } from "./tagging";
 
@@ -123,7 +123,7 @@ type LabelLine = (typeof LABEL_LINES)[number];
 
 const LABEL_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily:
-    'system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", sans-serif',
+    '"Noto Sans Devanagari", "Noto Nastaliq Urdu", "Noto Naskh Arabic", system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", sans-serif',
   fontStyle: "bold",
   stroke: "#10131a",
   strokeThickness: 4,
@@ -276,8 +276,12 @@ export class KidAvatar {
 
   /** YOU / IT in the current language. Names stay as the server sent them. */
   applyLocale() {
+    const rtl = getLocale() === "ur-PK";
     this.labels.you.setText(t("label.you"));
     this.labels.it.setText(t("label.it"));
+    this.labels.you.setStyle({ rtl });
+    this.labels.it.setStyle({ rtl });
+    this.labels.name.setStyle({ rtl: false });
   }
 
   /** World-space box around the visible kid: body, ring and label stack. */

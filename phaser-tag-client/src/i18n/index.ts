@@ -21,11 +21,17 @@ export function getLocale(): Locale {
   return current;
 }
 
+/** Keep an interpolated name or URL in left-to-right order inside Urdu. */
+const LRI = "\u2066";
+const PDI = "\u2069";
+
 export function t(key: MessageKey, vars?: Record<string, string | number>): string {
   let text: string = MESSAGES[current][key];
   if (vars) {
     for (const [name, value] of Object.entries(vars)) {
-      text = text.split(`{${name}}`).join(String(value));
+      const raw = String(value);
+      const embedded = current === "ur-PK" ? `${LRI}${raw}${PDI}` : raw;
+      text = text.split(`{${name}}`).join(embedded);
     }
   }
   return text;
@@ -53,6 +59,7 @@ function readSaved(): string | null {
 
 function applyDocument(locale: Locale) {
   document.documentElement.lang = locale;
+  document.documentElement.dir = locale === "ur-PK" ? "rtl" : "ltr";
   document.title = MESSAGES[locale]["meta.title"];
 }
 

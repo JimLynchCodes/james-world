@@ -7,7 +7,9 @@ import { esCO } from "./messages/es-CO.ts";
 import { esDO } from "./messages/es-DO.ts";
 import { esES } from "./messages/es-ES.ts";
 import { esMX } from "./messages/es-MX.ts";
+import { hiIN } from "./messages/hi-IN.ts";
 import { jaJP } from "./messages/ja-JP.ts";
+import { urPK } from "./messages/ur-PK.ts";
 import { zhCN } from "./messages/zh-CN.ts";
 
 /** Regional packs override a complete base, so every locale has every key. */
@@ -26,4 +28,6 @@ export const MESSAGES: Record<Locale, Messages> = {
   "es-AR": withBase(esMX, esAR),
   "zh-CN": zhCN,
   "ja-JP": jaJP,
+  "hi-IN": hiIN,
+  "ur-PK": urPK,
 };

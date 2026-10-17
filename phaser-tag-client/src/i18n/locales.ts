@@ -1,6 +1,6 @@
 import type { Locale } from "./detect.ts";
 
-/** Jim's order: English, then Spanish, then Chinese, then Japanese. */
+/** Jim's order: English, Spanish, Chinese, Japanese, then Hindi and Urdu. */
 export const LOCALE_ORDER: readonly Locale[] = [
   "en-US",
   "en-GB",
@@ -12,6 +12,8 @@ export const LOCALE_ORDER: readonly Locale[] = [
   "es-AR",
   "zh-CN",
   "ja-JP",
+  "hi-IN",
+  "ur-PK",
 ];
 
 /** Native names. Shown as `Language  -  Region` regardless of the UI locale. */
@@ -26,9 +28,11 @@ const NAMES: Record<Locale, { language: string; region: string }> = {
   "es-AR": { language: "Español", region: "Argentina" },
   "zh-CN": { language: "简体中文", region: "中国大陆" },
   "ja-JP": { language: "日本語", region: "日本" },
+  "hi-IN": { language: "हिन्दी", region: "भारत" },
+  "ur-PK": { language: "اردو", region: "پاکستان" },
 };
 
-/** Uppercase language subtag: EN, ES, ZH, JA. */
+/** Uppercase language subtag: EN, ES, ZH, JA, HI, UR. */
 export function localeCode(locale: Locale): string {
   return locale.slice(0, locale.indexOf("-")).toUpperCase();
 }

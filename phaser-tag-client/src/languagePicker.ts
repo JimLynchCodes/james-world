@@ -68,6 +68,8 @@ export class LanguagePicker {
       if (previous !== null && previous !== language) option.classList.add("group-start");
       previous = language;
       option.dataset.locale = locale;
+      option.lang = locale;
+      option.dir = locale === "ur-PK" ? "rtl" : "ltr";
       option.setAttribute("role", "option");
       option.innerHTML = `<span class="lang-flag" aria-hidden="true">${flagSvg(locale)}</span><span class="lang-name"></span>`;
       const name = option.querySelector(".lang-name");

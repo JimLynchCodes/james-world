@@ -516,9 +516,10 @@ export class SecretDungeonScene extends Phaser.Scene {
     time: number
   ) {
     const family =
-      '"Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans SC", "Noto Sans JP", "PingFang SC", "Hiragino Sans", "Microsoft YaHei", "Yu Gothic", "WenQuanYi Micro Hei", "Droid Sans Fallback", "Noto Sans", sans-serif';
+      '"Noto Sans Devanagari", "Noto Nastaliq Urdu", "Noto Naskh Arabic", "Nirmala UI", "Urdu Typesetting", "Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans SC", "Noto Sans JP", "PingFang SC", "Hiragino Sans", "Microsoft YaHei", "Yu Gothic", "WenQuanYi Micro Hei", "Droid Sans Fallback", "Noto Sans", sans-serif';
+    const rtl = /[\u0600-\u06FF]/.test(lines[0] + lines[1]);
     const maxW = CAVE.w - 12;
-    let size = 12;
+    let size = rtl ? 11 : 12;
     const widthAt = (px: number) => {
       ctx.font = `bold ${px}px ${family}`;
       return Math.max(ctx.measureText(lines[0]).width, ctx.measureText(lines[1]).width);
@@ -527,12 +528,16 @@ export class SecretDungeonScene extends Phaser.Scene {
     ctx.font = `bold ${size}px ${family}`;
     ctx.fillStyle = "#ffffff";
     ctx.textBaseline = "top";
-    ctx.textAlign = "left";
-    const top = CAVE.wall + 4;
+    ctx.direction = rtl ? "rtl" : "ltr";
+    ctx.textAlign = rtl ? "right" : "left";
+    const top = CAVE.wall + (rtl ? 2 : 4);
+    const step = size + (rtl ? 8 : 4);
     shown.forEach((line, i) => {
       const fullW = ctx.measureText(lines[i]).width;
-      const x = Math.round((CAVE.w - fullW) / 2);
-      const y = top + i * (size + 4);
+      const y = top + i * step;
+      const x = rtl
+        ? Math.round((CAVE.w + fullW) / 2)
+        : Math.round((CAVE.w - fullW) / 2);
       ctx.fillText(line, x, y);
     });
     if (this.locked && this.revealed > 0 && Math.floor(time / 240) % 2 === 0) {
@@ -540,8 +545,11 @@ export class SecretDungeonScene extends Phaser.Scene {
       const count = lineIndex === 0 ? this.revealed : this.revealed - lines[0].length;
       const partial = lines[lineIndex].slice(0, count);
       const fullW = ctx.measureText(lines[lineIndex]).width;
-      const x = Math.round((CAVE.w - fullW) / 2) + ctx.measureText(partial).width;
-      const y = top + lineIndex * (size + 4);
+      const partialW = ctx.measureText(partial).width;
+      const y = top + lineIndex * step;
+      const x = rtl
+        ? Math.round((CAVE.w + fullW) / 2) - partialW
+        : Math.round((CAVE.w - fullW) / 2) + partialW;
       ctx.fillRect(x, y, Math.max(4, Math.round(size * 0.45)), size);
     }
   }
