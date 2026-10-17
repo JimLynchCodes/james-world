@@ -781,3 +781,34 @@ On `SIGTERM` or Ctrl-C, the server shuts down gracefully:
    clients reconnect right away.
 3. It waits up to 3 seconds for the sockets to close.
 4. It exits 0.
+
+
+## Manual Upgrade Steps
+
+1) ssh into server (replace x's with your public server ip)
+
+```bash
+ssh root@xx.xxx.xx.xxx
+```
+
+
+2) Go to backend james-world directory within /opt
+
+```
+cd /opt/james-world/backend
+```
+
+3) Pull the latest code (main branch)
+```bash
+git pull
+```
+
+4) Restart the tag26 task
+```bash
+sudo systemctl restart tag26
+```
+
+5) Check that it's running
+```bash
+systemctl status tag26 --no-pager
+```
