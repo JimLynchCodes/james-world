@@ -8,7 +8,8 @@ html, body, #game {
 }
 
 body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans",
+    "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "Yu Gothic", sans-serif;
   user-select: none;
 }
 
@@ -35,8 +36,9 @@ canvas {
   position: absolute;
   top: 16px;
   left: 16px;
-  min-width: min(220px, calc(100vw - 32px));
-  max-width: calc(100vw - 32px);
+  /* Stay clear of the language button and the settings cog (64 + gap + 64). */
+  min-width: min(220px, calc(100vw - 188px));
+  max-width: calc(100vw - 188px);
   box-sizing: border-box;
   padding: 12px 14px;
   border: 1px solid rgba(255,255,255,.12);
@@ -48,8 +50,8 @@ canvas {
 }
 
 /* Narrow phones: the status panel stops short of the settings cog. */
-@media (max-width: 360px) {
-  .status { min-width: 0; max-width: calc(100vw - 16px - 86px); padding: 10px; font-size: 12px; }
+@media (max-width: 420px) {
+  .status { min-width: 0; padding: 10px; font-size: 12px; }
 }
 
 .controls {
@@ -169,6 +171,125 @@ canvas {
 }
 .settings-cog.open { transform: rotate(180deg); }
 .settings-cog:focus-visible { outline: 3px dashed var(--sun); outline-offset: 4px; }
+
+/* Language button: same footprint and chunky shadow as the cog, on its left. */
+.lang-button {
+  position: absolute;
+  top: 14px;
+  right: 88px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  width: 64px;
+  height: 64px;
+  box-sizing: border-box;
+  padding: 6px 4px 5px;
+  border: 4px solid var(--ink);
+  border-radius: 50%;
+  background: var(--sun);
+  color: var(--ink);
+  font-family: var(--font-fun);
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+  filter: drop-shadow(0 4px 0 var(--ink)) drop-shadow(0 8px 10px rgba(0, 0, 0, .35));
+  transition: transform .2s cubic-bezier(.34, 1.8, .5, 1), filter .12s, opacity .2s;
+}
+.lang-button .lang-flag {
+  width: 26px;
+  height: 17px;
+  box-shadow: 0 0 0 1.5px var(--ink);
+}
+.lang-code {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .06em;
+  line-height: 1;
+}
+.lang-button:hover { transform: scale(1.08); }
+.lang-button:active {
+  transform: scale(.92);
+  filter: drop-shadow(0 1px 0 var(--ink)) drop-shadow(0 3px 5px rgba(0, 0, 0, .35));
+}
+.lang-button.open { transform: translateY(2px) scale(1.02); }
+.lang-button:focus-visible { outline: 3px dashed var(--sun); outline-offset: 4px; }
+
+.lang-popover {
+  position: fixed;
+  z-index: 45;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  border: 4px solid var(--ink);
+  border-radius: 22px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-fun);
+  box-shadow: 0 8px 0 var(--ink), 0 18px 30px rgba(0, 0, 0, .45);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(43, 33, 64, .45) transparent;
+}
+.lang-popover[hidden] { display: none; }
+.lang-popover::-webkit-scrollbar { width: 8px; }
+.lang-popover::-webkit-scrollbar-thumb {
+  border-radius: 99px;
+  background: rgba(43, 33, 64, .4);
+}
+.lang-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  border: 3px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: left;
+  cursor: pointer;
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
+}
+.lang-option.group-start {
+  margin-top: 8px;
+  box-shadow: inset 0 2px 0 rgba(43, 33, 64, .14);
+}
+.lang-option.selected {
+  background: var(--sun);
+  border-color: var(--ink);
+}
+.lang-option:hover { background: #fff; }
+.lang-option.selected:hover { background: var(--sun); }
+.lang-option:focus-visible { outline: 3px dashed var(--tangerine); outline-offset: 2px; }
+.lang-flag {
+  flex: none;
+  width: 28px;
+  height: 19px;
+  border-radius: 2px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1.5px var(--ink);
+}
+.lang-flag svg { display: block; width: 100%; height: 100%; }
+.lang-name { min-width: 0; }
+
+:lang(zh-CN) {
+  --font-fun: "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", "Microsoft YaHei", "WenQuanYi Micro Hei", "Droid Sans Fallback", "Segoe UI", system-ui, sans-serif;
+}
+:lang(ja-JP) {
+  --font-fun: "Hiragino Maru Gothic ProN", "Hiragino Sans", "Noto Sans CJK JP", "Noto Sans JP", "Yu Gothic", "WenQuanYi Micro Hei", "Droid Sans Fallback", "Segoe UI", system-ui, sans-serif;
+}
 
 @keyframes cog-wobble {
   0%, 100% { rotate: 0deg; }
@@ -587,7 +708,7 @@ canvas {
 .settings-select {
   max-width: 100%;
   min-width: 0;
-  width: 150px;
+  width: max-content;
   padding: 8px 40px 8px 14px;
   touch-action: manipulation;
   border: 3px solid var(--ink);
@@ -724,9 +845,12 @@ canvas {
 }
 .chip {
   color: #fff;
-  font-size: 12px;
+  width: auto;
+  min-width: 46px;
+  padding: 0 6px;
+  font-size: 11px;
   font-weight: 900;
-  letter-spacing: .5px;
+  letter-spacing: 0;
   text-shadow: 0 2px 0 rgba(43, 33, 64, .55);
 }
 .chip-tag { background: radial-gradient(circle at 35% 28%, #ffb27a 0 18%, #ff7a3d 45%, #f0532a 100%); }
@@ -882,7 +1006,7 @@ canvas {
 
 @media (prefers-reduced-motion: reduce) {
   .settings-cog, .settings-cog svg, .settings-frame, .settings-backdrop,
-  .switch-knob, .settings-tab, .settings-close { animation: none; transition: none; }
+  .switch-knob, .settings-tab, .settings-close, .lang-button, .lang-option { animation: none; transition: none; }
 }
 
 /* ------------------------------------------------------------------------
@@ -972,13 +1096,16 @@ canvas {
   opacity: .85;
 }
 .run-label {
+  max-width: 92%;
   margin-top: -2px;
-  font-size: calc(var(--run-size) * .2);
+  font-size: calc(var(--run-size) * .15);
   font-weight: 900;
-  letter-spacing: 1.5px;
-  -webkit-text-stroke: 1.5px var(--ink);
+  letter-spacing: .04em;
+  line-height: 1;
+  text-align: center;
+  -webkit-text-stroke: 1px var(--ink);
   paint-order: stroke fill;
-  text-shadow: 0 3px 0 var(--ink);
+  text-shadow: 0 2px 0 var(--ink);
 }
 .run-button:hover { transform: scale(1.04) rotate(-3deg); }
 .tag-button:hover { transform: scale(1.04) rotate(3deg); }
@@ -1014,13 +1141,16 @@ canvas {
   stroke-linejoin: round;
 }
 .tag-label {
+  max-width: 92%;
   margin-top: -2px;
-  font-size: calc(var(--run-size) * .2);
+  font-size: calc(var(--run-size) * .15);
   font-weight: 900;
-  letter-spacing: 1.5px;
-  -webkit-text-stroke: 1.5px var(--ink);
+  letter-spacing: .04em;
+  line-height: 1;
+  text-align: center;
+  -webkit-text-stroke: 1px var(--ink);
   paint-order: stroke fill;
-  text-shadow: 0 3px 0 var(--ink);
+  text-shadow: 0 2px 0 var(--ink);
 }
 .tag-button.held {
   transform: translateY(5px) scale(.95);
@@ -1188,7 +1318,7 @@ canvas {
 }
 .skin-name {
   max-width: 100%;
-  overflow-wrap: normal;
+  overflow-wrap: break-word;
   word-break: normal;
   hyphens: none;
   font-size: 19px;
@@ -1198,6 +1328,7 @@ canvas {
 }
 .skin-note {
   max-width: 100%;
+  overflow-wrap: break-word;
   font-size: 13px;
   font-weight: 700;
   line-height: 1.2;
@@ -1519,7 +1650,8 @@ canvas {
   box-sizing: border-box;
   min-width: min(200px, 100%);
   max-width: 100%;
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.15;
   padding: 14px 28px;
   border: 4px solid var(--ink);
   border-radius: 999px;
@@ -1570,7 +1702,9 @@ body.title-mode .joystick { display: none; }
 /* Secret cave: keep the joystick and Tag button, hide the schoolyard chrome. */
 body.in-secret .status,
 body.in-secret .controls,
-body.in-secret .settings-cog {
+body.in-secret .settings-cog,
+body.in-secret .lang-button,
+body.in-secret .lang-popover {
   visibility: hidden;
 }
 
@@ -1588,6 +1722,12 @@ body.in-secret .settings-cog {
   overflow: auto;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+}
+:lang(zh-CN) .bsod pre,
+:lang(ja-JP) .bsod pre,
+:lang(zh-CN) .bsod-cursor,
+:lang(ja-JP) .bsod-cursor {
+  font-family: "Noto Sans CJK SC", "Noto Sans CJK JP", "PingFang SC", "Hiragino Sans", "Microsoft YaHei", "Yu Gothic", sans-serif;
 }
 .bsod pre {
   margin: 0;

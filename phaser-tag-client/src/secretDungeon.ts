@@ -11,6 +11,8 @@
  */
 import Phaser from "phaser";
 import type { GameAudio } from "./audio";
+import { CAVE_FONT, CAVE_GLYPH_H, CAVE_GLYPH_W, supportsCaveGlyphs } from "./caveFont";
+import { onLocaleChange, t } from "./i18n";
 import { KidAvatar } from "./kid";
 import type { ControlMode } from "./settings";
 import { SKINS, type Skin } from "./skins";
@@ -94,63 +96,19 @@ export type DungeonHooks = {
   onExit: () => void;
 };
 
-const LINES = ["MASTER USING IT AND", "YOU CAN HAVE THIS."] as const;
-const GLYPH_W = 5;
-const GLYPH_H = 7;
+const GLYPH_W = CAVE_GLYPH_W;
+const GLYPH_H = CAVE_GLYPH_H;
 const GLYPH_GAP = 1;
 const LETTER_MS = 78;
 const SPACE_MS = 42;
 const LINE_PAUSE_MS = 320;
 
-/** 5x7 chunky glyphs. '1' is ink. */
-const FONT: Record<string, readonly string[]> = {
-  A: ["01110", "10001", "10001", "11111", "10001", "10001", "10001"],
-  C: ["01110", "10001", "10000", "10000", "10000", "10001", "01110"],
-  D: ["11110", "10001", "10001", "10001", "10001", "10001", "11110"],
-  E: ["11111", "10000", "10000", "11110", "10000", "10000", "11111"],
-  G: ["01110", "10001", "10000", "10111", "10001", "10001", "01110"],
-  H: ["10001", "10001", "10001", "11111", "10001", "10001", "10001"],
-  I: ["11111", "00100", "00100", "00100", "00100", "00100", "11111"],
-  M: ["10001", "11011", "10101", "10101", "10001", "10001", "10001"],
-  N: ["10001", "11001", "10101", "10011", "10001", "10001", "10001"],
-  O: ["01110", "10001", "10001", "10001", "10001", "10001", "01110"],
-  R: ["11110", "10001", "10001", "11110", "10100", "10010", "10001"],
-  S: ["01111", "10000", "10000", "01110", "00001", "00001", "11110"],
-  T: ["11111", "00100", "00100", "00100", "00100", "00100", "00100"],
-  U: ["10001", "10001", "10001", "10001", "10001", "10001", "01110"],
-  V: ["10001", "10001", "10001", "10001", "10001", "01010", "00100"],
-  Y: ["10001", "10001", "01010", "00100", "00100", "00100", "00100"],
-  ".": ["00000", "00000", "00000", "00000", "00000", "01100", "01100"],
-  " ": ["00000", "00000", "00000", "00000", "00000", "00000", "00000"],
-};
+/** Current quote. Latin stays on the pixel font; CJK uses a fallback face. */
+function caveLines(): readonly [string, string] {
+  return [t("cave.line1"), t("cave.line2")];
+}
 
 type RGB = [number, number, number];
-
-const BSOD_TEXT = `A problem has been detected and James World has been shut down to prevent damage
-to your computer.
-
-Error: Quest Not Implemented.
-
-If this is the first time you've seen this Stop error screen,
-restart your computer. If this screen appears again, follow
-these steps:
-
-Check to make sure any new hardware or software is properly installed.
-If this is a new installation, ask your hardware or software manufacturer
-for any James World updates you might need.
-
-If problems continue, disable or remove any newly installed hardware
-or software. Disable BIOS memory options such as caching or shadowing.
-If you need to use Safe Mode to remove or disable components, restart
-your computer, press F8 to select Advanced Startup Options, and then
-select Safe Mode.
-
-Technical information:
-
-*** STOP: 0x0000007B (0xC0000034, 0x00000000, 0x00000000, 0x00000000)
-
-
-Press any key or tap to continue `;
 
 function hash(x: number, y: number): number {
   let n = (x * 374761393 + y * 668265263) | 0;
@@ -250,6 +208,7 @@ export class SecretDungeonScene extends Phaser.Scene {
   private tapTarget: { x: number; y: number } | null = null;
   private left = false;
   private bsodEl: HTMLElement | null = null;
+  private unsubLocale: (() => void) | null = null;
   private readonly onBsodKey = (event: KeyboardEvent) => {
     if (event.repeat || !this.bsodEl) return;
     event.preventDefault();
@@ -324,8 +283,19 @@ export class SecretDungeonScene extends Phaser.Scene {
       this.tapTarget = { x: lx, y: ly };
     });
 
+    this.unsubLocale = onLocaleChange(() => {
+      // Retype the quote in the new language. The BSOD, if it's up, swaps too.
+      this.revealed = 0;
+      this.locked = true;
+      this.nextRevealAt = this.time.now;
+      this.drawText(this.time.now);
+      if (this.bsodEl) this.fillBsod(this.bsodEl);
+    });
+
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this);
+      this.unsubLocale?.();
+      this.unsubLocale = null;
       this.teardownBsod();
       this.avatar?.destroy();
       this.avatar = null;
@@ -346,7 +316,7 @@ export class SecretDungeonScene extends Phaser.Scene {
   get debug() {
     return {
       revealed: this.revealed,
-      total: LINES[0].length + LINES[1].length,
+      total: caveLines()[0].length + caveLines()[1].length,
       locked: this.locked,
       x: this.lx,
       y: this.ly,
@@ -468,32 +438,53 @@ export class SecretDungeonScene extends Phaser.Scene {
   }
 
   private reveal(time: number) {
-    const total = LINES[0].length + LINES[1].length;
+    const lines = caveLines();
+    const total = lines[0].length + lines[1].length;
     if (this.revealed >= total) return;
     if (time < this.nextRevealAt) {
       this.drawText(time);
       return;
     }
-    const flat = LINES[0] + LINES[1];
+    const flat = lines[0] + lines[1];
     const ch = flat[this.revealed] ?? " ";
     this.revealed += 1;
     if (ch !== " ") this.hooks.audio?.playSfx("blip", 0.7);
-    const pause = this.revealed === LINES[0].length ? LINE_PAUSE_MS : ch === " " ? SPACE_MS : LETTER_MS;
+    const pause = this.revealed === lines[0].length ? LINE_PAUSE_MS : ch === " " ? SPACE_MS : LETTER_MS;
     this.nextRevealAt = time + pause;
     if (this.revealed >= total) this.locked = false;
     this.drawText(time);
   }
 
   private drawText(time: number) {
+    const lines = caveLines();
     const ctx = this.textTex.getContext();
     ctx.clearRect(0, 0, CAVE.w, CAVE.h);
-    const shown = [LINES[0].slice(0, this.revealed), LINES[1].slice(0, Math.max(0, this.revealed - LINES[0].length))];
+    const shown: [string, string] = [
+      lines[0].slice(0, this.revealed),
+      lines[1].slice(0, Math.max(0, this.revealed - lines[0].length)),
+    ];
+    if (supportsCaveGlyphs(lines[0]) && supportsCaveGlyphs(lines[1])) {
+      this.drawPixelLines(ctx, lines, shown, time);
+    } else {
+      this.drawFallbackLines(ctx, lines, shown, time);
+    }
+    this.textTex.refresh();
+  }
+
+  /** Chunky 5×7 glyphs. Used when every character has a pixel. */
+  private drawPixelLines(
+    ctx: CanvasRenderingContext2D,
+    lines: readonly [string, string],
+    shown: readonly [string, string],
+    time: number
+  ) {
     const top = CAVE.wall + 6;
     shown.forEach((line, i) => {
-      const x = Math.round((CAVE.w - glyphWidth(LINES[i])) / 2);
+      const x = Math.round((CAVE.w - glyphWidth(lines[i])) / 2);
       const y = top + i * (GLYPH_H + 5);
       for (let c = 0; c < line.length; c++) {
-        const glyph = FONT[line[c]] ?? FONT[" "];
+        const glyph = CAVE_FONT[line[c]] ?? CAVE_FONT[" "];
+        if (!glyph) continue;
         glyph.forEach((row, gy) => {
           for (let gx = 0; gx < row.length; gx++) {
             if (row[gx] !== "1") continue;
@@ -504,14 +495,55 @@ export class SecretDungeonScene extends Phaser.Scene {
       }
     });
     if (this.locked && this.revealed > 0 && Math.floor(time / 240) % 2 === 0) {
-      const lineIndex = this.revealed <= LINES[0].length ? 0 : 1;
-      const count = lineIndex === 0 ? this.revealed : this.revealed - LINES[0].length;
-      const x = Math.round((CAVE.w - glyphWidth(LINES[lineIndex])) / 2) + count * (GLYPH_W + GLYPH_GAP);
+      const lineIndex = this.revealed <= lines[0].length ? 0 : 1;
+      const count = lineIndex === 0 ? this.revealed : this.revealed - lines[0].length;
+      const x = Math.round((CAVE.w - glyphWidth(lines[lineIndex])) / 2) + count * (GLYPH_W + GLYPH_GAP);
       const y = top + lineIndex * (GLYPH_H + 5);
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(x, y, 4, GLYPH_H);
     }
-    this.textTex.refresh();
+  }
+
+  /**
+   * System face for quotes the pixel font cannot draw (CJK, and anything
+   * else we did not carve a glyph for). Nearest-neighbor scaling of this
+   * canvas keeps the letters blocky, close to the English quote.
+   */
+  private drawFallbackLines(
+    ctx: CanvasRenderingContext2D,
+    lines: readonly [string, string],
+    shown: readonly [string, string],
+    time: number
+  ) {
+    const family =
+      '"Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans SC", "Noto Sans JP", "PingFang SC", "Hiragino Sans", "Microsoft YaHei", "Yu Gothic", "WenQuanYi Micro Hei", "Droid Sans Fallback", "Noto Sans", sans-serif';
+    const maxW = CAVE.w - 12;
+    let size = 12;
+    const widthAt = (px: number) => {
+      ctx.font = `bold ${px}px ${family}`;
+      return Math.max(ctx.measureText(lines[0]).width, ctx.measureText(lines[1]).width);
+    };
+    while (size > 7 && widthAt(size) > maxW) size -= 1;
+    ctx.font = `bold ${size}px ${family}`;
+    ctx.fillStyle = "#ffffff";
+    ctx.textBaseline = "top";
+    ctx.textAlign = "left";
+    const top = CAVE.wall + 4;
+    shown.forEach((line, i) => {
+      const fullW = ctx.measureText(lines[i]).width;
+      const x = Math.round((CAVE.w - fullW) / 2);
+      const y = top + i * (size + 4);
+      ctx.fillText(line, x, y);
+    });
+    if (this.locked && this.revealed > 0 && Math.floor(time / 240) % 2 === 0) {
+      const lineIndex = this.revealed <= lines[0].length ? 0 : 1;
+      const count = lineIndex === 0 ? this.revealed : this.revealed - lines[0].length;
+      const partial = lines[lineIndex].slice(0, count);
+      const fullW = ctx.measureText(lines[lineIndex]).width;
+      const x = Math.round((CAVE.w - fullW) / 2) + ctx.measureText(partial).width;
+      const y = top + lineIndex * (size + 4);
+      ctx.fillRect(x, y, Math.max(4, Math.round(size * 0.45)), size);
+    }
   }
 
   private flicker(time: number) {
@@ -585,13 +617,7 @@ export class SecretDungeonScene extends Phaser.Scene {
     el.className = "bsod";
     el.tabIndex = 0;
     el.setAttribute("role", "dialog");
-    el.setAttribute("aria-label", "Error: Quest Not Implemented.");
-    const pre = document.createElement("pre");
-    pre.textContent = BSOD_TEXT;
-    const cursor = document.createElement("span");
-    cursor.className = "bsod-cursor";
-    cursor.textContent = "_";
-    el.append(pre, cursor);
+    this.fillBsod(el);
     const tap = (event: PointerEvent) => {
       event.preventDefault();
       this.leave();
@@ -601,6 +627,17 @@ export class SecretDungeonScene extends Phaser.Scene {
     this.bsodEl = el;
     window.addEventListener("keydown", this.onBsodKey, true);
     el.focus();
+  }
+
+  private fillBsod(el: HTMLElement) {
+    el.setAttribute("aria-label", t("bsod.aria"));
+    el.replaceChildren();
+    const pre = document.createElement("pre");
+    pre.textContent = t("bsod.text");
+    const cursor = document.createElement("span");
+    cursor.className = "bsod-cursor";
+    cursor.textContent = "_";
+    el.append(pre, cursor);
   }
 
   private teardownBsod() {

@@ -4,6 +4,7 @@
  * put; the option panes scroll inside the rounded frame. Plain DOM on
  * top of the Phaser canvas; styles live in style.css under "Settings".
  */
+import { onLocaleChange, t, type MessageKey } from "./i18n";
 import { DEFAULT_SKIN, SKINS, SKIN_IDS, type Skin } from "./skins";
 
 export type ControlMode = "keyboard" | "mobile";
@@ -14,11 +15,11 @@ export type ControlMode = "keyboard" | "mobile";
  */
 export type Mood = "happy" | "spooky" | "relaxed" | "chillin";
 
-export const MOODS: ReadonlyArray<{ value: Mood; label: string; blurb: string }> = [
-  { value: "happy", label: "Happy", blurb: "Bouncy chiptune" },
-  { value: "spooky", label: "Spooky", blurb: "Creepy bells and a heartbeat" },
-  { value: "relaxed", label: "Relaxed", blurb: "Mellow lo-fi keys" },
-  { value: "chillin", label: "Chillin", blurb: "Lo-fi hip hop loop" },
+export const MOODS: ReadonlyArray<{ value: Mood }> = [
+  { value: "happy" },
+  { value: "spooky" },
+  { value: "relaxed" },
+  { value: "chillin" },
 ];
 
 export interface Settings {
@@ -148,11 +149,7 @@ export function saveSettings(settings: Settings, keys: Iterable<keyof Settings>)
 
 /** Bottom-left controls hint for each mode (HTML). */
 export function controlsHint(mode: ControlMode): string {
-  return mode === "mobile"
-    ? "<strong>Tap</strong> the ground to walk or use the <strong>joystick</strong> · " +
-        "<strong>TAG</strong> or tap a nearby player to tag · hold <strong>RUN</strong> to run"
-    : "<strong>WASD / Arrow Keys</strong> move · <strong>SHIFT</strong> run · " +
-        "<strong>SPACE</strong> or <strong>T</strong> tag";
+  return mode === "mobile" ? t("hint.mobile") : t("hint.keyboard");
 }
 
 export interface SettingsPanelOptions {
@@ -169,12 +166,10 @@ type Tab = "controls" | "sound" | "skins" | "credits";
 /** Portrait on the Credits tab. Square source, framed in CSS (not stretched). */
 const JAMES_PORTRAIT = `${import.meta.env.BASE_URL}assets/james.webp`;
 
+/** URLs stay in every language. The sentences around them are translated. */
 const CREDIT_COPY = {
-  bio: "This game was made by James, a software engineer living in New York City (also known by many other names such as Jim, Jimbo, Jimothy, and Sir Jims-a-lot).",
-  linkedinLead: "Feel free to connect with me on LinkedIn:",
   linkedinUrl: "https://linkedin.com/in/jimlynchcodes",
   linkedinLabel: "linkedin.com/in/jimlynchcodes",
-  githubLead: "Take a peek at the source code for this game, fork it, and give it a star! 😉",
   githubUrl: "https://github.com/JimLynchCodes/james-world",
   githubLabel: "github.com/JimLynchCodes/james-world",
 } as const;
@@ -241,10 +236,14 @@ const ROW_ICONS = {
   mood: `<svg ${SVG_NS} viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 14.5a4.5 4.5 0 0 0 8 0"/><path d="M9 9.5h.01M15 9.5h.01"/></svg>`,
 };
 
-const SLIDERS: ReadonlyArray<{ key: "masterVolume" | "musicVolume" | "sfxVolume"; label: string; icon: keyof typeof ROW_ICONS }> = [
-  { key: "masterVolume", label: "Master volume", icon: "master" },
-  { key: "musicVolume", label: "Background music", icon: "music" },
-  { key: "sfxVolume", label: "Sound effects", icon: "sfx" },
+const SLIDERS: ReadonlyArray<{
+  key: "masterVolume" | "musicVolume" | "sfxVolume";
+  labelKey: MessageKey;
+  icon: keyof typeof ROW_ICONS;
+}> = [
+  { key: "masterVolume", labelKey: "settings.sound.master", icon: "master" },
+  { key: "musicVolume", labelKey: "settings.sound.music", icon: "music" },
+  { key: "sfxVolume", labelKey: "settings.sound.sfx", icon: "sfx" },
 ];
 
 export class SettingsPanel {
@@ -268,10 +267,8 @@ export class SettingsPanel {
     this.cog = document.createElement("button");
     this.cog.type = "button";
     this.cog.className = "settings-cog";
-    this.cog.setAttribute("aria-label", "Settings");
     this.cog.setAttribute("aria-haspopup", "dialog");
     this.cog.setAttribute("aria-expanded", "false");
-    this.cog.title = "Settings";
     this.cog.innerHTML = cogSvg();
     this.cog.addEventListener("click", () => {
       this.options.onSound?.("click");
@@ -288,7 +285,8 @@ export class SettingsPanel {
 
     this.wire();
     this.selectTab("controls");
-    this.render();
+    this.localize();
+    onLocaleChange(() => this.localize());
   }
 
   get settings(): Readonly<Settings> {
@@ -334,9 +332,9 @@ export class SettingsPanel {
 
   private template() {
     const sliders = SLIDERS.map(
-      ({ key, label, icon }) => `
+      ({ key, labelKey, icon }) => `
         <div class="setting-row slider-row">
-          <label class="setting-label" for="setting-${key}">${ROW_ICONS[icon]}<span>${label}</span></label>
+          <label class="setting-label" for="setting-${key}">${ROW_ICONS[icon]}<span data-i18n="${labelKey}"></span></label>
           <div class="slider-wrap">
             <input id="setting-${key}" class="settings-slider" type="range"
                    min="0" max="100" step="1" data-key="${key}">
@@ -344,7 +342,7 @@ export class SettingsPanel {
           </div>
         </div>`
     ).join("");
-    const moods = MOODS.map(m => `<option value="${m.value}">${m.label}</option>`).join("");
+    const moods = MOODS.map(m => `<option value="${m.value}" data-i18n="mood.${m.value}"></option>`).join("");
     // A card per skin with a live preview: the kid facing the camera,
     // straight from the skin's spritesheet (breathing idle; walking when picked).
     const skinCards = SKIN_IDS.map(id => {
@@ -358,97 +356,96 @@ export class SettingsPanel {
       return `
         <button type="button" class="skin-card" role="radio" aria-checked="false" data-skin="${id}">
           <span class="skin-stage"><span class="skin-preview" style="${vars}"></span></span>
-          <span class="skin-name">${s.label}</span>
-          <span class="skin-note">${s.note}</span>
+          <span class="skin-name" data-i18n="skin.${id}"></span>
+          <span class="skin-note" data-i18n="skin.${id}.note"></span>
         </button>`;
     }).join("");
 
     return `
       <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-        <button type="button" class="settings-close" aria-label="Close settings">${ICONS.close}</button>
+        <button type="button" class="settings-close" data-i18n-aria="settings.close">${ICONS.close}</button>
         <div class="settings-frame">
-        <h2 id="settings-title" class="settings-title">Settings</h2>
+        <h2 id="settings-title" class="settings-title" data-i18n="settings.title"></h2>
         <div class="settings-body">
           <div class="settings-tabs" role="tablist" aria-orientation="vertical">
             <button type="button" class="settings-tab" role="tab" id="tab-controls"
-                    data-tab="controls" aria-controls="pane-controls">${ICONS.controls}<span>Controls</span></button>
+                    data-tab="controls" aria-controls="pane-controls">${ICONS.controls}<span data-i18n="settings.tab.controls"></span></button>
             <button type="button" class="settings-tab" role="tab" id="tab-sound"
-                    data-tab="sound" aria-controls="pane-sound">${ICONS.sound}<span>Sound</span></button>
+                    data-tab="sound" aria-controls="pane-sound">${ICONS.sound}<span data-i18n="settings.tab.sound"></span></button>
             <button type="button" class="settings-tab" role="tab" id="tab-skins"
-                    data-tab="skins" aria-controls="pane-skins">${ICONS.skins}<span>Skins</span></button>
+                    data-tab="skins" aria-controls="pane-skins">${ICONS.skins}<span data-i18n="settings.tab.skins"></span></button>
             <button type="button" class="settings-tab" role="tab" id="tab-credits"
-                    data-tab="credits" aria-controls="pane-credits">${ICONS.credits}<span>Credits</span></button>
+                    data-tab="credits" aria-controls="pane-credits">${ICONS.credits}<span data-i18n="settings.tab.credits"></span></button>
           </div>
           <div class="settings-main">
           <div class="settings-scroll">
 
           <section class="settings-pane" role="tabpanel" id="pane-controls"
                    aria-labelledby="tab-controls" data-pane="controls">
-            <h3>Controls</h3>
+            <h3 data-i18n="settings.controls.heading"></h3>
             <div class="controls-layout">
             <div class="controls-options">
             <div class="setting-row">
-              <span class="setting-label" id="mode-label">Move with</span>
+              <span class="setting-label" id="mode-label" data-i18n="settings.controls.moveWith"></span>
               <div class="mode-switch">
-                <button type="button" class="mode-option" data-mode="keyboard">Keyboard</button>
+                <button type="button" class="mode-option" data-mode="keyboard" data-i18n="settings.controls.keyboard"></button>
                 <button type="button" class="switch" role="switch" aria-labelledby="mode-label"
                         data-toggle="mode" aria-checked="false"><span class="switch-knob"></span></button>
-                <button type="button" class="mode-option" data-mode="mobile">Mobile</button>
+                <button type="button" class="mode-option" data-mode="mobile" data-i18n="settings.controls.mobile"></button>
               </div>
             </div>
             <div class="setting-row" data-mobile-only>
-              <span class="setting-label" id="lefty-label">Flip Joystick</span>
+              <span class="setting-label" id="lefty-label" data-i18n="settings.controls.flipJoystick"></span>
               <div class="mode-switch">
-                <button type="button" class="mode-option" data-flag="leftyJoystick" data-value="false">Off</button>
+                <button type="button" class="mode-option" data-flag="leftyJoystick" data-value="false" data-i18n="settings.controls.off"></button>
                 <button type="button" class="switch side-switch" role="switch" aria-labelledby="lefty-label"
                         data-toggle="leftyJoystick" aria-checked="false"><span class="switch-knob"></span></button>
-                <button type="button" class="mode-option" data-flag="leftyJoystick" data-value="true">On</button>
+                <button type="button" class="mode-option" data-flag="leftyJoystick" data-value="true" data-i18n="settings.controls.on"></button>
               </div>
             </div>
             <div class="setting-row" data-mobile-only>
-              <span class="setting-label" id="flip-label">Flip Tag / Run</span>
+              <span class="setting-label" id="flip-label" data-i18n="settings.controls.flipTagRun"></span>
               <div class="mode-switch">
-                <button type="button" class="mode-option" data-flag="flipTagRun" data-value="false">Off</button>
+                <button type="button" class="mode-option" data-flag="flipTagRun" data-value="false" data-i18n="settings.controls.off"></button>
                 <button type="button" class="switch" role="switch" aria-labelledby="flip-label"
                         data-toggle="flipTagRun" aria-checked="false"><span class="switch-knob"></span></button>
-                <button type="button" class="mode-option" data-flag="flipTagRun" data-value="true">On</button>
+                <button type="button" class="mode-option" data-flag="flipTagRun" data-value="true" data-i18n="settings.controls.on"></button>
               </div>
             </div>
-            <p class="setting-help controls-note" data-keyboard-only>Playing on a phone or tablet?
-              Pick <strong>Mobile</strong> for a joystick and big TAG and RUN buttons.</p>
+            <p class="setting-help controls-note" data-keyboard-only data-i18n-html="settings.controls.phoneHint"></p>
             </div>
-            <aside class="howto" aria-label="How to play">
-              <h4 class="howto-title">How to play</h4>
+            <aside class="howto" data-i18n-aria="howto.aria">
+              <h4 class="howto-title" data-i18n="howto.title"></h4>
               <ul class="howto-list" data-howto="keyboard">
                 <li class="howto-row">
                   <span class="howto-keys move-keys">
                     <span class="key-cluster"><kbd class="key k-up">W</kbd><kbd class="key k-left">A</kbd><kbd class="key k-down">S</kbd><kbd class="key k-right">D</kbd></span>
-                    <span class="howto-or">or</span>
-                    <span class="key-cluster"><kbd class="key k-up" aria-label="Up arrow">&#9650;</kbd><kbd class="key k-left" aria-label="Left arrow">&#9664;</kbd><kbd class="key k-down" aria-label="Down arrow">&#9660;</kbd><kbd class="key k-right" aria-label="Right arrow">&#9654;</kbd></span>
+                    <span class="howto-or" data-i18n="howto.or"></span>
+                    <span class="key-cluster"><kbd class="key k-up" data-i18n-aria="howto.up">&#9650;</kbd><kbd class="key k-left" data-i18n-aria="howto.left">&#9664;</kbd><kbd class="key k-down" data-i18n-aria="howto.down">&#9660;</kbd><kbd class="key k-right" data-i18n-aria="howto.right">&#9654;</kbd></span>
                   </span>
-                  <span class="howto-what">Move</span>
+                  <span class="howto-what" data-i18n="howto.move"></span>
                 </li>
                 <li class="howto-row">
-                  <span class="howto-keys"><kbd class="key key-wide">Shift</kbd></span>
-                  <span class="howto-what">Run (hold)</span>
+                  <span class="howto-keys"><kbd class="key key-wide" data-i18n="howto.shift"></kbd></span>
+                  <span class="howto-what" data-i18n="howto.runHold"></span>
                 </li>
                 <li class="howto-row">
-                  <span class="howto-keys"><kbd class="key key-space">Space</kbd><span class="howto-or">or</span><kbd class="key">T</kbd></span>
-                  <span class="howto-what">Tag!</span>
+                  <span class="howto-keys"><kbd class="key key-space" data-i18n="howto.space"></kbd><span class="howto-or" data-i18n="howto.or"></span><kbd class="key">T</kbd></span>
+                  <span class="howto-what" data-i18n="howto.tag"></span>
                 </li>
               </ul>
               <ul class="howto-list" data-howto="mobile">
                 <li class="howto-row">
                   <span class="howto-keys"><span class="chip-stick" aria-hidden="true"><span></span></span></span>
-                  <span class="howto-what">Joystick, or tap the ground, to walk</span>
+                  <span class="howto-what" data-i18n="howto.joyWalk"></span>
                 </li>
                 <li class="howto-row">
-                  <span class="howto-keys"><span class="chip chip-tag">TAG</span></span>
-                  <span class="howto-what">Tag, or tap a nearby player</span>
+                  <span class="howto-keys"><span class="chip chip-tag" data-i18n="mobile.tag"></span></span>
+                  <span class="howto-what" data-i18n="howto.tagTap"></span>
                 </li>
                 <li class="howto-row">
-                  <span class="howto-keys"><span class="chip chip-run">RUN</span></span>
-                  <span class="howto-what">Hold to run</span>
+                  <span class="howto-keys"><span class="chip chip-run" data-i18n="mobile.run"></span></span>
+                  <span class="howto-what" data-i18n="howto.holdRun"></span>
                 </li>
               </ul>
               <p class="setting-help" data-help></p>
@@ -458,10 +455,10 @@ export class SettingsPanel {
 
           <section class="settings-pane" role="tabpanel" id="pane-sound"
                    aria-labelledby="tab-sound" data-pane="sound">
-            <h3>Sound</h3>
+            <h3 data-i18n="settings.sound.heading"></h3>
             ${sliders}
             <div class="setting-row mood-row">
-              <label class="setting-label" for="setting-mood">${ROW_ICONS.mood}<span>Mood</span></label>
+              <label class="setting-label" for="setting-mood">${ROW_ICONS.mood}<span data-i18n="settings.sound.mood"></span></label>
               <div class="mood-pick">
                 <div class="select-wrap">
                   <select id="setting-mood" class="settings-select">${moods}</select>
@@ -469,43 +466,43 @@ export class SettingsPanel {
                 <span class="mood-blurb" data-mood-blurb></span>
               </div>
             </div>
-            <p class="setting-help">The mood picks the background music.</p>
+            <p class="setting-help" data-i18n="settings.sound.moodHelp"></p>
           </section>
 
           <section class="settings-pane" role="tabpanel" id="pane-skins"
                    aria-labelledby="tab-skins" data-pane="skins">
-            <h3>Skins</h3>
-            <p class="setting-help">Same hero, different drip.</p>
-            <div class="skin-cards" role="radiogroup" aria-label="Skin">${skinCards}</div>
+            <h3 data-i18n="settings.skins.heading"></h3>
+            <p class="setting-help" data-i18n="settings.skins.help"></p>
+            <div class="skin-cards" role="radiogroup" data-i18n-aria="settings.skins.aria">${skinCards}</div>
           </section>
 
           <section class="settings-pane" role="tabpanel" id="pane-credits"
                    aria-labelledby="tab-credits" data-pane="credits">
-            <h3>Credits</h3>
+            <h3 data-i18n="settings.credits.heading"></h3>
             <div class="credit-cards">
               <article class="credit-card credit-bio">
                 <span class="credit-photo-ring">
-                  <img class="credit-photo" src="${JAMES_PORTRAIT}" alt="James" width="256" height="256" draggable="false">
+                  <img class="credit-photo" src="${JAMES_PORTRAIT}" alt="" width="256" height="256" draggable="false">
                 </span>
-                <p class="credit-copy">${CREDIT_COPY.bio}</p>
+                <p class="credit-copy" data-i18n="credits.bio"></p>
               </article>
               <a class="credit-card credit-link" data-credit="linkedin" draggable="false"
                  href="${CREDIT_COPY.linkedinUrl}" target="_blank" rel="noopener noreferrer">
                 <span class="credit-badge credit-badge-li" aria-hidden="true">${CREDIT_ICONS.linkedin}</span>
                 <span class="credit-link-text">
-                  <span class="credit-lead">${CREDIT_COPY.linkedinLead}</span>
+                  <span class="credit-lead" data-i18n="credits.linkedinLead"></span>
                   ${creditUrlRow(CREDIT_COPY.linkedinLabel, CREDIT_ICONS.external)}
                 </span>
-                <span class="credit-sr">Opens in a new tab.</span>
+                <span class="credit-sr" data-i18n="credits.newTab"></span>
               </a>
               <a class="credit-card credit-link" data-credit="github" draggable="false"
                  href="${CREDIT_COPY.githubUrl}" target="_blank" rel="noopener noreferrer">
                 <span class="credit-badge credit-badge-gh" aria-hidden="true">${CREDIT_ICONS.github}</span>
                 <span class="credit-link-text">
-                  <span class="credit-lead">${CREDIT_COPY.githubLead}</span>
+                  <span class="credit-lead" data-i18n="credits.githubLead"></span>
                   ${creditUrlRow(CREDIT_COPY.githubLabel, CREDIT_ICONS.external)}
                 </span>
-                <span class="credit-sr">Opens in a new tab.</span>
+                <span class="credit-sr" data-i18n="credits.newTab"></span>
               </a>
             </div>
           </section>
@@ -515,6 +512,24 @@ export class SettingsPanel {
         </div>
         </div>
       </div>`;
+  }
+
+  /** Fill every labelled string from the current locale. Keeps the open tab. */
+  private localize() {
+    const text = (key: string | undefined) => (key ? t(key as MessageKey) : "");
+    this.cog.setAttribute("aria-label", t("settings.aria"));
+    this.cog.title = t("settings.aria");
+    this.backdrop.querySelectorAll<HTMLElement>("[data-i18n]").forEach(el => {
+      el.textContent = text(el.dataset.i18n);
+    });
+    this.backdrop.querySelectorAll<HTMLElement>("[data-i18n-html]").forEach(el => {
+      el.innerHTML = text(el.dataset.i18nHtml);
+    });
+    this.backdrop.querySelectorAll<HTMLElement>("[data-i18n-aria]").forEach(el => {
+      el.setAttribute("aria-label", text(el.dataset.i18nAria));
+    });
+    this.backdrop.querySelector(".credit-photo")?.setAttribute("alt", t("credits.photoAlt"));
+    this.render();
   }
 
   private q<T extends Element>(selector: string): T {
@@ -724,8 +739,8 @@ export class SettingsPanel {
       list.hidden = list.dataset.howto !== this.values.controlMode;
     });
     this.q<HTMLElement>("[data-help]").textContent = mobile
-      ? "Drag on the ground to steer. Mix and match! Great for phones and tablets."
-      : "Tag someone nearby to make them it.";
+      ? t("howto.helpMobile")
+      : t("howto.helpKeyboard");
 
     for (const { key } of SLIDERS) {
       const value = this.values[key];
@@ -736,8 +751,8 @@ export class SettingsPanel {
     }
     const mood = this.q<HTMLSelectElement>(".settings-select");
     if (mood.value !== this.values.mood) mood.value = this.values.mood;
-    this.q<HTMLElement>("[data-mood-blurb]").textContent =
-      MOODS.find(m => m.value === this.values.mood)?.blurb ?? "";
+    const blurbKey = `mood.${this.values.mood}.blurb` as MessageKey;
+    this.q<HTMLElement>("[data-mood-blurb]").textContent = t(blurbKey);
 
     this.backdrop.querySelectorAll<HTMLButtonElement>(".skin-card").forEach(card => {
       const picked = card.dataset.skin === this.values.skin;
