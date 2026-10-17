@@ -466,7 +466,14 @@ def paint_uniform(f: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndarra
         stamp_pattern(rgb, chest, ny, *centered_pattern(ny, cx, name_y), ORANGE_HOT)
         stamp_pattern(rgb, chest, num, *centered_pattern(num, cx, name_y + 4), ORANGE_HOT)
     elif direction in BACK:
-        num_y = (jtop + 3) if jtop is not None else g.neck + 4
+        # mid-upper back, centered between the collar and the waist.
+        # jtop+3 parked the 11 on the neck trim.
+        glyph_h = len(big)
+        if jtop is not None:
+            num_y = int(round((jtop + jbot) / 2 - (glyph_h - 1) / 2))
+            num_y = int(np.clip(num_y, jtop + 5, jbot - glyph_h - 1))
+        else:
+            num_y = g.neck + 10
         shift = {"NW": -1.5, "N": 0.0, "NE": 1.5}[direction]
         stamp_pattern(rgb, chest, big, *centered_pattern(big, cx + shift, num_y), ORANGE_HOT)
     else:
