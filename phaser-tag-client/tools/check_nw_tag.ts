@@ -32,6 +32,32 @@ test("exact northwest angle is the NW row", () => {
   assert.equal(directionFromAngle((-3 * Math.PI) / 4), "NW");
 });
 
+test("a non-finite angle never builds an undefined animation key", () => {
+  assert.equal(directionFromAngle(Number.NaN), "S");
+  assert.equal(directionFromAngle(Number.POSITIVE_INFINITY), "S");
+  const nw = Math.atan2(-1, -1);
+  const kept = nextAvatarAnim({
+    texture: "kid",
+    facing: nw,
+    moving: true,
+    running: false,
+    tagging: true,
+    tagFacing: Number.NaN,
+  });
+  assert.equal(kept, "kid-tag-NW");
+  const both = nextAvatarAnim({
+    texture: "kid",
+    facing: Number.NaN,
+    moving: false,
+    running: false,
+    tagging: true,
+    tagFacing: Number.NaN,
+  });
+  assert.equal(both, "kid-tag-S");
+  assert.equal(both.includes("undefined"), false);
+  assert.equal(avatarAnimKey("kid", Number.NaN, true, false, true).includes("undefined"), false);
+});
+
 test("walk+tag northwest plays the tag clip for james and pharaoh", () => {
   const angle = Math.atan2(-1, -1);
   for (const texture of ["kid", "kid_pharaoh"]) {

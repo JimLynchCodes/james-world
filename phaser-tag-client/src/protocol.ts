@@ -44,10 +44,11 @@ export type PlayerSnapshot = {
 export type ServerMessage =
   /** Spectator connected; Join to become a player. */
   | { type: "Hello"; data?: Record<string, never> }
-  | { type: "Welcome"; data: { player_id: UUID; name: string; x: number; y: number } }
+  /** `x`/`y` are optional: servers from before random spawns omit them. */
+  | { type: "Welcome"; data: { player_id: UUID; name: string; x?: number; y?: number } }
   | { type: "Snapshot"; data: { players: PlayerSnapshot[] } }
-  /** `skin` is the player's skin at join time; live changes come in snapshots. `x`/`y` is where they are standing. */
-  | { type: "PlayerJoined"; data: { player_id: UUID; name: string; skin: Skin; x: number; y: number } }
+  /** `skin` is the player's skin at join time; live changes come in snapshots. `x`/`y` is where they are standing (omitted by older servers). */
+  | { type: "PlayerJoined"; data: { player_id: UUID; name: string; skin: Skin; x?: number; y?: number } }
   | { type: "PlayerLeft"; data: { player_id: UUID } }
   | {
       type: "PlayerTagged";

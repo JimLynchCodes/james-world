@@ -64,6 +64,21 @@ const REMOTE_SNAPSHOT_MOVE_PX = 0.5;
 const DIAGONAL_RELEASE_MS = 120;
 /** Max distance (px, between centres) for a client tag attempt. */
 const TAG_DISTANCE = 70;
+/**
+ * Where a human appeared before the server picked a random spot.
+ * Welcome / PlayerJoined from an older server omit x/y; stand here until
+ * the next snapshot says otherwise.
+ */
+const LEGACY_SPAWN_X = 400;
+const LEGACY_SPAWN_Y = 300;
+
+/** A placeable world position. Missing, null, NaN and Infinity are not. */
+function finitePoint(x: unknown, y: unknown): { x: number; y: number } | null {
+  if (typeof x === "number" && typeof y === "number" && Number.isFinite(x) && Number.isFinite(y)) {
+    return { x, y };
+  }
+  return null;
+}
 /** Tap mode: stop once the server position is this close to the target (px). */
 const TAP_ARRIVE_PX = 10;
 /** Footstep sound interval while walking / running (ms). */
@@ -346,7 +361,7 @@ class GameScene extends Phaser.Scene {
       this.stepTimer -= delta;
       if (this.stepTimer <= 0) {
         // Costumes have their own footsteps (squeaky / stomp / dress shoe / sand).
-        this.audio?.playSfx(STEP_SFX[this.localSkin]);
+        this.playEffect(STEP_SFX[this.localSkin]);
         this.stepTimer = running ? STEP_MS.run : STEP_MS.walk;
       }
     } else {
@@ -426,6 +441,8 @@ class GameScene extends Phaser.Scene {
       case "Welcome":
         // Sent only to us, right after Join: this is our own player id and
         // the spot the server chose. A reconnect is a new body there.
+        // Older servers omit x/y; spawnLocalPlayer falls back and the next
+        // snapshot moves us.
         this.localPlayerId = message.data.player_id;
         this.removeRemotePlayer(message.data.player_id);
         this.spawnLocalPlayer(message.data.name, message.data.x, message.data.y);
@@ -440,17 +457,17 @@ class GameScene extends Phaser.Scene {
         this.ensureRemotePlayer(message.data.player_id, message.data.name, message.data.x, message.data.y).avatar.setSkin(
           toSkin(message.data.skin)
         );
-        this.audio?.playSfx("join");
         this.logEvent(t("toast.joined", { name: message.data.name }));
         this.updateHud();
+        this.playEffect("join");
         break;
 
       case "PlayerLeft": {
         const name = this.remotePlayers.get(message.data.player_id)?.snapshot.name;
         this.removeRemotePlayer(message.data.player_id);
-        this.audio?.playSfx("leave");
         this.logEvent(name ? t("toast.left", { name }) : t("toast.leftUnknown"));
         this.updateHud();
+        this.playEffect("leave");
         break;
       }
 
@@ -490,16 +507,19 @@ class GameScene extends Phaser.Scene {
 
   private applyLocalSnapshot(player: PlayerSnapshot) {
     if (!this.player) return;
-    // First report of where we are (no Welcome coords yet): appear there
-    // and put the camera on that spot in the same frame. Later snapshots
-    // ease, so a normal correction doesn't yank the view.
-    if (this.localTargetX === null) {
-      this.player.x = player.x;
-      this.player.y = player.y;
-      this.snapCameraToLocalPlayer();
+    const spot = finitePoint(player.x, player.y);
+    if (spot) {
+      // First report of where we are (no Welcome coords yet): appear there
+      // and put the camera on that spot in the same frame. Later snapshots
+      // ease, so a normal correction doesn't yank the view.
+      if (this.localTargetX === null) {
+        this.player.x = spot.x;
+        this.player.y = spot.y;
+        this.snapCameraToLocalPlayer();
+      }
+      this.localTargetX = spot.x;
+      this.localTargetY = spot.y;
     }
-    this.localTargetX = player.x;
-    this.localTargetY = player.y;
 
     this.player.setLabels({ name: player.name, you: true, it: player.is_it });
     this.player.setRole(player.is_it ? "it" : "self");
@@ -511,20 +531,23 @@ class GameScene extends Phaser.Scene {
   private applyRemoteSnapshot(player: PlayerSnapshot) {
     const isNew = !this.remotePlayers.has(player.id);
     const remote = this.ensureRemotePlayer(player.id);
+    const spot = finitePoint(player.x, player.y);
 
-    if (isNew) {
-      // First time we see this player: appear in place instead of sliding in.
-      remote.avatar.x = player.x;
-      remote.avatar.y = player.y;
-    }
-    // Moved between snapshots (ignoring sub-pixel nudges)?
-    if (Math.hypot(player.x - remote.targetX, player.y - remote.targetY) > REMOTE_SNAPSHOT_MOVE_PX) {
-      remote.lastMovedAt = this.time.now;
-    }
+    if (spot) {
+      if (isNew) {
+        // First time we see this player: appear in place instead of sliding in.
+        remote.avatar.x = spot.x;
+        remote.avatar.y = spot.y;
+      }
+      // Moved between snapshots (ignoring sub-pixel nudges)?
+      if (Math.hypot(spot.x - remote.targetX, spot.y - remote.targetY) > REMOTE_SNAPSHOT_MOVE_PX) {
+        remote.lastMovedAt = this.time.now;
+      }
 
-    remote.targetX = player.x;
-    remote.targetY = player.y;
-    remote.snapshot = player;
+      remote.targetX = spot.x;
+      remote.targetY = spot.y;
+    }
+    remote.snapshot = spot ? player : { ...player, x: remote.targetX, y: remote.targetY };
 
     // Ring under the feet: bots purple, other humans amber, IT red.
     remote.avatar.setRole(player.is_it ? "it" : player.is_bot ? "bot" : "human");
@@ -536,23 +559,26 @@ class GameScene extends Phaser.Scene {
     remote.avatar.setLabels({ name: player.name, you: false, it: player.is_it });
   }
 
-  private ensureRemotePlayer(id: UUID, name = "", x = WORLD_WIDTH / 2, y = WORLD_HEIGHT / 2): RemoteSprite {
+  private ensureRemotePlayer(id: UUID, name = "", x?: number, y?: number): RemoteSprite {
     const existing = this.remotePlayers.get(id);
     if (existing) return existing;
-    const avatar = new KidAvatar(this, x, y, PLAYER_RADIUS, name);
+    // Before join coordinates existed, other kids were drawn at the world
+    // centre until a snapshot placed them.
+    const spot = finitePoint(x, y) ?? { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 };
+    const avatar = new KidAvatar(this, spot.x, spot.y, PLAYER_RADIUS, name);
     avatar.setRole("human");
 
     const remote: RemoteSprite = {
       avatar,
-      targetX: x,
-      targetY: y,
+      targetX: spot.x,
+      targetY: spot.y,
       lastMovedAt: -Infinity,
       snapshot: {
         id,
         name,
         skin: DEFAULT_SKIN,
-        x,
-        y,
+        x: spot.x,
+        y: spot.y,
         energy: 100,
         is_running: false,
         is_it: false,
@@ -605,7 +631,7 @@ class GameScene extends Phaser.Scene {
 
     // Optimistic: swing right away in the direction we're already facing.
     // A nearby player does not turn the clip, and walking does not cancel it.
-    if (!this.player.isTagging) this.audio?.playSfx(SWING_SFX[this.localSkin] ?? "swing");
+    if (!this.player.isTagging) this.playEffect(SWING_SFX[this.localSkin] ?? "swing");
     this.player.playTag();
 
     if (!closest) return;
@@ -634,20 +660,26 @@ class GameScene extends Phaser.Scene {
     const tagger = this.avatarFor(taggerId);
     const target = this.avatarFor(targetId);
     if (tagger) {
-      tagger.playTag(
-        target ? Math.atan2(target.y - tagger.y, target.x - tagger.x) : undefined
-      );
+      // atan2 of a NaN position is NaN. playTag then falls back to the
+      // facing the kid already has, instead of `kid-tag-undefined`.
+      const toward =
+        target && finitePoint(tagger.x, tagger.y) && finitePoint(target.x, target.y)
+          ? Math.atan2(target.y - tagger.y, target.x - tagger.x)
+          : undefined;
+      tagger.playTag(toward !== undefined && Number.isFinite(toward) ? toward : undefined);
     }
 
     if (taggedLocal || taggingLocal) {
       this.cameras.main.flash(180, 255, 255, 255);
-      this.audio?.playSfx("hit");
+      this.playEffect("hit");
     } else if (target) {
       // Other kids' tags: quieter the further away they happen.
       const origin = this.player ?? [...this.remotePlayers.values()][0]?.avatar;
       if (!origin) return;
       const d = Phaser.Math.Distance.Between(origin.x, origin.y, target.x, target.y);
-      this.audio?.playSfx("hit", 0.7 * (1 - d / 900));
+      const volume = 0.7 * (1 - d / 900);
+      if (!Number.isFinite(volume)) return;
+      this.playEffect("hit", Math.max(0, volume));
     }
   }
 
@@ -655,6 +687,18 @@ class GameScene extends Phaser.Scene {
 
   setAudio(audio: GameAudio) {
     this.audio = audio;
+  }
+
+  /**
+   * Play a sound without letting a WebAudio failure skip the rest of the
+   * caller (a server message's log line and HUD, for example).
+   */
+  private playEffect(name: Sfx, volume?: number) {
+    try {
+      this.audio?.playSfx(name, volume);
+    } catch (error) {
+      console.warn("[audio] sfx failed:", name, error);
+    }
   }
 
   setControlMode(mode: ControlMode) {
@@ -824,19 +868,26 @@ class GameScene extends Phaser.Scene {
    * from the secret cave does not use this path — that returns beside the
    * secret tree (see exitSecret).
    */
-  private spawnLocalPlayer(name: string, x: number, y: number) {
+  private spawnLocalPlayer(name: string, x?: number, y?: number) {
     this.localName = name;
-    this.localTargetX = x;
-    this.localTargetY = y;
+    const spot = finitePoint(x, y);
+    // No usable server spot: the old fixed spawn, and leave the easing
+    // target empty when we don't already have one so the next snapshot snaps.
+    const px = spot?.x ?? this.localTargetX ?? LEGACY_SPAWN_X;
+    const py = spot?.y ?? this.localTargetY ?? LEGACY_SPAWN_Y;
+    if (spot) {
+      this.localTargetX = spot.x;
+      this.localTargetY = spot.y;
+    }
     if (this.playing && this.player) {
-      this.player.x = x;
-      this.player.y = y;
+      this.player.x = px;
+      this.player.y = py;
       this.player.setLabels({ name, you: true, it: false });
       this.snapCameraToLocalPlayer();
       this.renderStatus();
       return;
     }
-    this.player = new KidAvatar(this, x, y, PLAYER_RADIUS, name);
+    this.player = new KidAvatar(this, px, py, PLAYER_RADIUS, name);
     this.player.setLabels({ name, you: true, it: false });
     this.player.setRole("self");
     this.player.setSkin(this.localSkin);
@@ -846,7 +897,7 @@ class GameScene extends Phaser.Scene {
     document.body.classList.remove("title-mode");
     this.title?.dismiss();
     this.title = null;
-    this.audio?.playSfx("join");
+    this.playEffect("join");
   }
 
   /**

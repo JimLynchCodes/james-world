@@ -249,7 +249,7 @@ export class KidAvatar {
     this.sprite.setTexture(sheet.texture, this.sprite.frame.name);
     this.sprite.setOrigin(0.5, sheet.baselineY / sheet.frameHeight);
     const [, name, dir] = current?.split("-") ?? [];
-    if (name && dir) {
+    if (name && dir && (DIRECTIONS as readonly string[]).includes(dir)) {
       this.sprite.anims.play(animKey(name as AnimName, dir as KidDirection, skin));
       if (progress) this.sprite.anims.setProgress(progress);
     }
@@ -316,16 +316,19 @@ export class KidAvatar {
    */
   playTag(towardAngle?: number) {
     if (this.tagging) return;
+    // A non-finite aim (atan2 of NaN positions) keeps the facing we have.
+    const current = Number.isFinite(this.facing) ? this.facing : Math.PI / 2;
+    const swing = typeof towardAngle === "number" && Number.isFinite(towardAngle) ? towardAngle : current;
     this.tagging = true;
-    this.tagFacing = towardAngle ?? this.facing;
+    this.tagFacing = swing;
     this.sprite.anims.play(
       nextAvatarAnim({
         texture: SKINS[this.skin].texture,
-        facing: this.facing,
+        facing: current,
         moving: this.moving,
         running: this.running,
         tagging: true,
-        tagFacing: this.tagFacing,
+        tagFacing: swing,
       })
     );
 
