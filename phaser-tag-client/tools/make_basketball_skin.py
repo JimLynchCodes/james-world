@@ -547,6 +547,42 @@ def drop_limp_arm(body: np.ndarray, g: Geometry, direction: str) -> np.ndarray:
     return out
 
 
+def scrub_loose_ink(body: np.ndarray) -> np.ndarray:
+    """The erased arm leaves a dashed outline, sometimes with a skin pixel
+    still stuck to it. The kid is one component; those crumbs are not."""
+    opaque = body[..., 3] > 0
+    comps = components8(opaque)
+    if len(comps) < 2:
+        return body
+    comps.sort(key=lambda c: -int(c.sum()))
+    out = body.copy()
+    for comp in comps[1:]:
+        if int(comp.sum()) > 40:
+            continue
+        out[comp] = 0
+    return out
+
+
+def clear_waist_fringe(merged: np.ndarray) -> np.ndarray:
+    """North-facing contact shadow sits on the shorts. The body covers the
+    middle and leaves a faint ink halo; on the grass that halo reads as
+    teal crumbs. The ball's edge is orange, so this leaves it alone."""
+    a = merged[..., 3]
+    rgb = merged[..., :3].astype(np.int16)
+    yy = np.arange(merged.shape[0])[:, None]
+    fringe = (
+        (a > 0) & (a < 200)
+        & (yy >= 68) & (yy <= 88)
+        & (rgb[..., 0] < 48)
+        & (rgb[..., 2] + 6 >= rgb[..., 0])
+    )
+    if not fringe.any():
+        return merged
+    out = merged.copy()
+    out[fringe] = 0
+    return out
+
+
 def _stamp(rgba: np.ndarray, pts: np.ndarray, rx: float, ry: float, color: np.ndarray) -> None:
     """Hard-edged discs. rx == ry is a circle; a wider rx reads as a mitt."""
     h, w = rgba.shape[:2]
@@ -651,6 +687,7 @@ def baller(frame: np.ndarray, direction: str, anim: str, index: int) -> np.ndarr
     body, _chest, _hands = paint_uniform(src, g, direction)
     g = Geometry(body)
     body = drop_limp_arm(body, g, direction)
+    body = scrub_loose_ink(body)
     t = bounce_t(anim, index)
     bx, by, gx, gy, behind = place_ball(g, direction, anim, index)
     shadow = shadow_layer(body.shape[:2], gx, gy, strength=0.35 + 0.65 * t)
@@ -662,6 +699,7 @@ def baller(frame: np.ndarray, direction: str, anim: str, index: int) -> np.ndarr
         merged = under.copy()
         hx, hy = draw_dribble_arm(merged, g, direction, bx, by, BALL_R, t)
         _occlude_reach(merged, under, body, hx, hy)
+        merged = clear_waist_fringe(merged)
     else:
         merged = to_u8(over(premul(body), over(shadow, ball)))
         draw_dribble_arm(merged, g, direction, bx, by, BALL_R, t)
