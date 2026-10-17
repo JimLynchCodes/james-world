@@ -17,9 +17,9 @@ Per frame:
   4. white headband across the forehead (wraps the hair on back views);
   5. sneakers -> orange with a white sole, side stripe and toe;
   6. an orange basketball with dark seams, dribbled on every frame by the
-     other hand. It bounces from that hand to the ground in step with the
-     animation, sits beside the body, and is drawn behind the body when
-     James faces away.
+     other hand. It bounces from that hand toward the ground in step with
+     the animation and is always drawn in front of the body, off to the
+     dribbling side, so it stays fully visible in every direction.
 
 Face, hair (under the headband) and hands are untouched.
 
@@ -64,8 +64,9 @@ TAG_SIDE = {"E": 1, "SE": 1, "S": 1, "SW": -1, "W": -1, "NW": -1, "N": 1, "NE": 
 
 # Feet line of the unpadded kid. The ball rests on this row.
 GROUND = 96.0
-# A touch bigger than a fist, still narrower than the torso.
-BALL_R = 7.3
+# About 75% of the front-view head width (~36px), so it reads as a ball
+# a kid would actually dribble.
+BALL_R = 13.2
 
 C = lambda *v: np.array(v, dtype=np.float64)  # noqa: E731
 NAVY = C(16, 48, 148)
@@ -348,9 +349,9 @@ def paint_uniform(f: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndarra
                 toe = comp & ~rim & (np.abs(xx - end) <= 1) & (yy <= y1 - 3)
             rgb = np.where(toe[..., None], WHITE, rgb)
 
-    # headband: a white wrap on the hairline, above the eyes. Filled
+    # headband: a taller wrap on the hairline, above the eyes. Filled
     # across each row so hair spikes don't poke holes through it.
-    band0 = g.top + 14
+    band0 = g.top + 11
     band1 = g.top + 17
     for y in range(band0, band1):
         if not (0 <= y < h):
@@ -418,37 +419,30 @@ def paint_uniform(f: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndarra
 
 
 def place_ball(body: np.ndarray, g: Geometry, direction: str, anim: str, index: int) -> tuple[float, float, float, float, bool]:
-    """cx, cy, rx, ry, behind."""
+    """cx, cy, rx, ry. The ball is always beside the dribbling hand and
+    drawn in front of the body (see baller)."""
     side = -TAG_SIDE[direction]
     _hx, hy = dribble_hand(body, g, direction)
-    behind = direction in BACK or direction in PROFILE
     t = bounce_t(anim, index)
     squashed = t > 0.92
-    ry = BALL_R * (0.74 if squashed else 1.0)
-    rx = BALL_R * (1.12 if squashed else 1.0)
-    # Inner edge tucks into the silhouette. Front views tuck more so the
-    # hand reads as gripping the ball; back/profile views only hide a sliver.
-    # Fixed offset from the head, not the swinging hip. A step used to
-    # drag the ball sideways; it should only bounce. Profiles and the
-    # back sit a little further out so the rear foot doesn't swallow the
-    # ball, and the tag / run clips nudge it out with the wider stance.
-    outward = {"E": 18.4, "SE": 17.2, "S": 17.6, "SW": 17.2,
-               "W": 18.4, "NW": 17.8, "N": 20.2, "NE": 17.8}[direction]
+    ry = BALL_R * (0.70 if squashed else 1.0)
+    rx = BALL_R * (1.10 if squashed else 1.0)
+    # Far enough out that the ball sits beside the body instead of inside
+    # the silhouette. Back views push a little further so the circle clears
+    # the shoulders. X does not follow the swinging arm.
+    outward = {"E": 22.0, "SE": 22.4, "S": 23.0, "SW": 22.4,
+               "W": 22.0, "NW": 23.6, "N": 24.2, "NE": 23.6}[direction]
     if anim == "tag":
-        outward += 2.4
-    elif anim == "run":
-        outward += 1.4
+        outward += 1.6
     bx = g.head_cx + side * outward
-    if squashed:
-        bx += side * (rx - BALL_R) * 0.4
-    # Top of the bounce sits in the hand. Clamped so a raised run arm
-    # can't carry the ball up to the chest.
-    cy_hand = float(np.clip(hy + 1.2, g.hem - 18.0, g.hem - 8.0))
+    # Top of the bounce is up by the hand. A raised run arm must not
+    # carry the ball into the face.
+    cy_hand = float(np.clip(hy - BALL_R * 0.15, g.hem - 22.0, g.hem - 10.0))
     cy_ground = GROUND - ry
     cy = cy_hand + (cy_ground - cy_hand) * (t ** 1.15)
-    margin = 1.2
+    margin = 1.0
     bx = float(np.clip(bx, rx + margin, body.shape[1] - rx - margin))
-    return bx, float(cy), float(rx), float(ry), behind
+    return bx, float(cy), float(rx), float(ry)
 
 
 def baller(frame: np.ndarray, direction: str, anim: str, index: int) -> np.ndarray:
@@ -456,21 +450,14 @@ def baller(frame: np.ndarray, direction: str, anim: str, index: int) -> np.ndarr
     if not alpha_mask(src).any():
         return src
     g = Geometry(src)
-    body, _chest, hands = paint_uniform(src, g, direction)
+    body, _chest, _hands = paint_uniform(src, g, direction)
     # geometry may have shifted a pixel after streak-filling; re-read it
     g = Geometry(body)
-    bx, by, rx, ry, behind = place_ball(body, g, direction, anim, index)
+    bx, by, rx, ry = place_ball(body, g, direction, anim, index)
     t = bounce_t(anim, index)
     layer = ball_layer(body.shape[:2], bx, by, rx, ry, shadow=0.25 + 0.75 * t)
-    body_p = premul(body)
-    if behind:
-        merged = to_u8(over(layer, body_p))
-    else:
-        merged = to_u8(over(body_p, layer))
-        # the dribbling hand stays in front of the ball
-        grip = grow(hands, alpha_mask(body), 1)
-        merged[grip] = body[grip]
-    return merged
+    # Always in front. Nothing, including the back of the jersey, covers it.
+    return to_u8(over(premul(body), layer))
 
 
 def anim_of(col: int, meta: dict) -> tuple[str, int]:
