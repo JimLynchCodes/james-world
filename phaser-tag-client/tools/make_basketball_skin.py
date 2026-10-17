@@ -1033,8 +1033,9 @@ def _zone_arm(h: int, w: int, shoulder, elbow, hand, pad: float = 1.8) -> np.nda
 
 
 def _zone_ball(h: int, w: int, bx: float, by: float) -> np.ndarray:
+    """The ball plus its antialiased rim. A tight disc was clipping the edge."""
     Y, X = np.mgrid[0:h, 0:w]
-    return (X - bx) ** 2 + (Y - by) ** 2 <= (BALL_R + 1.8) ** 2
+    return (X - bx) ** 2 + (Y - by) ** 2 <= (BALL_R + 3.0) ** 2
 
 
 def _zone_shadow(h: int, w: int, gx: float, gy: float) -> np.ndarray:
@@ -1044,22 +1045,204 @@ def _zone_shadow(h: int, w: int, gx: float, gy: float) -> np.ndarray:
     return (sx * sx + sy * sy) < 1.3
 
 
-def stray_fragments(merged: np.ndarray, src: np.ndarray, arm_mask: np.ndarray,
-                    shoulder, elbow, hand, bx: float, by: float,
-                    gx: float, gy: float) -> np.ndarray:
-    """Opaque pixels that are not the base body, the ball, or the new arm.
+def _dribble_side(direction: str) -> float:
+    """Screen direction of the dribble arm. Negative means the back is low x."""
+    return float(-TAG_SIDE[direction])
 
-    The base body is James with the dribble-side arm removed. A shard of
-    the old arm, or a patch filled outside that silhouette, shows up here.
+
+def _back_of(xs: np.ndarray, side: float) -> int | None:
+    if len(xs) == 0:
+        return None
+    return int(xs.min() if side < 0 else xs.max())
+
+
+def _further_back(x: int, than: int, side: float) -> bool:
+    return x < than if side < 0 else x > than
+
+
+def _torso_back_edge(opaque: np.ndarray, arm_mask: np.ndarray,
+                     g: Geometry, side: float) -> int | None:
+    """Back edge of the torso, from chest rows the dribble arm does not cover.
+
+    On a side view the arm is drawn over the back half of the shirt, so
+    those rows are not a reference. The chest just under the neck still
+    shows the real contour, and the hips and legs hang from that edge.
+    """
+    h = opaque.shape[0]
+    backs: list[int] = []
+    widths: list[int] = []
+    y0 = int(g.neck) + 3
+    y1 = int(g.neck) + 16
+    for y in range(y0, y1):
+        if y < 0 or y >= h:
+            continue
+        full = np.nonzero(opaque[y])[0]
+        body = np.nonzero(opaque[y] & ~arm_mask[y])[0]
+        if len(full) < 8 or len(body) < 8:
+            continue
+        fb = _back_of(full, side)
+        bb = _back_of(body, side)
+        if fb is None or bb is None or abs(fb - bb) > 3:
+            continue
+        backs.append(fb)
+        widths.append(int(body.max() - body.min() + 1))
+    if not backs:
+        return None
+    wds = np.asarray(widths)
+    bks = np.asarray(backs)
+    keep = wds >= int(np.median(wds)) - 1
+    return int(np.median(bks[keep]))
+
+
+def body_required(src: np.ndarray, g: Geometry, direction: str,
+                  arm_mask: np.ndarray) -> np.ndarray:
+    """Full James body: head, torso, shorts, both legs, and the tagging arm.
+
+    Pixels the dribble arm covered are body too, when they sit on that
+    contour. The tip that swings out past the torso is not body, so a
+    filled outline there still counts as a stray fin.
     """
     opaque = src[..., 3] > 40
-    remain = opaque & ~arm_mask
-    keep = np.zeros_like(remain)
-    # the torso, the other arm and the legs are large. Outline crumbs of
-    # the erased arm are a few pixels and are not part of his silhouette.
-    for comp in components8(remain):
-        if int(comp.sum()) >= 30:
-            keep |= comp
+    side = _dribble_side(direction)
+    required = opaque.copy()
+    ref = _torso_back_edge(opaque, arm_mask, g, side)
+    if ref is None:
+        return required
+    h, w = opaque.shape
+    xs = np.arange(w)
+    y_end = min(h, int(g.bottom) + 1)
+    for y in range(int(g.neck) + 3, y_end):
+        full_xs = np.nonzero(opaque[y])[0]
+        full = _back_of(full_xs, side)
+        if full is None:
+            continue
+        body = _back_of(np.nonzero(opaque[y] & ~arm_mask[y])[0], side)
+        target = full
+        if _further_back(full, ref, side) and abs(int(full) - ref) > 3:
+            # Past the chest. A foot that already reaches back stays;
+            # the arm beyond that foot, or beyond the chest, does not.
+            if body is not None and _further_back(body, ref, side):
+                target = full if abs(int(full) - int(body)) <= 3 else body
+            else:
+                target = ref
+        if side < 0:
+            cut = arm_mask[y] & (xs < target)
+        else:
+            cut = arm_mask[y] & (xs > target)
+        required[y, cut] = False
+    return required
+
+
+def _paint_rgb(color: np.ndarray) -> np.ndarray:
+    return np.clip(np.round(np.asarray(color, dtype=np.float64)), 0, 255).astype(np.uint8)
+
+
+def _row_fill_color(row: np.ndarray, y: int, g: Geometry) -> np.ndarray:
+    """Jersey, shorts, leg or shoe colour for one reconstructed row.
+
+    Taken from the pixels of this row that are still there. The orange
+    number is not the shirt, and a skin pixel in the shirt is the arm
+    we just removed, so those lose to navy when the row is the torso.
+    """
+    navy_px: list[np.ndarray] = []
+    short_px: list[np.ndarray] = []
+    orange_px: list[np.ndarray] = []
+    white_px: list[np.ndarray] = []
+    skin_px: list[np.ndarray] = []
+    xs = np.nonzero(row[:, 3] > 200)[0]
+    for x in xs:
+        if _is_ink_px(row[x]):
+            continue
+        r = int(row[x, 0])
+        gc = int(row[x, 1])
+        b = int(row[x, 2])
+        if b > r + 12 and b > 45:
+            (short_px if b < 110 else navy_px).append(row[x, :3])
+        elif r > 170 and gc < 190 and b < 110 and r > gc + 30:
+            orange_px.append(row[x, :3])
+        elif r > 200 and gc > 200 and b > 190:
+            white_px.append(row[x, :3])
+        elif r > 150 and gc > 90 and r > b:
+            skin_px.append(row[x, :3])
+
+    def med(samples: list[np.ndarray], fallback: np.ndarray) -> np.ndarray:
+        if not samples:
+            return fallback
+        return np.median(np.stack(samples).astype(np.float64), axis=0)
+
+    hem = float(g.hem)
+    waist = hem - 9.0
+    if y <= waist:
+        return med(navy_px, NAVY)
+    if y < hem - 1:
+        return med(short_px, NAVY_DARK)
+    if y < hem + 2:
+        if len(orange_px) >= len(skin_px) and orange_px:
+            return med(orange_px, ORANGE)
+        if len(skin_px) > len(orange_px):
+            return med(skin_px, NAVY_DARK)
+        return med(short_px, NAVY_DARK)
+    if len(white_px) > len(orange_px) and len(white_px) >= len(skin_px) and white_px:
+        return med(white_px, SOLE)
+    if len(skin_px) > len(orange_px) and skin_px:
+        return med(skin_px, np.array([232.0, 164.0, 120.0]))
+    if orange_px:
+        return med(orange_px, SHOE_ORANGE)
+    if skin_px:
+        return med(skin_px, SHOE_ORANGE)
+    return SHOE_ORANGE
+
+
+def rebuild_hidden_body(body: np.ndarray, src: np.ndarray, g: Geometry,
+                        direction: str, arm_mask: np.ndarray) -> np.ndarray:
+    """Paint the torso, shorts and legs back where the dribble arm covered them.
+
+    The new arm is drawn afterwards, on top. The swinging tip past the
+    torso is left clear so it does not come back as a navy fin.
+    """
+    required = body_required(src, g, direction, arm_mask)
+    side = _dribble_side(direction)
+    out = body.copy()
+    h, w = out.shape[:2]
+    hem = float(g.hem)
+    for y in range(int(g.neck) + 3, h):
+        need = required[y] & (out[y, :, 3] <= 40)
+        if not need.any():
+            continue
+        color = _paint_rgb(_row_fill_color(out[y], y, g))
+        out[y, need, :3] = color
+        out[y, need, 3] = 255
+        # the old outline is now inside the shirt. Recolour it, but only
+        # the pixels that touched the hole, and not the shoe's dark pixels.
+        if y < hem + 1:
+            xs = np.nonzero(need)[0]
+            lo = max(0, int(xs.min()) - 1)
+            hi = min(w - 1, int(xs.max()) + 1)
+            for x in range(lo, hi + 1):
+                if need[x] or not _is_ink_px(out[y, x]):
+                    continue
+                touches = (x > 0 and need[x - 1]) or (x + 1 < w and need[x + 1])
+                if touches:
+                    out[y, x, :3] = color
+                    out[y, x, 3] = 255
+                    need[x] = True
+        edge_xs = np.nonzero(out[y, :, 3] > 200)[0]
+        edge = _back_of(edge_xs, side)
+        if edge is not None and need[edge]:
+            out[y, edge, :3] = _paint_rgb(INK)
+            out[y, edge, 3] = 255
+    return out
+
+
+def stray_fragments(merged: np.ndarray, required: np.ndarray, direction: str,
+                    shoulder, elbow, hand, bx: float, by: float,
+                    gx: float, gy: float) -> np.ndarray:
+    """Opaque pixels that are not the full body, the ball, or the new arm.
+
+    `required` is James's body with the torso and legs filled in behind
+    the dribble arm. A shard past that contour is still a fragment.
+    """
+    keep = required
     # inside that silhouette, including a one-pixel outline. A fin that
     # sticks out past it is not inside, so it still counts as a fragment.
     shell = np.where(_dilate(keep, 1), np.uint8(255), np.uint8(0))
@@ -1080,7 +1263,28 @@ def stray_fragments(merged: np.ndarray, src: np.ndarray, arm_mask: np.ndarray,
     for comp in components8(raw):
         if (comp & touches).any():
             exposed |= comp
-    return exposed
+    # a fin tucked against the hip is enclosed by the foot on the next
+    # row, so the flood above never sees it. It is still past the body.
+    side = _dribble_side(direction)
+    h, w = merged.shape[:2]
+    xs = np.arange(w)[None, :]
+    back = np.full(h, -1, dtype=np.int16)
+    for y in range(h):
+        rb = _back_of(np.nonzero(required[y])[0], side)
+        if rb is not None:
+            back[y] = rb
+    has = back >= 0
+    if side < 0:
+        past = has[:, None] & (xs < back[:, None])
+    else:
+        past = has[:, None] & (xs > back[:, None])
+    pose = (
+        _zone_arm(h, w, shoulder, elbow, hand)
+        | _zone_ball(h, w, bx, by)
+        | _zone_shadow(h, w, gx, gy)
+    )
+    fin = past & (merged[..., 3] > 40) & ~pose
+    return exposed | fin
 
 
 def clear_stray_fragments(merged: np.ndarray, stray: np.ndarray) -> np.ndarray:
@@ -1088,6 +1292,35 @@ def clear_stray_fragments(merged: np.ndarray, stray: np.ndarray) -> np.ndarray:
         return merged
     out = merged.copy()
     out[stray] = 0
+    return out
+
+
+def clear_past_contour(merged: np.ndarray, required: np.ndarray, direction: str,
+                       shoulder, elbow, hand, bx: float, by: float,
+                       gx: float, gy: float) -> np.ndarray:
+    """Drop opaque pixels behind the body contour.
+
+    Filling an enclosed gap repaints the old swinging arm as a navy fin.
+    The fin sits past the torso; the rebuilt shirt and the real back foot
+    do not. The ball, its shadow and the new dribble arm are allowed past
+    that edge.
+    """
+    side = _dribble_side(direction)
+    h, w = merged.shape[:2]
+    keep = (
+        _zone_arm(h, w, shoulder, elbow, hand)
+        | _zone_ball(h, w, bx, by)
+        | _zone_shadow(h, w, gx, gy)
+    )
+    out = merged.copy()
+    xs = np.arange(w)
+    for y in range(h):
+        rb = _back_of(np.nonzero(required[y])[0], side)
+        if rb is None:
+            continue
+        past = xs < rb if side < 0 else xs > rb
+        kill = past & (out[y, :, 3] > 0) & ~keep[y]
+        out[y, kill] = 0
     return out
 
 
@@ -1104,6 +1337,8 @@ def baller(frame: np.ndarray, direction: str, anim: str, index: int) -> np.ndarr
     body = repair_torso(body, g, direction)
     body = scrub_loose_ink(body)
     body = restore_body(body, painted, g)
+    # the shirt, shorts and back leg the erased arm was covering
+    body = rebuild_hidden_body(body, src, g0, direction, arm_mask)
     # the shirt edge, then close whatever that edge just trapped
     a = body[..., 3] > 200
     rim = silhouette(a)
@@ -1147,12 +1382,20 @@ def baller(frame: np.ndarray, direction: str, anim: str, index: int) -> np.ndarr
     merged = close_arm_gap(merged, painted, g, arm_mask)
     merged = snap_interior(merged)
     merged = fill_enclosed_holes(merged)
+    required = body_required(src, g0, direction, arm_mask)
     stray = stray_fragments(
-        merged, src, arm_mask, shoulder, elbow, hand, bx, by, gx, gy)
+        merged, required, direction, shoulder, elbow, hand, bx, by, gx, gy)
     merged = clear_stray_fragments(merged, stray)
     # clearing a shard can open a slit in the shirt; close that, not the fin
     merged = fill_enclosed_holes(merged)
     merged = snap_interior(merged)
+    # the enclosed-hole fill paints the old arm back on; strip that off,
+    # then anything the fill just drew outside the body
+    merged = clear_past_contour(
+        merged, required, direction, shoulder, elbow, hand, bx, by, gx, gy)
+    stray = stray_fragments(
+        merged, required, direction, shoulder, elbow, hand, bx, by, gx, gy)
+    merged = clear_stray_fragments(merged, stray)
     return merged
 
 
@@ -1163,14 +1406,24 @@ def anim_of(col: int, meta: dict) -> tuple[str, int]:
     return "idle", 0
 
 
-def count_strays(frame: np.ndarray, merged: np.ndarray, direction: str,
-                 anim: str, index: int) -> int:
-    """Re-check a finished frame. The pose matches baller, including the tuck."""
+def audit_frame(frame: np.ndarray, merged: np.ndarray, direction: str,
+                anim: str, index: int) -> tuple[int, int]:
+    """Missing body pixels, then stray pixels past the body.
+
+    The reference is the full James body (head, torso, shorts, legs),
+    including the part the dribble arm was drawn on top of. A body pixel
+    that is transparent here is a hole. The ball in front of him covers
+    the pixels it sits on. The arm tip past the torso is not body.
+    """
     src = pad_frame(frame)
     if not alpha_mask(src).any():
-        return 0
+        return 0, 0
     g0 = Geometry(src)
     arm_mask = dribble_arm_mask(src, g0, direction)
+    required = body_required(src, g0, direction, arm_mask)
+    missing = required & (merged[..., 3] <= 24)
+    # same body the dribble pose is tucked against, so the arm and ball
+    # zones line up with the pixels that were actually drawn
     painted, _chest, _hands = paint_uniform(src, g0, direction)
     g = Geometry(painted)
     body = drop_limp_arm(painted, g, direction, arm_mask)
@@ -1178,6 +1431,7 @@ def count_strays(frame: np.ndarray, merged: np.ndarray, direction: str,
     body = repair_torso(body, g, direction)
     body = scrub_loose_ink(body)
     body = restore_body(body, painted, g)
+    body = rebuild_hidden_body(body, src, g0, direction, arm_mask)
     a = body[..., 3] > 200
     rim = silhouette(a)
     yy, xx = np.mgrid[0:body.shape[0], 0:body.shape[1]]
@@ -1198,9 +1452,15 @@ def count_strays(frame: np.ndarray, merged: np.ndarray, direction: str,
     margin = BALL_R + 0.6
     bx = float(np.clip(bx, margin, 100.0 - margin))
     by = float(np.clip(by, margin, 100.0 - margin))
+    if direction not in BACK:
+        h, w = merged.shape[:2]
+        yy, xx = np.mgrid[0:h, 0:w]
+        ball = (xx - bx) ** 2 + (yy - by) ** 2 <= (BALL_R + 2.0) ** 2
+        missing &= ~ball
     gx, gy = bx, float(min(by + BALL_R, 99.0))
-    return int(stray_fragments(
-        merged, src, arm_mask, shoulder, elbow, hand, bx, by, gx, gy).sum())
+    stray = stray_fragments(
+        merged, required, direction, shoulder, elbow, hand, bx, by, gx, gy)
+    return int(missing.sum()), int(stray.sum())
 
 
 def main():
@@ -1215,22 +1475,25 @@ def main():
     ofh = fh + PAD_TOP
     ofw = fw + 2 * PAD_SIDE
     out = np.zeros((len(dirs) * ofh, cols * ofw, 4), dtype=np.uint8)
-    stray_hits: list[str] = []
+    problems: list[str] = []
     for r, direction in enumerate(dirs):
         for c in range(cols):
             anim, index = anim_of(c, meta)
             fr = src[r * fh:(r + 1) * fh, c * fw:(c + 1) * fw]
             cell = baller(fr, direction, anim, index)
             out[r * ofh:(r + 1) * ofh, c * ofw:(c + 1) * ofw] = cell
-            n = count_strays(fr, cell, direction, anim, index)
-            if n:
-                stray_hits.append(f"{direction} {anim} {index} (col {c}): {n} stray px")
-    if stray_hits:
-        print("stray fragments outside the James silhouette:")
-        for line in stray_hits:
+            missing, stray = audit_frame(fr, cell, direction, anim, index)
+            if missing or stray:
+                problems.append(
+                    f"{direction} {anim} {index} (col {c}): "
+                    f"{missing} body px missing, {stray} stray px"
+                )
+    if problems:
+        print("body coverage check failed:")
+        for line in problems:
             print(" ", line)
         raise SystemExit(1)
-    print(f"silhouette check ok ({len(dirs) * cols} frames)")
+    print(f"full-body coverage check ok ({len(dirs) * cols} frames)")
     Image.fromarray(out).save(ASSETS / "kid_basketball.png", optimize=True)
     bb = dict(meta)
     bb["image"] = "kid_basketball.png"
