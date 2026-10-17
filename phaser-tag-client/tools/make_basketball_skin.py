@@ -12,7 +12,9 @@ Per frame:
   1. T-shirt -> sleeveless navy tank with orange neck, armhole and hem
      trim; bare shoulders. Front views get an orange NEW YORK wordmark
      and number 11, back views a larger 11, profiles a 1 on the facing flank;
-  2. shorts -> navy with an orange leg hem;
+  2. shorts -> navy with an orange side stripe. Hips, shorts, legs
+     and shoes are the base James pixels for that same frame, recolored,
+     so the leg cycle matches him;
   3. both arms stay bare skin, the same tone as James;
   4. white headband across the forehead (wraps the hair on back views);
   5. sneakers -> orange with a white sole, side stripe and toe;
@@ -399,6 +401,40 @@ def _armhole_edge(jersey: np.ndarray, g: Geometry) -> np.ndarray:
     return edge
 
 
+def _shorts_side_stripe(shorts: np.ndarray, cx: float) -> np.ndarray:
+    """Outer side of each shorts run, one pixel in from the silhouette."""
+    h, w = shorts.shape
+    stripe = np.zeros((h, w), dtype=bool)
+    for y in range(h):
+        xs = np.nonzero(shorts[y])[0]
+        if len(xs) < 4:
+            continue
+        start = 0
+        splits = list(np.where(np.diff(xs) > 2)[0]) + [len(xs) - 1]
+        for b in splits:
+            run = xs[start:int(b) + 1]
+            start = int(b) + 1
+            if len(run) < 3:
+                continue
+            # the end away from the chest is the outer seam
+            if float(run.mean()) <= cx:
+                stripe[y, int(run[0])] = True
+                if len(run) > 7:
+                    stripe[y, int(run[1])] = True
+            else:
+                stripe[y, int(run[-1])] = True
+                if len(run) > 7:
+                    stripe[y, int(run[-2])] = True
+            # a single run across the body gets a stripe on both hips
+            if int(run[0]) < cx - 2 and int(run[-1]) > cx + 2:
+                stripe[y, int(run[0])] = True
+                stripe[y, int(run[-1])] = True
+                if len(run) > 10:
+                    stripe[y, int(run[1])] = True
+                    stripe[y, int(run[-2])] = True
+    return stripe
+
+
 def paint_uniform(f: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Recolour clothes. Returns (rgba, jersey mask, hand mask)."""
     f = close_streaks(f, g.neck + 2)
@@ -456,38 +492,22 @@ def paint_uniform(f: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndarra
     armhole = _armhole_edge(jersey & inner, g)
     armhole |= jersey & inner & grow(arms, a, 1) & (yy > g.neck) & (yy <= g.neck + 14)
     rgb = np.where(armhole[..., None], ORANGE, rgb)
-    if shorts.any():
-        ys = np.nonzero((shorts & inner).any(axis=1))[0]
-        if len(ys):
-            cuff_rows = np.zeros_like(shorts)
-            cuff_rows[ys[-1]] = shorts[ys[-1]] & inner[ys[-1]]
-            if len(ys) > 3:
-                cuff_rows[ys[-2]] = shorts[ys[-2]] & inner[ys[-2]]
-            rgb = np.where(cuff_rows[..., None], ORANGE, rgb)
+    # one orange stripe down each outer side of the shorts, inside the outline
+    stripe = _shorts_side_stripe(shorts & inner, g.head_cx)
+    rgb = np.where(stripe[..., None], ORANGE, rgb)
 
-    # sneakers: the tan ankle and the dark shoe both become jersey orange.
-    # Shading from the original near-black pixels was reading as brown.
+    # sneakers keep James's foot shape. A pale pixel is the white sole of
+    # that foot; the dark upper becomes orange; the ankle stays skin.
+    # Painting a whole connected component one colour fused both feet.
     footwear = a & (yy >= g.hem) & ~jersey & ~shorts & ~arms & ~hands & ~fist
     if footwear.any():
-        rgb = np.where((footwear & ~rim)[..., None], ORANGE, rgb)
-        for comp in components8(footwear):
-            if comp.sum() < 4:
-                continue
-            ys, xs = np.nonzero(comp)
-            y1 = int(ys.max())
-            sole = comp & ~rim & (yy >= y1 - 2)
-            rgb = np.where(sole[..., None], SOLE, rgb)
-            stripe_y = int(ys.min() + max(1, (y1 - int(ys.min())) * 0.42))
-            stripe = comp & ~rim & (yy == stripe_y)
-            rgb = np.where(stripe[..., None], WHITE, rgb)
-            face_side = PROFILE.get(direction, FRONT.get(direction, 0))
-            if face_side == 0:
-                left, right = int(xs.min()), int(xs.max())
-                toe = comp & ~rim & ((xx <= left + 1) | (xx >= right - 1)) & (yy <= y1 - 3)
-            else:
-                end = int(xs.max() if face_side > 0 else xs.min())
-                toe = comp & ~rim & (np.abs(xx - end) <= 1) & (yy <= y1 - 3)
-            rgb = np.where(toe[..., None], WHITE, rgb)
+        sr = f[..., 0].astype(np.int16)
+        sg = f[..., 1].astype(np.int16)
+        sb = f[..., 2].astype(np.int16)
+        pale = (sr > 170) & (sg > 170) & (sb > 150) & (np.abs(sr - sb) < 80)
+        upper = footwear & ~rim & ~pale & ~loose_skin(f)
+        rgb = np.where(upper[..., None], shade(SHOE_ORANGE, L, 0.82, 1.08), rgb)
+        rgb = np.where((footwear & ~rim & pale)[..., None], SOLE, rgb)
 
     # headband: a taller wrap on the hairline, above the eyes. Filled
     # across each row so hair spikes don't poke holes through it.
@@ -1437,35 +1457,130 @@ def clear_past_contour(merged: np.ndarray, required: np.ndarray, direction: str,
     return out
 
 
-def baller(frame: np.ndarray, direction: str, anim: str, index: int) -> np.ndarray:
-    src = pad_frame(frame)
-    if not alpha_mask(src).any():
-        return src
-    g0 = Geometry(src)
-    painted, _chest, _hands = paint_uniform(src, g0, direction)
-    g = Geometry(painted)
-    arm_mask = dribble_arm_mask(src, g0, direction)
-    body = drop_limp_arm(painted, g, direction, arm_mask)
-    body = restore_body(body, painted, g)
-    body = repair_torso(body, g, direction)
-    body = scrub_loose_ink(body)
-    body = restore_body(body, painted, g)
-    # the shirt, shorts and back leg the erased arm was covering
-    body = rebuild_hidden_body(body, src, g0, direction, arm_mask)
-    # the shirt edge, then close whatever that edge just trapped
-    a = body[..., 3] > 200
-    rim = silhouette(a)
-    yy, xx = np.mgrid[0:body.shape[0], 0:body.shape[1]]
+def _dribble_skin(src: np.ndarray, g: Geometry, direction: str) -> np.ndarray:
+    """James's dribble-side arm, skin only. The outline is handled apart
+    from this so the shorts, which are dark, are not eaten."""
+    h = src.shape[0]
+    yy = np.arange(h)[:, None]
+    face = (yy <= g.neck + 1) & skin_mask(src)
+    arms, _hands = arms_and_hands(src, g, face)
     side = float(-TAG_SIDE[direction])
-    edge = rim & (yy > g.neck + 5) & (yy < g.hem + 2) & ((xx - g.head_cx) * side > -2)
-    body[edge, :3] = INK
-    body[edge, 3] = 255
-    # snap first: raising a soft pixel to opaque can close a gap and
-    # trap the transparent pixels behind it, so the fill runs after
-    body = snap_interior(body)
-    body = fill_enclosed_holes(body)
+    on = np.zeros_like(arms)
+    for comp in components8(arms):
+        _ys, xs = np.nonzero(comp)
+        if len(xs) == 0:
+            continue
+        if float(((xs - g.head_cx) * side > 0).mean()) > 0.55:
+            on |= comp
+    return on & (yy > g.neck + 2)
+
+
+def _row_core(xs: np.ndarray, chest_w: int, side: float,
+              fallback: tuple[int, int]) -> tuple[int, int]:
+    """Torso span for one row. A side view whose arm is the back half is
+    extended back to the chest width; a limb past that stays outside."""
+    if len(xs) < 6:
+        return fallback
+    lo, hi = int(xs.min()), int(xs.max())
+    if hi - lo < chest_w - 2:
+        if side < 0:
+            lo = hi - chest_w
+        else:
+            hi = lo + chest_w
+    return lo, hi
+
+
+def prepare_james(src: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndarray, np.ndarray]:
+    """James's own pixels, with the dribble limb past the torso removed.
+
+    The lower body is not redrawn. Shorts, legs and shoes keep his alpha.
+    Arm pixels that sit on the torso become cloth so the tank can recolor
+    them; the tagging arm stays skin. Returns (frame, kept mask).
+    """
+    f = close_streaks(src, g.neck + 2)
+    g = Geometry(f)
+    h, w = f.shape[:2]
+    limb = _dribble_skin(f, g, direction)
+    opaque = alpha_mask(f)
+    side = float(-TAG_SIDE[direction])
+    chest: list[tuple[int, int]] = []
+    for y in range(int(g.neck) + 3, int(g.neck) + 14):
+        if y < 0 or y >= h:
+            continue
+        xs = np.nonzero(opaque[y])[0]
+        if len(xs) >= 8:
+            chest.append((int(xs.min()), int(xs.max())))
+    if chest:
+        chest_w = int(np.median([hi - lo for lo, hi in chest]))
+        ref = (int(np.median([lo for lo, hi in chest])),
+               int(np.median([hi for lo, hi in chest])))
+    else:
+        chest_w = 16
+        ref = (int(g.head_cx) - 8, int(g.head_cx) + 8)
+    chest_w = max(chest_w, 12)
+
+    interior = np.zeros((h, w), dtype=bool)
+    exterior = np.zeros((h, w), dtype=bool)
+    core = np.zeros((h, w), dtype=bool)
+    prev = ref
+    non = opaque & ~limb
+    for y in range(h):
+        lo, hi = _row_core(np.nonzero(non[y])[0], chest_w, side, prev)
+        prev = (lo, hi)
+        lo = max(0, lo)
+        hi = min(w - 1, hi)
+        core[y, lo:hi + 1] = True
+        row = limb[y]
+        xs = np.arange(w)
+        inside = row & (xs >= lo - 1) & (xs <= hi + 1)
+        interior[y] = inside
+        exterior[y] = row & ~inside
+
+    # the old arm's outline, outside the torso only. Two steps would walk
+    # into the shorts, which are the same darkness as that outline.
+    L = lum(f)
+    dark = (f[..., 3] > 40) & (L < 60) & ~loose_skin(f)
+    outline = _dilate(exterior, 1) & dark & ~core & (np.arange(h)[:, None] < g.hem + 1)
+    clear = exterior | outline
+
+    out = f.copy()
+    out[clear] = 0
+    # cloth tone, not skin, so the covered torso is a shirt the tank can paint
+    out[interior & ~clear, 0] = 72
+    out[interior & ~clear, 1] = 86
+    out[interior & ~clear, 2] = 82
+    out[interior & ~clear, 3] = 255
+
+    # 1-2px slits inside the torso. Wider gaps are the space between the
+    # legs or between the arm and the hip, and those stay clear.
+    yy = np.arange(h)
+    for y in range(int(g.neck) + 2, h):
+        xs = np.nonzero(out[y, :, 3] > 40)[0]
+        xs = xs[(xs >= 0)]
+        if len(xs) < 2:
+            continue
+        for i in range(len(xs) - 1):
+            gap = int(xs[i + 1] - xs[i] - 1)
+            if gap <= 0 or gap > 2:
+                continue
+            x0 = int(xs[i]) + 1
+            x1 = int(xs[i + 1])
+            if not core[y, x0:x1].all():
+                continue
+            # a slit has body above or below; the open edge of a foot does not
+            band = out[max(0, y - 1):min(h, y + 2), x0:x1, 3] > 40
+            if not band.any():
+                continue
+            out[y, x0:x1, :3] = out[y, int(xs[i]), :3]
+            out[y, x0:x1, 3] = 255
+
+    kept = out[..., 3] > 40
+    out[kept, 3] = 255
+    return out, kept
+
+
+def _pose(body: np.ndarray, g0: Geometry, direction: str, anim: str, index: int):
     t = bounce_t(anim, index)
-    # pose is measured on the original kid so the hem stays at the shorts
     shoulder, elbow, rest_hand, high, low, _side = _layout(g0, direction)
     if direction in BACK:
         shoulder, elbow, rest_hand, high, low = _tuck_back(
@@ -1476,12 +1591,93 @@ def baller(frame: np.ndarray, direction: str, anim: str, index: int) -> np.ndarr
     margin = BALL_R + 0.6
     bx = float(np.clip(bx, margin, 100.0 - margin))
     by = float(np.clip(by, margin, 100.0 - margin))
+    return shoulder, elbow, hand, bx, by, t
+
+
+# Preview grass the contact sheets composite onto. A hole in the shorts
+# is this colour once the frame is shown, and partial alpha is the same
+# hole with the grass showing through.
+PREVIEW_BG = (118, 176, 86)
+
+
+def silhouette_faults(merged: np.ndarray, kept: np.ndarray, neck: int) -> np.ndarray:
+    """Pixels inside the filled body that are see-through or preview-green.
+
+    `kept` is James's body after the swinging arm past the torso is removed.
+    A 1px closing catches an open bite the border flood misses, including
+    one that touches the outside. Hair spikes above the neck are his outline,
+    not a hole in the shorts. The gap between the legs is wider than the
+    close and is not a fault.
+    """
+    inside = _dilate(kept, 1)
+    # erode the dilation back, so only gaps the close actually fills remain,
+    # not a rim around the outside of the sprite
+    p = np.pad(inside, 1, constant_values=False)
+    ero = (
+        p[1:-1, 1:-1]
+        & p[:-2, 1:-1] & p[2:, 1:-1] & p[1:-1, :-2] & p[1:-1, 2:]
+    )
+    a = merged[..., 3]
+    rgb = merged[..., :3].astype(np.int16)
+    grass = (
+        (np.abs(rgb[..., 0] - PREVIEW_BG[0]) <= 28)
+        & (np.abs(rgb[..., 1] - PREVIEW_BG[1]) <= 28)
+        & (np.abs(rgb[..., 2] - PREVIEW_BG[2]) <= 28)
+        & (a > 20)
+    )
+    see = (a < 255) | grass
+    left = np.zeros_like(kept)
+    right = np.zeros_like(kept)
+    up = np.zeros_like(kept)
+    down = np.zeros_like(kept)
+    left[:, 1:] = kept[:, :-1]
+    right[:, :-1] = kept[:, 1:]
+    up[1:, :] = kept[:-1, :]
+    down[:-1, :] = kept[1:, :]
+    sandwiched = (left & right) | (up & down)
+    bites = ero & ~kept & sandwiched & see
+    bites[: int(neck) + 2] = False
+    covered = kept & see
+    # a 1px slit with body above and below reads as grass even when the
+    # border flood can reach it. Hair above the shoulders is left alone.
+    solid = a > 200
+    slit = np.zeros_like(kept)
+    # the ball's antialiased rim sits near 250 and is not a hole in the shorts
+    slit[1:-1] = (a[1:-1] < 200) & solid[:-2] & solid[2:]
+    slit[: int(neck) + 8] = False
+    # a one-pixel crack between two opaque pixels, open to the grass
+    crack = np.zeros_like(kept)
+    row = (a < 40)
+    left = np.zeros_like(kept)
+    right = np.zeros_like(kept)
+    left[:, 1:] = a[:, :-1] > 80
+    right[:, :-1] = a[:, 1:] > 80
+    crack = row & left & right
+    crack[: int(neck) + 8] = False
+    return bites | covered | slit | crack
+
+
+def baller(frame: np.ndarray, direction: str, anim: str, index: int) -> np.ndarray:
+    merged, _kept, _n_hole, _n_stray = compose(frame, direction, anim, index)
+    return merged
+
+
+def compose(frame: np.ndarray, direction: str, anim: str, index: int):
+    """Lower body copied from this James frame, tank and arms composited on top."""
+    src = pad_frame(frame)
+    if not alpha_mask(src).any():
+        return src, np.zeros(src.shape[:2], dtype=bool), 0, 0
+    g0 = Geometry(src)
+    prepared, kept = prepare_james(src, g0, direction)
+    body, _chest, _hands = paint_uniform(prepared, Geometry(prepared), direction)
+    # the copied body stays fully opaque. Recolor never opens a pixel.
+    body[kept, 3] = 255
+    shoulder, elbow, hand, bx, by, t = _pose(body, g0, direction, anim, index)
     gx, gy, behind = bx, float(min(by + BALL_R, 99.0)), direction in BACK
     shadow = shadow_layer(body.shape[:2], gx, gy, strength=0.35 + 0.65 * t)
     ball = np.zeros_like(shadow)
     _paste(ball, ball_sprite(spin_deg(anim, index)), bx, by)
     if behind:
-        # farther from the camera: opaque body covers the ball, the mitt peeks
         solid = body.copy()
         solid[solid[..., 3] > 40, 3] = 255
         under = to_u8(over(over(shadow, ball), premul(solid)))
@@ -1492,24 +1688,76 @@ def baller(frame: np.ndarray, direction: str, anim: str, index: int) -> np.ndarr
     else:
         merged = to_u8(over(premul(body), over(shadow, ball)))
         draw_dribble_arm(merged, g0, direction, shoulder, elbow, hand)
-    merged = close_arm_gap(merged, painted, g, arm_mask)
-    merged = snap_interior(merged)
-    merged = fill_enclosed_holes(merged)
-    required = body_required(src, g0, direction, arm_mask)
-    stray = stray_fragments(
-        merged, required, direction, shoulder, elbow, hand, bx, by, gx, gy, arm_mask)
-    merged = clear_stray_fragments(merged, stray)
-    # clearing a shard can open a slit in the shirt; close that, not the fin
-    merged = fill_enclosed_holes(merged)
-    merged = snap_interior(merged)
-    # the enclosed-hole fill paints the old arm back on; strip that off,
-    # then anything the fill just drew outside the body
-    merged = clear_past_contour(
-        merged, required, direction, shoulder, elbow, hand, bx, by, gx, gy)
-    stray = stray_fragments(
-        merged, required, direction, shoulder, elbow, hand, bx, by, gx, gy, arm_mask)
-    merged = clear_stray_fragments(merged, stray)
-    return merged
+    h, w = merged.shape[:2]
+    yy, xx = np.mgrid[0:h, 0:w]
+    # the pre-rendered ball is a hair wider than the disc the pose uses
+    ball_zone = (xx - bx) ** 2 + (yy - by) ** 2 <= (BALL_R + 5.0) ** 2
+    pose = (
+        _zone_arm(h, w, shoulder, elbow, hand, pad=2.4)
+        | ball_zone
+        | _zone_shadow(h, w, gx, gy)
+    )
+    # crumbs of the old arm outline, outside his body. Not a repaint of the legs.
+    shell = _dilate(kept, 1)
+    stray = (merged[..., 3] > 40) & ~shell & ~pose
+    if stray.any():
+        merged = merged.copy()
+        merged[stray] = 0
+    stray = (merged[..., 3] > 40) & ~shell & ~pose
+    merged = _seal_body_slits(merged, g0.neck)
+    holes = silhouette_faults(merged, kept, g0.neck)
+    return merged, kept, int(holes.sum()), int(stray.sum())
+
+
+def _seal_body_slits(merged: np.ndarray, neck: int) -> np.ndarray:
+    """Close 1-2px slits that have opaque body directly above and below.
+
+    Those are the green specks in the shorts. The open gap between the
+    legs has no body below it, so it stays clear.
+    """
+    out = merged
+    h = out.shape[0]
+    y0 = int(neck) + 8
+    for _round in range(3):
+        changed = False
+        for gap in (1, 2):
+            solid = out[..., 3] > 200
+            for y in range(max(y0, 1), h - gap):
+                hole = np.ones(out.shape[1], dtype=bool)
+                for k in range(gap):
+                    hole &= out[y + k, :, 3] < 200
+                hole &= solid[y - 1] & solid[y + gap]
+                if not hole.any():
+                    continue
+                if out is merged:
+                    out = out.copy()
+                changed = True
+                for k in range(gap):
+                    out[y + k, hole] = out[y - 1, hole]
+                    out[y + k, hole, 3] = 255
+        # a one-pixel crack between the ball and the hip still shows grass.
+        # Filling it can close the slit above, so the vertical pass runs again.
+        solidish = out[..., 3] > 80
+        for y in range(y0, h):
+            hole = out[y, :, 3] < 40
+            left = np.zeros(out.shape[1], dtype=bool)
+            right = np.zeros(out.shape[1], dtype=bool)
+            left[1:] = solidish[y, :-1]
+            right[:-1] = solidish[y, 1:]
+            crack = hole & left & right
+            if not crack.any():
+                continue
+            if out is merged:
+                out = out.copy()
+            changed = True
+            xs = np.nonzero(crack)[0]
+            for x in xs:
+                src_x = x - 1 if out[y, x - 1, 3] >= out[y, x + 1, 3] else x + 1
+                out[y, x] = out[y, src_x]
+                out[y, x, 3] = 255
+        if not changed:
+            break
+    return out
 
 
 def anim_of(col: int, meta: dict) -> tuple[str, int]:
@@ -1521,59 +1769,29 @@ def anim_of(col: int, meta: dict) -> tuple[str, int]:
 
 def audit_frame(frame: np.ndarray, merged: np.ndarray, direction: str,
                 anim: str, index: int) -> tuple[int, int]:
-    """Missing body pixels, then stray pixels past the body.
+    """See-through pixels inside the copied body, then crumbs outside it.
 
-    The reference is the full James body (head, torso, shorts, legs),
-    including the part the dribble arm was drawn on top of. A body pixel
-    that is transparent here is a hole. The ball in front of him covers
-    the pixels it sits on. The arm tip past the torso is not body.
+    compose() already measured these. This re-checks the returned frame
+    so a later edit can't paint a hole back in without the scan noticing.
     """
+    _merged, kept, _holes, _stray = compose(frame, direction, anim, index)
+    # judge the frame main() actually saved, which is `merged`
+    g0 = Geometry(pad_frame(frame))
+    holes = silhouette_faults(merged, kept, g0.neck)
     src = pad_frame(frame)
     if not alpha_mask(src).any():
         return 0, 0
     g0 = Geometry(src)
-    arm_mask = dribble_arm_mask(src, g0, direction)
-    required = body_required(src, g0, direction, arm_mask)
-    missing = required & (merged[..., 3] <= 24)
-    # same body the dribble pose is tucked against, so the arm and ball
-    # zones line up with the pixels that were actually drawn
-    painted, _chest, _hands = paint_uniform(src, g0, direction)
-    g = Geometry(painted)
-    body = drop_limp_arm(painted, g, direction, arm_mask)
-    body = restore_body(body, painted, g)
-    body = repair_torso(body, g, direction)
-    body = scrub_loose_ink(body)
-    body = restore_body(body, painted, g)
-    body = rebuild_hidden_body(body, src, g0, direction, arm_mask)
-    a = body[..., 3] > 200
-    rim = silhouette(a)
-    yy, xx = np.mgrid[0:body.shape[0], 0:body.shape[1]]
-    side = float(-TAG_SIDE[direction])
-    edge = rim & (yy > g.neck + 5) & (yy < g.hem + 2) & ((xx - g.head_cx) * side > -2)
-    body[edge, :3] = INK
-    body[edge, 3] = 255
-    body = snap_interior(body)
-    body = fill_enclosed_holes(body)
-    shoulder, elbow, rest_hand, high, low, _side = _layout(g0, direction)
-    if direction in BACK:
-        shoulder, elbow, rest_hand, high, low = _tuck_back(
-            body, g0, direction, shoulder, elbow, rest_hand, high, low)
-    t = bounce_t(anim, index)
-    hand = _flick_hand(elbow, rest_hand, t)
-    bx = high[0] * (1.0 - t) + low[0] * t
-    by = high[1] * (1.0 - t) + low[1] * t
-    margin = BALL_R + 0.6
-    bx = float(np.clip(bx, margin, 100.0 - margin))
-    by = float(np.clip(by, margin, 100.0 - margin))
-    if direction not in BACK:
-        h, w = merged.shape[:2]
-        yy, xx = np.mgrid[0:h, 0:w]
-        ball = (xx - bx) ** 2 + (yy - by) ** 2 <= (BALL_R + 2.0) ** 2
-        missing &= ~ball
+    shoulder, elbow, hand, bx, by, _t = _pose(merged, g0, direction, anim, index)
+    h, w = merged.shape[:2]
     gx, gy = bx, float(min(by + BALL_R, 99.0))
-    stray = stray_fragments(
-        merged, required, direction, shoulder, elbow, hand, bx, by, gx, gy, arm_mask)
-    return int(missing.sum()), int(stray.sum())
+    pose = (
+        _zone_arm(h, w, shoulder, elbow, hand, pad=2.2)
+        | _zone_ball(h, w, bx, by)
+        | _zone_shadow(h, w, gx, gy)
+    )
+    stray = (merged[..., 3] > 40) & ~_dilate(kept, 1) & ~pose
+    return int(holes.sum()), int(stray.sum())
 
 
 def main():
@@ -1593,20 +1811,19 @@ def main():
         for c in range(cols):
             anim, index = anim_of(c, meta)
             fr = src[r * fh:(r + 1) * fh, c * fw:(c + 1) * fw]
-            cell = baller(fr, direction, anim, index)
+            cell, _kept, missing, stray = compose(fr, direction, anim, index)
             out[r * ofh:(r + 1) * ofh, c * ofw:(c + 1) * ofw] = cell
-            missing, stray = audit_frame(fr, cell, direction, anim, index)
             if missing or stray:
                 problems.append(
                     f"{direction} {anim} {index} (col {c}): "
-                    f"{missing} body px missing, {stray} stray px"
+                    f"{missing} see-through px inside the body, {stray} stray px"
                 )
     if problems:
-        print("body coverage check failed:")
+        print("body silhouette check failed:")
         for line in problems:
             print(" ", line)
         raise SystemExit(1)
-    print(f"full-body coverage check ok ({len(dirs) * cols} frames)")
+    print(f"body silhouette check ok ({len(dirs) * cols} frames)")
     Image.fromarray(out).save(ASSETS / "kid_basketball.png", optimize=True)
     bb = dict(meta)
     bb["image"] = "kid_basketball.png"
