@@ -332,7 +332,7 @@ skin carries its own frame size and feet line. Animation keys are
   `python3 tools/make_pharaoh_skin.py [--preview /tmp/pharaoh.png]`.
 - `basketball`: `public/assets/kid_basketball.png` (100x100 frames, feet on
   y = 96; 10px each side holds the ball). Generated from `kid.png` by
-  `tools/make_basketball_skin.py`. Navy jersey with orange trim, an NY
+  `tools/make_basketball_skin.py`. Navy sleeveless jersey with orange trim, an NY
   wordmark and number 11 on the front (11 on the back), white headband,
   bare arms, and orange sneakers. An
   orange basketball is dribbled in every animation. The ball stays a

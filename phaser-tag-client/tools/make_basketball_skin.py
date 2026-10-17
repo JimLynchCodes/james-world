@@ -9,9 +9,9 @@ Same columns, rows and animation ranges as kid.png. Frames are padded
 same row as James (see src/skins.ts).
 
 Per frame:
-  1. T-shirt -> navy jersey with orange neck, armhole and hem trim;
-     front views get an orange NEW YORK wordmark and number 11, back
-     views a larger 11, profiles a 1 on the facing flank;
+  1. T-shirt -> sleeveless navy tank with orange neck, armhole and hem
+     trim; bare shoulders. Front views get an orange NEW YORK wordmark
+     and number 11, back views a larger 11, profiles a 1 on the facing flank;
   2. shorts -> navy with an orange leg hem;
   3. both arms stay bare skin, the same tone as James;
   4. white headband across the forehead (wraps the hair on back views);
@@ -339,6 +339,66 @@ def shadow_layer(size, gx: float, gy: float, strength: float) -> np.ndarray:
     return down(col, alpha, size)
 
 
+def _sample_skin(f: np.ndarray, g: Geometry) -> np.ndarray:
+    """Mid skin tone from the arms and face, for the bare shoulders."""
+    yy = np.arange(f.shape[0])[:, None]
+    r = f[..., 0].astype(np.int16)
+    gg = f[..., 1].astype(np.int16)
+    b = f[..., 2].astype(np.int16)
+    sk = (
+        (f[..., 3] > 200) & (r > 170) & (gg > 110) & (b > 60)
+        & (r - b > 30) & (yy > g.top + 8) & (yy < g.hem)
+    )
+    samples = f[sk][:, :3].astype(np.float64)
+    if len(samples) < 8:
+        return np.array([232.0, 168.0, 120.0])
+    return np.median(samples, axis=0)
+
+
+def _sleeve_caps(jersey: np.ndarray, g: Geometry) -> np.ndarray:
+    """Outer shoulder of the t-shirt. A tank leaves that as bare skin.
+
+    The center of each shoulder row stays navy (the strap). The pixels
+    out toward the arm become the armhole.
+    """
+    h, w = jersey.shape
+    cap = np.zeros((h, w), dtype=bool)
+    cx = float(g.head_cx)
+    y0 = int(g.neck) + 2
+    y1 = int(g.neck) + 13
+    for y in range(max(0, y0), min(h, y1)):
+        xs = np.nonzero(jersey[y])[0]
+        if len(xs) < 10:
+            continue
+        width = int(xs.max() - xs.min())
+        cut = 4 if width >= 16 else (3 if width >= 12 else 2)
+        left = min(int(xs.min()) + cut, int(cx) - 4)
+        right = max(int(xs.max()) - cut, int(cx) + 4)
+        if right - left < 6:
+            continue
+        cap[y, xs[xs < left]] = True
+        cap[y, xs[xs > right]] = True
+    return cap
+
+
+def _armhole_edge(jersey: np.ndarray, g: Geometry) -> np.ndarray:
+    """Orange trim down both armholes, from the strap to the armpit."""
+    h, _w = jersey.shape
+    edge = np.zeros_like(jersey)
+    y0 = int(g.neck) + 2
+    y1 = int(g.neck) + 14
+    for y in range(max(0, y0), min(h, y1)):
+        xs = np.nonzero(jersey[y])[0]
+        if len(xs) < 4:
+            continue
+        edge[y, int(xs[0])] = True
+        edge[y, int(xs[-1])] = True
+        if len(xs) > 8:
+            edge[y, int(xs[1])] = True
+            edge[y, int(xs[-2])] = True
+    return edge
+
+
 def paint_uniform(f: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Recolour clothes. Returns (rgba, jersey mask, hand mask)."""
     f = close_streaks(f, g.neck + 2)
@@ -359,6 +419,9 @@ def paint_uniform(f: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndarra
     waist = g.hem - 9
     clothes = a & (yy > g.neck) & ~sk & ~outline & ~hands
     jersey = clothes & (yy <= waist + 1)
+    # sleeveless: the outer shoulder of the tee is skin, not a sleeve cap
+    caps = _sleeve_caps(jersey, g)
+    jersey = jersey & ~caps
     shorts = clothes & (yy > waist) & (yy < g.hem + 2)
     shins = a & sk & (yy >= g.hem) & ~arms & ~hands
     shoes = a & (yy >= g.hem + 2) & ~sk & ~shins & ~arms
@@ -368,6 +431,11 @@ def paint_uniform(f: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndarra
     # so anti-aliased shirt pixels can't turn into a speckled halo.
     rgb = np.where((jersey & ~rim)[..., None], shade(NAVY, L, 0.78, 1.12), rgb)
     rgb = np.where((shorts & ~rim)[..., None], shade(NAVY_DARK, L, 0.85, 1.15), rgb)
+    # bare shoulders. The shirt luminance would paint them brown, so the
+    # tone comes from his skin, and the outline pass inks the rim after.
+    if caps.any():
+        rgb = np.where(caps[..., None], _sample_skin(f, g), rgb)
+        out[caps, 3] = 255
 
     arm = tagging_arm(arms | (outline & grow(arms, a, 1)), g, direction)
     fist = fist_mask(arm & ~rim, g, direction)
@@ -379,12 +447,15 @@ def paint_uniform(f: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndarra
     jtop, jbot = torso_rows(jersey & inner)
     if jtop is not None:
         neck = jersey & inner & (yy <= jtop + 1) & (yy > g.neck + 1)
+        # a shallow scoop in the center of the neckline
+        scoop = jersey & inner & (yy == jtop + 2) & (np.abs(xx - g.head_cx) <= 4)
         hem = jersey & inner & (yy >= jbot - 1)
-        rgb = np.where(neck[..., None], ORANGE, rgb)
+        rgb = np.where((neck | scoop)[..., None], ORANGE, rgb)
         rgb = np.where(hem[..., None], ORANGE, rgb)
-    # orange armhole on the shirt only, where either arm leaves the jersey
-    shoulder = jersey & inner & grow(arms, a, 1) & (yy > g.neck) & (yy <= g.neck + 8)
-    rgb = np.where(shoulder[..., None], ORANGE, rgb)
+    # armholes: both edges of the tank, plus where an arm leaves the shirt
+    armhole = _armhole_edge(jersey & inner, g)
+    armhole |= jersey & inner & grow(arms, a, 1) & (yy > g.neck) & (yy <= g.neck + 14)
+    rgb = np.where(armhole[..., None], ORANGE, rgb)
     if shorts.any():
         ys = np.nonzero((shorts & inner).any(axis=1))[0]
         if len(ys):
@@ -1067,6 +1138,32 @@ def _further_back(x: int, than: int, side: float) -> bool:
     return x < than if side < 0 else x > than
 
 
+def _core_edges(xs: np.ndarray, cx: float) -> tuple[int, int] | None:
+    """The torso run nearest the chest, ignoring a limb that split off."""
+    if len(xs) < 10:
+        return None
+    xs = np.asarray(xs)
+    splits = np.where(np.diff(xs) > 2)[0]
+    best = None
+    best_key = None
+    start = 0
+    for b in list(splits) + [len(xs) - 1]:
+        chunk = xs[start:int(b) + 1]
+        start = int(b) + 1
+        if len(chunk) < 10 or int(chunk[-1] - chunk[0]) < 11:
+            continue
+        if chunk[0] <= cx <= chunk[-1]:
+            key = (0, -(int(chunk[-1] - chunk[0])))
+        else:
+            key = (1, min(abs(int(chunk[0] - cx)), abs(int(chunk[-1] - cx))))
+        if best_key is None or key < best_key:
+            best_key = key
+            best = chunk
+    if best is None:
+        return None
+    return int(best[0]), int(best[-1])
+
+
 def _torso_back_edge(opaque: np.ndarray, arm_mask: np.ndarray,
                      g: Geometry, side: float) -> int | None:
     """Back edge of the torso, from chest rows the dribble arm does not cover.
@@ -1137,6 +1234,15 @@ def body_required(src: np.ndarray, g: Geometry, direction: str,
         else:
             cut = arm_mask[y] & (xs > target)
         required[y, cut] = False
+        # a limb hanging beside a full torso is not the shirt, even when
+        # it lines up with the shoulder. Rebuilding it draws a second arm.
+        core = _core_edges(np.nonzero(opaque[y] & ~arm_mask[y])[0], g.head_cx)
+        if core is not None:
+            lo, hi = core
+            if side < 0:
+                required[y, arm_mask[y] & (xs < lo)] = False
+            else:
+                required[y, arm_mask[y] & (xs > hi)] = False
     return required
 
 
@@ -1241,13 +1347,22 @@ def rebuild_hidden_body(body: np.ndarray, src: np.ndarray, g: Geometry,
     return out
 
 
+def _is_skin_px(px: np.ndarray) -> np.ndarray:
+    r = px[..., 0].astype(np.int16)
+    g = px[..., 1].astype(np.int16)
+    b = px[..., 2].astype(np.int16)
+    return (px[..., 3] > 40) & (r > 160) & (g > 100) & (b > 60) & (r - b > 30) & (g > b)
+
+
 def stray_fragments(merged: np.ndarray, required: np.ndarray, direction: str,
                     shoulder, elbow, hand, bx: float, by: float,
-                    gx: float, gy: float) -> np.ndarray:
+                    gx: float, gy: float,
+                    arm_mask: np.ndarray | None = None) -> np.ndarray:
     """Opaque pixels that are not the full body, the ball, or the new arm.
 
-    `required` is James's body with the torso and legs filled in behind
-    the dribble arm. A shard past that contour is still a fragment.
+    `required` is the torso, head and legs. A shard beside that contour
+    counts in every direction, not only behind a side-view hip. The old
+    dribble limb is one of those shards when it was repainted as a sleeve.
     """
     keep = required
     # inside that silhouette, including a one-pixel outline. A fin that
@@ -1255,43 +1370,34 @@ def stray_fragments(merged: np.ndarray, required: np.ndarray, direction: str,
     shell = np.where(_dilate(keep, 1), np.uint8(255), np.uint8(0))
     allowed = ~_outside_clear(shell, thresh=24)
     h, w = merged.shape[:2]
-    allowed |= _zone_arm(h, w, shoulder, elbow, hand)
-    allowed |= _zone_ball(h, w, bx, by)
-    allowed |= _zone_shadow(h, w, gx, gy)
+    # the drawn arm only. A fatter pad was hiding the old sleeve beside it.
+    stroke = _zone_arm(h, w, shoulder, elbow, hand, pad=1.0)
+    pose = stroke | _zone_ball(h, w, bx, by) | _zone_shadow(h, w, gx, gy)
+    allowed |= pose
     raw = (merged[..., 3] > 80) & ~allowed
-    if not raw.any():
-        return raw
-    # a repaired slit sits inside the shirt. A shard is a patch that touches
-    # the outside, so only those components count.
-    a = merged[..., 3] > 40
-    pad = np.pad(~a, 1, constant_values=True)
-    touches = pad[:-2, 1:-1] | pad[2:, 1:-1] | pad[1:-1, :-2] | pad[1:-1, 2:]
-    exposed = np.zeros_like(raw)
-    for comp in components8(raw):
-        if (comp & touches).any():
-            exposed |= comp
-    # a fin tucked against the hip is enclosed by the foot on the next
-    # row, so the flood above never sees it. It is still past the body.
-    side = _dribble_side(direction)
-    h, w = merged.shape[:2]
-    xs = np.arange(w)[None, :]
-    back = np.full(h, -1, dtype=np.int16)
-    for y in range(h):
-        rb = _back_of(np.nonzero(required[y])[0], side)
-        if rb is not None:
-            back[y] = rb
-    has = back >= 0
-    if side < 0:
-        past = has[:, None] & (xs < back[:, None])
-    else:
-        past = has[:, None] & (xs > back[:, None])
-    pose = (
-        _zone_arm(h, w, shoulder, elbow, hand)
-        | _zone_ball(h, w, bx, by)
-        | _zone_shadow(h, w, gx, gy)
-    )
-    fin = past & (merged[..., 3] > 40) & ~pose
-    return exposed | fin
+    exposed = np.zeros((h, w), dtype=bool)
+    if raw.any():
+        # a repaired slit sits inside the shirt. A shard is a patch that touches
+        # the outside, so only those components count.
+        a = merged[..., 3] > 40
+        pad = np.pad(~a, 1, constant_values=True)
+        touches = pad[:-2, 1:-1] | pad[2:, 1:-1] | pad[1:-1, :-2] | pad[1:-1, 2:]
+        for comp in components8(raw):
+            if (comp & touches).any():
+                exposed |= comp
+    # any direction, not only the side-view back edge. The foot on the next
+    # row can enclose a fin so the flood above never sees it.
+    outside = ~_dilate(required, 1)
+    fin = outside & (merged[..., 3] > 40) & ~pose
+    # the old dribble limb, repainted navy, reads as a second arm. Skin on
+    # that mask is the new arm or the hand, and it stays.
+    hanging = np.zeros((h, w), dtype=bool)
+    if arm_mask is not None:
+        hanging = (
+            arm_mask & ~required & ~pose & ~_is_skin_px(merged)
+            & (merged[..., 3] > 40)
+        )
+    return exposed | fin | hanging
 
 
 def clear_stray_fragments(merged: np.ndarray, stray: np.ndarray) -> np.ndarray:
@@ -1391,7 +1497,7 @@ def baller(frame: np.ndarray, direction: str, anim: str, index: int) -> np.ndarr
     merged = fill_enclosed_holes(merged)
     required = body_required(src, g0, direction, arm_mask)
     stray = stray_fragments(
-        merged, required, direction, shoulder, elbow, hand, bx, by, gx, gy)
+        merged, required, direction, shoulder, elbow, hand, bx, by, gx, gy, arm_mask)
     merged = clear_stray_fragments(merged, stray)
     # clearing a shard can open a slit in the shirt; close that, not the fin
     merged = fill_enclosed_holes(merged)
@@ -1401,7 +1507,7 @@ def baller(frame: np.ndarray, direction: str, anim: str, index: int) -> np.ndarr
     merged = clear_past_contour(
         merged, required, direction, shoulder, elbow, hand, bx, by, gx, gy)
     stray = stray_fragments(
-        merged, required, direction, shoulder, elbow, hand, bx, by, gx, gy)
+        merged, required, direction, shoulder, elbow, hand, bx, by, gx, gy, arm_mask)
     merged = clear_stray_fragments(merged, stray)
     return merged
 
@@ -1466,7 +1572,7 @@ def audit_frame(frame: np.ndarray, merged: np.ndarray, direction: str,
         missing &= ~ball
     gx, gy = bx, float(min(by + BALL_R, 99.0))
     stray = stray_fragments(
-        merged, required, direction, shoulder, elbow, hand, bx, by, gx, gy)
+        merged, required, direction, shoulder, elbow, hand, bx, by, gx, gy, arm_mask)
     return int(missing.sum()), int(stray.sum())
 
 
