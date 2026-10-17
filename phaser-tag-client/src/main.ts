@@ -424,10 +424,11 @@ class GameScene extends Phaser.Scene {
         break;
 
       case "Welcome":
-        // Sent only to us, right after Join: this is our own player id.
+        // Sent only to us, right after Join: this is our own player id and
+        // the spot the server chose. A reconnect is a new body there.
         this.localPlayerId = message.data.player_id;
         this.removeRemotePlayer(message.data.player_id);
-        this.spawnLocalPlayer(message.data.name);
+        this.spawnLocalPlayer(message.data.name, message.data.x, message.data.y);
         this.logEvent(
           t(this.rejoining ? "toast.reconnected" : "toast.joinedSelf", { name: message.data.name })
         );
@@ -436,7 +437,7 @@ class GameScene extends Phaser.Scene {
 
       case "PlayerJoined":
         if (message.data.player_id === this.localPlayerId) break;
-        this.ensureRemotePlayer(message.data.player_id, message.data.name).avatar.setSkin(
+        this.ensureRemotePlayer(message.data.player_id, message.data.name, message.data.x, message.data.y).avatar.setSkin(
           toSkin(message.data.skin)
         );
         this.audio?.playSfx("join");
@@ -489,10 +490,13 @@ class GameScene extends Phaser.Scene {
 
   private applyLocalSnapshot(player: PlayerSnapshot) {
     if (!this.player) return;
-    // Snap to the server position on the first snapshot, then ease toward it.
+    // First report of where we are (no Welcome coords yet): appear there
+    // and put the camera on that spot in the same frame. Later snapshots
+    // ease, so a normal correction doesn't yank the view.
     if (this.localTargetX === null) {
       this.player.x = player.x;
       this.player.y = player.y;
+      this.snapCameraToLocalPlayer();
     }
     this.localTargetX = player.x;
     this.localTargetY = player.y;
@@ -532,12 +536,9 @@ class GameScene extends Phaser.Scene {
     remote.avatar.setLabels({ name: player.name, you: false, it: player.is_it });
   }
 
-  private ensureRemotePlayer(id: UUID, name = ""): RemoteSprite {
+  private ensureRemotePlayer(id: UUID, name = "", x = WORLD_WIDTH / 2, y = WORLD_HEIGHT / 2): RemoteSprite {
     const existing = this.remotePlayers.get(id);
     if (existing) return existing;
-
-    const x = WORLD_WIDTH / 2;
-    const y = WORLD_HEIGHT / 2;
     const avatar = new KidAvatar(this, x, y, PLAYER_RADIUS, name);
     avatar.setRole("human");
 
@@ -816,27 +817,47 @@ class GameScene extends Phaser.Scene {
     });
   }
 
-  /** After Welcome: spawn our kid, follow the camera, leave the title screen. */
-  private spawnLocalPlayer(name: string) {
+  /**
+   * After Welcome: spawn our kid at the server's spot and put the camera
+   * there immediately. A rejoin (the kid already exists) teleports instead
+   * of easing across the yard from wherever we were standing. Coming back
+   * from the secret cave does not use this path — that returns beside the
+   * secret tree (see exitSecret).
+   */
+  private spawnLocalPlayer(name: string, x: number, y: number) {
     this.localName = name;
+    this.localTargetX = x;
+    this.localTargetY = y;
     if (this.playing && this.player) {
+      this.player.x = x;
+      this.player.y = y;
       this.player.setLabels({ name, you: true, it: false });
+      this.snapCameraToLocalPlayer();
       this.renderStatus();
       return;
     }
-    const x = this.localTargetX ?? 400;
-    const y = this.localTargetY ?? 300;
     this.player = new KidAvatar(this, x, y, PLAYER_RADIUS, name);
     this.player.setLabels({ name, you: true, it: false });
     this.player.setRole("self");
     this.player.setSkin(this.localSkin);
-    this.cameras.main.startFollow(this.player.shadow, true, 0.12, 0.12);
+    this.snapCameraToLocalPlayer();
     this.playing = true;
     this.renderStatus();
     document.body.classList.remove("title-mode");
     this.title?.dismiss();
     this.title = null;
     this.audio?.playSfx("join");
+  }
+
+  /**
+   * Centre the camera on our kid this frame. `startFollow` writes scroll
+   * immediately (the lerp only applies on later frames), so the view does
+   * not slide in from the title camera or from a previous spawn.
+   */
+  private snapCameraToLocalPlayer() {
+    if (!this.player) return;
+    this.player.update();
+    this.cameras.main.startFollow(this.player.shadow, true, 0.12, 0.12);
   }
 
   private title: TitleScreen | null = null;
