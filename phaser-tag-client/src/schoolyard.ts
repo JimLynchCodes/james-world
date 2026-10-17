@@ -1165,7 +1165,7 @@ export function createSchoolyard(scene: Phaser.Scene, worldW: number, worldH: nu
   // --- props
   const blocked: Rect[] = [...Object.values(areas)];
   const free = (x: number, y: number, pad: number) =>
-    !blocked.some(r => overlaps(r, x, y, pad)) && Math.hypot(x - 400, y - 300) > 160; // keep the spawn point clear
+    !blocked.some(r => overlaps(r, x, y, pad)) && Math.hypot(x - 400, y - 300) > 160; // open clearing (players spawn at random now)
 
   const occluders: Occluder[] = [];
 

@@ -16,6 +16,13 @@ fn player_cannot_leave_the_world() {
     let mut world = World::new();
     let id = Uuid::new_v4();
     world.add_player(id);
+    // Spawn is a random spot in the yard, so start this walk from a known
+    // place near the corner the player is heading for.
+    {
+        let p = world.players.get_mut(&id).unwrap();
+        p.position.x = 800.0;
+        p.position.y = 800.0;
+    }
 
     // Top-left corner: stopped by the fence, which is inset from the edge.
     run(&mut world, id, -1.0, -1.0, 20);
@@ -37,6 +44,9 @@ fn top_wall_leaves_room_for_the_label_stack() {
     let mut world = World::new();
     let id = Uuid::new_v4();
     world.add_player(id);
+    // Spawn can be anywhere in the yard; start close enough that 20s of
+    // walking reaches the top fence.
+    world.players.get_mut(&id).unwrap().position.y = 1500.0;
 
     // Walk straight up for a long time: stops at the top fence, well below
     // the world edge (the camera can't scroll above y = 0, and the IT / YOU
