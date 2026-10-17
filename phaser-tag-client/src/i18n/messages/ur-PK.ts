@@ -103,6 +103,8 @@ export const urPK: Messages = {
   "skin.pirate.note": "ارے، تم پکڑے گئے!",
   "skin.pharaoh": "فرعون James",
   "skin.pharaoh.note": "مصر والی چال!",
+  "skin.basketball": "باسکٹ بال James",
+  "skin.basketball.note": "سیدھا جال میں!",
 
   "settings.credits.heading": "کریڈٹ",
   "credits.bio":

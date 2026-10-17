@@ -39,6 +39,7 @@ const STEP_SFX: Record<Skin, Sfx> = {
   tuxedo: "tuxedoStep",
   pirate: "pirateStep",
   pharaoh: "pharaohStep",
+  basketball: "basketballStep",
 };
 
 /** Tag swing, when a skin has its own. */
