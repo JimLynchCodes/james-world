@@ -491,6 +491,16 @@ fn skins_default_to_james_and_unknown_values_fall_back() {
         Skin::Pharaoh
     );
     assert_eq!(Skin::parse("pharaohs"), Skin::James);
+    assert!(world.set_skin(human, Skin::parse("basketball")));
+    assert_eq!(world.skin_of(&human), Skin::Basketball);
+    assert_eq!(Skin::parse(" Basketball "), Skin::Basketball);
+    assert_eq!(Skin::Basketball.as_str(), "basketball");
+    assert_eq!(serde_json::to_value(Skin::Basketball).unwrap(), "basketball");
+    assert_eq!(
+        serde_json::from_value::<Skin>(serde_json::json!("basketball")).unwrap(),
+        Skin::Basketball
+    );
+    assert_eq!(Skin::parse("basketballs"), Skin::James);
     assert_eq!(
         Skin::parse("tux"),
         Skin::James,

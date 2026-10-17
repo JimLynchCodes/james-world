@@ -24,6 +24,8 @@ export { directionFromAngle } from "./tagging";
  * frames (tricorn hat on top, cutlass at the sides).
  * Pharaoh James (`kid_pharaoh.png`, from tools/make_pharaoh_skin.py) has
  * padded frames (nemes crown on top, cape flared at the sides).
+ * Basketball James (`kid_basketball.png`, from tools/make_basketball_skin.py)
+ * is padded on the sides for the ball he dribbles in every animation.
  * Animation keys are `<texture>-<anim>-<dir>`, e.g. `kid_banana-walk-SE`.
  */
 const FRAME_W = 80;

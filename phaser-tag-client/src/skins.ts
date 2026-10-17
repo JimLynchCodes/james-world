@@ -10,11 +10,12 @@
  *   tuxedo - public/assets/kid_tuxedo.png  (tools/make_tuxedo_skin.py)
  *   pirate - public/assets/kid_pirate.png  (tools/make_pirate_skin.py)
  *   pharaoh - public/assets/kid_pharaoh.png (tools/make_pharaoh_skin.py)
+ *   basketball - public/assets/kid_basketball.png (tools/make_basketball_skin.py)
  *
  * The id is what goes over the wire (`skin` in Join / SetSkin /
  * PlayerSnapshot); the server falls back to "james" for unknown values.
  */
-export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate" | "pharaoh";
+export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate" | "pharaoh" | "basketball";
 
 export const DEFAULT_SKIN: Skin = "james";
 
@@ -111,6 +112,19 @@ export const SKINS: Record<Skin, SkinSheet> = {
     baselineY: 116,
     // striped crown tops out ~106px above the feet
     artHeight: 106,
+  },
+  basketball: {
+    id: "basketball",
+    label: "Basketball James",
+    note: "Nothing But Net!",
+    texture: "kid_basketball",
+    url: `${BASE}assets/kid_basketball.png`,
+    // padded 10px each side so the dribble stays inside the cell.
+    // 100×100 keeps the skins-card scale on whole pixels.
+    frameWidth: 100,
+    frameHeight: 100,
+    baselineY: 96,
+    artHeight: 90,
   },
 };
 

@@ -9,7 +9,7 @@ A minimal fullscreen Phaser client for the Rust WebSocket protocol.
 - WASD / arrow-key movement, or Mobile mode (tap where to walk, or a
   virtual joystick with Tag and Run buttons)
 - Settings panel (cog, top right): controls mode, volumes, music mood, skin
-- Skins: James (default), Banana James, T-rex James, Tuxedo James, Pirate James, or Pharaoh James, seen by every player
+- Skins: James (default), Banana James, T-rex James, Tuxedo James, Pirate James, Pharaoh James, or Basketball James, seen by every player
 - Music and sound effects: procedural (Web Audio) plus one CC0 lo-fi loop
 - SHIFT to request running
 - SPACE to attempt tagging the nearest player
@@ -236,8 +236,9 @@ player stops.
   a Mood dropdown (Happy, Spooky, Relaxed, Chillin) that picks the music.
 - **Skins**: a card per outfit, with a live preview: **James** (default),
   **Banana James** (squeaky shoes), **T-rex James** (scary stomp),
-  **Tuxedo James** (dress-shoe click), **Pirate James** (boot clomp), and
-  **Pharaoh James** (sand shuffle, short horn on a tag). See "Skins" below.
+  **Tuxedo James** (dress-shoe click), **Pirate James** (boot clomp),
+  **Pharaoh James** (sand shuffle, short horn on a tag), and
+  **Basketball James** (sneaker squeak, dribbling). See "Skins" below.
 
 Only settings the user has actually chosen are saved in `localStorage`
 (`tag26.settings`), and they are applied on load. Invalid or unknown saved
@@ -329,6 +330,18 @@ skin carries its own frame size and feet line. Animation keys are
   whoosh plus a short muted horn, an open fifth (`pharaohSwing`), both on
   the SFX bus. Re-run:
   `python3 tools/make_pharaoh_skin.py [--preview /tmp/pharaoh.png]`.
+- `basketball`: `public/assets/kid_basketball.png` (100x100 frames, feet on
+  y = 96; 10px each side holds the ball). Generated from `kid.png` by
+  `tools/make_basketball_skin.py`. Navy jersey with orange trim, an NY
+  wordmark and number 11 on the front (11 on the back), white headband,
+  white compression sleeve on the tagging arm, and orange sneakers. An
+  orange basketball is dribbled in every animation. The ball stays a
+  circle and leads him in the direction he faces, close to the
+  dribbling-side foot (behind the body when he faces away). One arm
+  hangs at his side and flicks the ball; the seams turn a little each
+  bounce. Footsteps
+  are a gym-floor sneaker squeak (`basketballStep`). Re-run:
+  `python3 tools/make_basketball_skin.py [--preview /tmp/basketball.png]`.
 
 Multiplayer: the client sends its skin in `Join` (`skin`, optional) and
 `SetSkin { skin }` when it changes in Settings. The server stores it on the

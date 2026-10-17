@@ -101,6 +101,8 @@ export const enUS = {
   "skin.pirate.note": "Arrr, You're It!",
   "skin.pharaoh": "Pharaoh James",
   "skin.pharaoh.note": "Walk Like An Egyptian!",
+  "skin.basketball": "Basketball James",
+  "skin.basketball.note": "Nothing But Net!",
 
   "settings.credits.heading": "Credits",
   "credits.bio":

@@ -84,7 +84,7 @@ test("space keyup does not swallow a same-step tag press", () => {
   assert.equal(latchTagPress(false, "up"), false);
 });
 
-const SKINS = ["kid", "kid_pharaoh", "kid_banana", "kid_trex", "kid_tuxedo", "kid_pirate"] as const;
+const SKINS = ["kid", "kid_pharaoh", "kid_banana", "kid_trex", "kid_tuxedo", "kid_pirate", "kid_basketball"] as const;
 
 test("arrow up+left and WASD northwest are the same axes", () => {
   assert.deepEqual(movementAxes(new Set(["ArrowUp", "ArrowLeft"])), movementAxes(new Set(["KeyW", "KeyA"])));

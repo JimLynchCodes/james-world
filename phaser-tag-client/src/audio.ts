@@ -14,7 +14,7 @@
 
 import type { Mood, Settings } from "./settings";
 
-export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "click" | "blip" | "secret";
+export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "basketballStep" | "click" | "blip" | "secret";
 
 const CROSSFADE_S = 1.5;
 const LOOKAHEAD_S = 0.15;
@@ -530,6 +530,8 @@ export class GameAudio {
   private pirateSteps = 0;
   /** Pharaoh James alternates feet so the sand shuffle isn't a machine gun. */
   private pharaohFoot = false;
+  /** Basketball James: left / right sneaker squeak. */
+  private basketballFoot = false;
   private lastJoin = 0;
   private buffers = new Map<Mood, AudioBuffer>();
   private loads = new Map<Mood, LoadStatus>();
@@ -773,6 +775,22 @@ export class GameAudio {
         syn.tone(t + 0.02, 196, { type: "sine", gain: 0.05 * v, attack: 0.01, hold: 0.05, release: 0.16, filter: 800 });
         syn.tone(t + 0.02, 392, { type: "triangle", gain: 0.07 * v, attack: 0.012, hold: 0.06, release: 0.18, filter: 1800 });
         syn.tone(t + 0.025, 587, { type: "triangle", gain: 0.04 * v, attack: 0.014, hold: 0.05, release: 0.2, filter: 2000 });
+        break;
+      }
+      case "basketballStep": { // Basketball James: gym-floor sneaker squeak plus a soft sole
+        this.basketballFoot = !this.basketballFoot;
+        const p = (this.basketballFoot ? 1 : 0.9) * (0.94 + Math.random() * 0.1);
+        syn.tone(t, 1680 * p, {
+          type: "sawtooth",
+          glideTo: 820 * p,
+          attack: 0.004,
+          hold: 0.012,
+          release: 0.05,
+          gain: 0.035 * v,
+          filter: 3400,
+        });
+        syn.noise(t, { filter: "bandpass", freq: 2400 * p, sweepTo: 700, q: 2.4, gain: 0.14 * v, attack: 0.002, release: 0.045 });
+        syn.tone(t, 110 * p, { gain: 0.05 * v, attack: 0.002, release: 0.04 });
         break;
       }
       case "click":
