@@ -64,7 +64,8 @@ TAG_SIDE = {"E": 1, "SE": 1, "S": 1, "SW": -1, "W": -1, "NW": -1, "N": 1, "NE": 
 
 # Feet line of the unpadded kid. The ball rests on this row.
 GROUND = 96.0
-BALL_R = 6.0
+# A touch bigger than a fist, still narrower than the torso.
+BALL_R = 7.3
 
 C = lambda *v: np.array(v, dtype=np.float64)  # noqa: E731
 NAVY = C(16, 48, 148)
@@ -126,15 +127,15 @@ def centered_pattern(pattern: tuple[str, ...], cx: float, y: int) -> tuple[int, 
     return int(round(cx - (width - 1) / 2)), y
 
 
-# Bounce amount: 0 = up in the hand, 1 = on the ground. Four-frame cycles
-# fall fast and leave the floor quicker than they arrive, so a 4-frame
-# loop still reads as a bounce. Tag holds the squash on the reach frame.
+# Bounce amount: 0 = up in the hand, 1 = on the ground.
+# Idle, breathe and walk (the skins-card preview) stay up by the hand.
+# A full rest on the floor reads as the ball just sitting by the feet.
+# Run and tag still bounce all the way down.
 def bounce_t(anim: str, index: int) -> float:
-    cycle = (0.0, 0.70, 1.0, 0.28)
-    if anim in ("idle", "breathe"):
-        return cycle[index % 4]
-    if anim in ("walk", "run"):
-        return cycle[index % 4]
+    if anim in ("idle", "breathe", "walk"):
+        return (0.0, 0.38, 0.62, 0.22)[index % 4]
+    if anim == "run":
+        return (0.0, 0.70, 1.0, 0.28)[index % 4]
     # tag: 6 frames, squash on the held reach (index 3)
     return (0.08, 0.42, 0.82, 1.0, 0.48, 0.14)[index]
 
@@ -166,30 +167,52 @@ def dribble_hand(f: np.ndarray, g: Geometry, direction: str) -> tuple[float, flo
     return best
 
 
-def sleeve_mask(f: np.ndarray, g: Geometry, arms: np.ndarray, hands: np.ndarray, direction: str) -> np.ndarray:
-    """The tagging arm, minus the hand. One component, or the tag-side half
-    when the arms touch (profiles)."""
-    h, w = f.shape[:2]
+def silhouette(alpha: np.ndarray) -> np.ndarray:
+    """Opaque pixels that touch transparency. These stay a dark outline
+    so a recolor can't leave a white or orange fringe."""
+    a = alpha
+    pad = np.pad(a, 1, constant_values=False)
+    neighbor_clear = (
+        ~pad[:-2, 1:-1] | ~pad[2:, 1:-1] | ~pad[1:-1, :-2] | ~pad[1:-1, 2:]
+    )
+    return a & neighbor_clear
+
+
+def tagging_arm(arms: np.ndarray, g: Geometry, direction: str) -> np.ndarray:
+    """The arm James tags with, or the tag-side half when both arms touch."""
+    h, w = arms.shape
     xx = np.arange(w)[None, :]
     tag = TAG_SIDE[direction]
-    comps = [c for c in components8(arms & ~hands) if c.sum() >= 12]
+    comps = [c for c in components8(arms) if c.sum() >= 12]
     if not comps:
         return np.zeros(arms.shape, dtype=bool)
+
     def score(c: np.ndarray) -> float:
-        ys, xs = np.nonzero(c)
+        _ys, xs = np.nonzero(c)
         return (float(xs.mean()) - g.head_cx) * tag
 
     best = max(comps, key=score)
     if score(best) < 1:
         return np.zeros(arms.shape, dtype=bool)
-    ys, xs = np.nonzero(best)
-    spans = xs.min() < g.head_cx - 3 and xs.max() > g.head_cx + 3
-    if spans:
+    _ys, xs = np.nonzero(best)
+    if xs.min() < g.head_cx - 3 and xs.max() > g.head_cx + 3:
         best = best & ((xx - g.head_cx) * tag > 1)
-    # grow back onto the arm so the shoulder isn't a skin island, but
-    # never across the midline onto the dribbling arm
-    within = arms & ~hands & ((xx - g.head_cx) * tag > -1)
-    return grow(best, within, 2)
+    within = arms & ((xx - g.head_cx) * tag > -1)
+    return grow(best, within, 1)
+
+
+def fist_mask(arm: np.ndarray, g: Geometry, direction: str) -> np.ndarray:
+    """The outer end of the tagging arm. Wide enough that the hand still
+    reads at the end of the sleeve on the reach frame."""
+    if not arm.any():
+        return np.zeros(arm.shape, dtype=bool)
+    h, w = arm.shape
+    xx = np.arange(w)[None, :]
+    tag = TAG_SIDE[direction]
+    ys, xs = np.nonzero(arm)
+    outward = (xs.astype(np.float64) - g.head_cx) * tag
+    cut = float(outward.max()) - 7.0
+    return arm & ((xx - g.head_cx) * tag >= cut) & (np.arange(h)[:, None] > g.neck)
 
 
 def ball_layer(size, cx: float, cy: float, rx: float, ry: float, shadow: float) -> np.ndarray:
@@ -263,70 +286,66 @@ def paint_uniform(f: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndarra
     shins = a & sk & (yy >= g.hem) & ~arms & ~hands
     shoes = a & (yy >= g.hem + 2) & ~sk & ~shins & ~arms
 
-    rgb = np.where(jersey[..., None], shade(NAVY, L, 0.70, 1.18), rgb)
-    rgb = np.where(shorts[..., None], shade(NAVY, L, 0.58, 1.02), rgb)
-    # dark cloth outline on the outfit -> navy, so no teal halo remains
-    cloth_ink = outline & (yy > g.neck + 1) & (yy < g.hem + 6) & ~hands & ~face
-    rgb = np.where(cloth_ink[..., None], NAVY_DARK, rgb)
+    rim = silhouette(a)
+    # interior cloth only. The 1px rim is painted last, one dark colour,
+    # so anti-aliased shirt pixels can't turn into a speckled halo.
+    rgb = np.where((jersey & ~rim)[..., None], shade(NAVY, L, 0.78, 1.12), rgb)
+    rgb = np.where((shorts & ~rim)[..., None], shade(NAVY_DARK, L, 0.85, 1.15), rgb)
 
-    sleeve = sleeve_mask(f, g, arms, hands, direction)
+    arm = tagging_arm(arms | (outline & grow(arms, a, 1)), g, direction)
+    fist = fist_mask(arm & ~rim, g, direction)
+    # the original hand detector, so a hanging arm still ends in skin
+    fist = fist | (hands & arm & ~rim)
+    sleeve = arm & ~fist & ~rim & (yy > g.neck)
     if sleeve.any():
-        rgb = np.where(sleeve[..., None], shade(WHITE, L, 0.78, 1.05), rgb)
-        # wrist: sleeve pixels touching the hand, a shade darker
-        cuff = grow(hands, sleeve, 1) & sleeve
+        rgb = np.where(sleeve[..., None], shade(WHITE, L, 0.92, 1.02), rgb)
+        cuff = grow(fist, sleeve, 1) & sleeve
         rgb = np.where(cuff[..., None], WHITE_SHADE, rgb)
+    # put the fist back in the kid's own skin, on top of the sleeve
+    rgb = np.where(fist[..., None], f[..., :3].astype(np.float64), rgb)
 
-    # orange trim: neck, hem, armholes, shorts cuffs
-    jtop, jbot = torso_rows(jersey)
+    # orange trim sits one pixel in from the silhouette
+    inner = ~rim
+    jtop, jbot = torso_rows(jersey & inner)
     if jtop is not None:
-        neck = jersey & (yy <= jtop + 1)
-        hem = jersey & (yy >= jbot - 1)
+        neck = jersey & inner & (yy <= jtop + 1) & (yy > g.neck + 1)
+        hem = jersey & inner & (yy >= jbot - 1)
         rgb = np.where(neck[..., None], ORANGE, rgb)
         rgb = np.where(hem[..., None], ORANGE, rgb)
-    armhole = jersey & grow(arms | sleeve, a, 1)
-    rgb = np.where(armhole[..., None], ORANGE, rgb)
-    # shorts: bottom row of each leg + a 1px outer side stripe
+    # armhole: only the shoulder, not a trail of orange down the sleeve
+    shoulder = jersey & inner & grow(sleeve, a, 1) & (yy <= g.neck + 8)
+    rgb = np.where(shoulder[..., None], ORANGE, rgb)
     if shorts.any():
-        cuff_rows = np.zeros_like(shorts)
-        side = np.zeros_like(shorts)
-        for y in range(h):
-            span = row_span(shorts, y)
-            if span[0] is None:
-                continue
-            x0, x1 = span
-            side[y, x0] = True
-            side[y, x1] = True
-        ys = np.nonzero(shorts.any(axis=1))[0]
+        ys = np.nonzero((shorts & inner).any(axis=1))[0]
         if len(ys):
-            cuff_rows[ys[-1]] = shorts[ys[-1]]
+            cuff_rows = np.zeros_like(shorts)
+            cuff_rows[ys[-1]] = shorts[ys[-1]] & inner[ys[-1]]
             if len(ys) > 3:
-                cuff_rows[ys[-2]] = shorts[ys[-2]]
-        rgb = np.where((cuff_rows | side)[..., None], ORANGE, rgb)
+                cuff_rows[ys[-2]] = shorts[ys[-2]] & inner[ys[-2]]
+            rgb = np.where(cuff_rows[..., None], ORANGE, rgb)
 
-    # sneakers: orange upper, white sole and a side stripe, white toe
-    if shoes.any():
-        rgb = np.where(shoes[..., None], shade(SHOE_ORANGE, L, 0.75, 1.2), rgb)
-        for comp in components8(shoes):
+    # sneakers: the tan ankle and the dark shoe both become jersey orange.
+    # Shading from the original near-black pixels was reading as brown.
+    footwear = a & (yy >= g.hem) & ~jersey & ~shorts & ~arms & ~hands & ~fist
+    if footwear.any():
+        rgb = np.where((footwear & ~rim)[..., None], ORANGE, rgb)
+        for comp in components8(footwear):
             if comp.sum() < 4:
                 continue
             ys, xs = np.nonzero(comp)
             y1 = int(ys.max())
-            sole = comp & (yy >= y1 - 1)
+            sole = comp & ~rim & (yy >= y1 - 2)
             rgb = np.where(sole[..., None], SOLE, rgb)
-            # stripe across the upper third of the shoe
-            stripe_y = int(ys.min() + max(1, (y1 - ys.min()) * 0.35))
-            stripe = comp & (yy == stripe_y)
+            stripe_y = int(ys.min() + max(1, (y1 - int(ys.min())) * 0.42))
+            stripe = comp & ~rim & (yy == stripe_y)
             rgb = np.where(stripe[..., None], WHITE, rgb)
-            # toe: the facing end (front views: both outer corners; profiles: facing side)
             face_side = PROFILE.get(direction, FRONT.get(direction, 0))
             if face_side == 0:
-                # both shoes: outer pixels
-                left = xs.min()
-                right = xs.max()
-                toe = comp & ((xx <= left + 1) | (xx >= right - 1)) & (yy <= y1 - 2)
+                left, right = int(xs.min()), int(xs.max())
+                toe = comp & ~rim & ((xx <= left + 1) | (xx >= right - 1)) & (yy <= y1 - 3)
             else:
-                end = xs.max() if face_side > 0 else xs.min()
-                toe = comp & (np.abs(xx - end) <= 1) & (yy <= y1 - 2)
+                end = int(xs.max() if face_side > 0 else xs.min())
+                toe = comp & ~rim & (np.abs(xx - end) <= 1) & (yy <= y1 - 3)
             rgb = np.where(toe[..., None], WHITE, rgb)
 
     # headband: a white wrap on the hairline, above the eyes. Filled
@@ -347,6 +366,9 @@ def paint_uniform(f: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndarra
         else:
             col = WHITE
         for x in range(x0, x1 + 1):
+            # the hair's own outline stays dark; painting it white is the halo
+            if rim[y, x]:
+                continue
             # stay inside the head: don't bridge a real gap beside an ear
             if x0 < x < x1 and not a[y, x]:
                 # only fill 1-2px holes
@@ -383,8 +405,16 @@ def paint_uniform(f: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndarra
         flank = int(round(g.head_cx + side * 5 - (1 if side > 0 else 0)))
         stamp_pattern(rgb, chest, one, flank, num_y, ORANGE_HOT)
 
+    # one dark rim around the body, after every recolor, so jersey, shorts,
+    # sleeve and shoe edges match the other skins' crisp outline
+    body_rim = rim & (yy > g.neck + 1)
+    rgb = np.where(body_rim[..., None], INK, rgb)
+    soft = (out[..., 3] > 0) & (out[..., 3] < 240) & (yy > g.neck + 1)
+    rgb = np.where(soft[..., None], INK, rgb)
+    out[..., 3] = np.where(soft, np.uint8(255), out[..., 3])
+
     out[..., :3] = np.clip(rgb, 0, 255).astype(np.uint8)
-    return out, chest, hands
+    return out, chest, hands | fist
 
 
 def place_ball(body: np.ndarray, g: Geometry, direction: str, anim: str, index: int) -> tuple[float, float, float, float, bool]:
@@ -402,8 +432,8 @@ def place_ball(body: np.ndarray, g: Geometry, direction: str, anim: str, index: 
     # drag the ball sideways; it should only bounce. Profiles and the
     # back sit a little further out so the rear foot doesn't swallow the
     # ball, and the tag / run clips nudge it out with the wider stance.
-    outward = {"E": 17.2, "SE": 16.0, "S": 16.4, "SW": 16.0,
-               "W": 17.2, "NW": 16.6, "N": 19.2, "NE": 16.6}[direction]
+    outward = {"E": 18.4, "SE": 17.2, "S": 17.6, "SW": 17.2,
+               "W": 18.4, "NW": 17.8, "N": 20.2, "NE": 17.8}[direction]
     if anim == "tag":
         outward += 2.4
     elif anim == "run":
@@ -411,9 +441,9 @@ def place_ball(body: np.ndarray, g: Geometry, direction: str, anim: str, index: 
     bx = g.head_cx + side * outward
     if squashed:
         bx += side * (rx - BALL_R) * 0.4
-    # Top of the bounce meets the hand, but never rises above the hip.
-    # The run clip swings that arm up to the chest; a dribble stays low.
-    cy_hand = float(np.clip(hy + 3.2, g.hem - 11.0, g.hem - 2.0))
+    # Top of the bounce sits in the hand. Clamped so a raised run arm
+    # can't carry the ball up to the chest.
+    cy_hand = float(np.clip(hy + 1.2, g.hem - 18.0, g.hem - 8.0))
     cy_ground = GROUND - ry
     cy = cy_hand + (cy_ground - cy_hand) * (t ** 1.15)
     margin = 1.2
