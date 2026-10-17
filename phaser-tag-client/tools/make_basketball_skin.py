@@ -8,28 +8,26 @@ Same columns, rows and animation ranges as kid.png. Frames are padded
 (PAD_SIDE each side so the ball never clips the cell). Feet stay on the
 same row as James (see src/skins.ts).
 
-Per frame:
-  1. T-shirt -> sleeveless navy tank with orange neck, armhole and hem
-     trim; bare shoulders. Front views get an orange NEW YORK wordmark
-     and number 11, back views a larger 11, profiles a 1 on the facing flank;
-  2. shorts -> navy with an orange side stripe. Hips, shorts, legs
-     and shoes are the base James pixels for that same frame, recolored,
-     so the leg cycle matches him;
-  3. both arms stay bare skin, the same tone as James;
-  4. white headband across the forehead (wraps the hair on back views);
-  5. sneakers -> orange with a white sole, side stripe and toe;
-  6. an orange basketball with the original round seam pattern, dribbled
-     on every frame. It stays a circle (no squash). Seams are pre-rendered
-     at a few rotations so the spin stays crisp. The ball stays in front
-     of him along the way he faces, close to the dribbling-side foot:
-     lower on screen when he faces the camera, just ahead of the front
-     foot in profile, and farther from the camera (drawn behind the body)
-     when he faces away. One arm hangs from that shoulder and dribbles.
-     The tagging arm stays bare skin and still tags.
+Per frame the full base James sprite is recolored in place. His silhouette
+is never cut: torso, waist, hips, legs, feet and both arms stay, and every
+pixel that is opaque on James stays opaque here.
 
-Face, hair and neck (under the headband) are James's. Both arms are bare
-skin. The dribbling arm is one tapered limb hanging at his side, with
-the hand between the hip and the knee.
+  1. T-shirt -> sleeveless navy tank with orange neck, armhole and hem
+     trim; the arms stay bare skin. Front views get an orange NEW YORK
+     wordmark and number 11, back views a larger 11, profiles a 1 on the
+     facing flank;
+  2. shorts -> navy with an orange side stripe;
+  3. sneakers -> orange with a white sole;
+  4. white headband across the forehead (wraps the hair on back views);
+  5. an orange basketball, still a circle, dribbled on every frame, plus
+     the dribbling hand and forearm drawn on top of that silhouette.
+     Seams are pre-rendered at a few rotations so the spin stays crisp.
+     The ball stays in front of him along the way he faces: lower on
+     screen when he faces the camera, just ahead of the front foot in
+     profile, and behind the body when he faces away.
+
+Face, hair and neck (under the headband) are James's. Nothing erases a
+body pixel to make room for the ball or the dribble.
 
 Requires: Python 3 + Pillow + numpy.  Usage:
     python3 tools/make_basketball_skin.py [--preview /tmp/basketball_preview.png]
@@ -357,34 +355,63 @@ def _sample_skin(f: np.ndarray, g: Geometry) -> np.ndarray:
     return np.median(samples, axis=0)
 
 
-def _sleeve_caps(jersey: np.ndarray, g: Geometry) -> np.ndarray:
-    """Outer shoulder of the t-shirt. A tank leaves that as bare skin.
+def _torso_column(jersey: np.ndarray, g: Geometry) -> tuple[int, int] | None:
+    """X span of the shirt below the shoulders. That column is the body."""
+    h = jersey.shape[0]
+    lefts, rights = [], []
+    y0 = int(g.neck) + 12
+    y1 = int(g.hem) - 8
+    for y in range(max(0, y0), min(h, y1)):
+        xs = np.nonzero(jersey[y])[0]
+        if len(xs) < 6:
+            continue
+        best = None
+        start = 0
+        splits = list(np.where(np.diff(xs) > 2)[0]) + [len(xs) - 1]
+        for b in splits:
+            run = xs[start:int(b) + 1]
+            start = int(b) + 1
+            if best is None or len(run) > len(best):
+                best = run
+        if best is None or len(best) < 6:
+            continue
+        lefts.append(int(best[0]))
+        rights.append(int(best[-1]))
+    if not lefts:
+        return None
+    return int(np.median(lefts)), int(np.median(rights))
 
-    The center of each shoulder row stays navy (the strap). The pixels
-    out toward the arm become the armhole.
+
+def _sleeve_caps(jersey: np.ndarray, g: Geometry) -> np.ndarray:
+    """Bare skin only where a sleeve sticks out past the torso.
+
+    A side or diagonal shirt is the torso itself. Shaving its edges
+    leaves a navy sliver and the midsection looks cut out.
     """
     h, w = jersey.shape
     cap = np.zeros((h, w), dtype=bool)
-    cx = float(g.head_cx)
+    column = _torso_column(jersey, g)
+    if column is None:
+        return cap
+    torso_lo, torso_hi = column
     y0 = int(g.neck) + 2
     y1 = int(g.neck) + 13
     for y in range(max(0, y0), min(h, y1)):
         xs = np.nonzero(jersey[y])[0]
-        if len(xs) < 10:
+        if len(xs) < 8:
             continue
-        width = int(xs.max() - xs.min())
-        cut = 4 if width >= 16 else (3 if width >= 12 else 2)
-        left = min(int(xs.min()) + cut, int(cx) - 4)
-        right = max(int(xs.max()) - cut, int(cx) + 4)
-        if right - left < 6:
+        outside = (xs < torso_lo) | (xs > torso_hi)
+        if not outside.any():
             continue
-        cap[y, xs[xs < left]] = True
-        cap[y, xs[xs > right]] = True
+        # keep a solid chest; a row that would lose it is the body, not a sleeve
+        if int((~outside).sum()) < 8:
+            continue
+        cap[y, xs[outside]] = True
     return cap
 
 
 def _armhole_edge(jersey: np.ndarray, g: Geometry) -> np.ndarray:
-    """Orange trim down both armholes, from the strap to the armpit."""
+    """One pixel of orange where the tank meets the arm, not a band across the chest."""
     h, _w = jersey.shape
     edge = np.zeros_like(jersey)
     y0 = int(g.neck) + 2
@@ -395,9 +422,6 @@ def _armhole_edge(jersey: np.ndarray, g: Geometry) -> np.ndarray:
             continue
         edge[y, int(xs[0])] = True
         edge[y, int(xs[-1])] = True
-        if len(xs) > 8:
-            edge[y, int(xs[1])] = True
-            edge[y, int(xs[-2])] = True
     return edge
 
 
@@ -453,7 +477,10 @@ def paint_uniform(f: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndarra
     outline = a & (L < 42)
 
     waist = g.hem - 9
-    clothes = a & (yy > g.neck) & ~sk & ~outline & ~hands
+    # dark shirt and shorts pixels are still cloth. The outline test used
+    # to drop them, and on a side view the whole short then stayed James's
+    # muddy grey instead of navy. The rim is inked afterwards.
+    clothes = a & (yy > g.neck) & ~sk & ~hands
     jersey = clothes & (yy <= waist + 1)
     # sleeveless: the outer shoulder of the tee is skin, not a sleeve cap
     caps = _sleeve_caps(jersey, g)
@@ -482,10 +509,11 @@ def paint_uniform(f: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndarra
     inner = ~rim
     jtop, jbot = torso_rows(jersey & inner)
     if jtop is not None:
-        neck = jersey & inner & (yy <= jtop + 1) & (yy > g.neck + 1)
-        # a shallow scoop in the center of the neckline
-        scoop = jersey & inner & (yy == jtop + 2) & (np.abs(xx - g.head_cx) <= 4)
-        hem = jersey & inner & (yy >= jbot - 1)
+        # one row of collar and one row of hem. A second row of orange
+        # across a side-view chest reads as the jersey being missing.
+        neck = jersey & inner & (yy == jtop) & (yy > g.neck + 1)
+        scoop = jersey & inner & (yy == jtop + 1) & (np.abs(xx - g.head_cx) <= 3)
+        hem = jersey & inner & (yy == jbot)
         rgb = np.where((neck | scoop)[..., None], ORANGE, rgb)
         rgb = np.where(hem[..., None], ORANGE, rgb)
     # armholes: both edges of the tank, plus where an arm leaves the shirt
@@ -960,14 +988,25 @@ def _arm_samples(shoulder, elbow, hand, n: int = 26):
 
 
 def draw_dribble_arm(rgba: np.ndarray, g: Geometry, direction: str,
-                     shoulder, elbow, hand) -> None:
-    """One continuous tapered arm: filled, antialiased, then outlined.
+                     shoulder, elbow, hand, forearm_only: bool = False) -> None:
+    """Tapered skin limb drawn on top of the body. Nothing underneath is erased.
 
-    Bare skin, same as the other arm. The mitt is the rounded end of the
-    same shape, not a separate circle.
+    forearm_only draws the hand and forearm (elbow to mitt). James's own
+    upper arm stays where his frame put it.
     """
     h, w = rgba.shape[:2]
-    pts, frac, total = _arm_samples(shoulder, elbow, hand)
+    if forearm_only:
+        p0 = np.array(elbow, dtype=np.float64)
+        p2 = np.array(hand, dtype=np.float64)
+        t = np.linspace(0.0, 1.0, 18)
+        pts = (1.0 - t)[:, None] * p0 + t[:, None] * p2
+        step = np.hypot(np.diff(pts[:, 0]), np.diff(pts[:, 1]))
+        dist = np.concatenate([[0.0], np.cumsum(step)])
+        total = float(dist[-1]) or 1.0
+        # the forearm half of the taper, widening into the mitt at the end
+        frac = 0.42 + 0.58 * (dist / total)
+    else:
+        pts, frac, total = _arm_samples(shoulder, elbow, hand)
     # overlap the shirt so the sleeve grows out of the armhole
     sx, sy = shoulder
     Y, X = np.mgrid[0:h, 0:w]
@@ -1005,10 +1044,15 @@ def draw_dribble_arm(rgba: np.ndarray, g: Geometry, direction: str,
     layer[aa & below, :3] = (INK / 255.0) * cover[..., None]
     layer[aa & below, 3] = cover
 
-    # tuck the round start of the sleeve back under the jersey
+    # the root sits under the jersey so the limb grows out of the body
+    # instead of a floating cap. Those pixels are his, put back as they were.
     base = premul(rgba)
     tucked = to_u8(over(base, layer))
-    near = (np.hypot(X - sx, Y - sy) <= 5.2) & (Y <= sy + 1.5) & (rgba[..., 3] > 200)
+    if forearm_only:
+        ex, ey = elbow
+        near = (np.hypot(X - ex, Y - ey) <= 3.0) & (rgba[..., 3] > 200)
+    else:
+        near = (np.hypot(X - sx, Y - sy) <= 5.2) & (Y <= sy + 1.5) & (rgba[..., 3] > 200)
     tucked[near] = rgba[near]
     rgba[...] = tucked
 
@@ -1662,15 +1706,28 @@ def baller(frame: np.ndarray, direction: str, anim: str, index: int) -> np.ndarr
     return merged
 
 
+def _alpha_lost(src: np.ndarray, merged: np.ndarray) -> int:
+    """Opaque James pixels that Basketball made see-through."""
+    src_a = src[..., 3]
+    out_a = merged[..., 3]
+    missing = (src_a > 40) & (out_a <= 40)
+    weak = (src_a >= 200) & (out_a < 200)
+    return int(missing.sum() + weak.sum())
+
+
 def compose(frame: np.ndarray, direction: str, anim: str, index: int):
-    """Lower body copied from this James frame, tank and arms composited on top."""
+    """Recolor this James frame in place, then draw the ball and forearm on top.
+
+    No body pixel is erased. `kept` is James's own opaque mask, and the
+    returned hole count is how many of those pixels lost their alpha.
+    """
     src = pad_frame(frame)
     if not alpha_mask(src).any():
         return src, np.zeros(src.shape[:2], dtype=bool), 0, 0
     g0 = Geometry(src)
-    prepared, kept = prepare_james(src, g0, direction)
-    body, _chest, _hands = paint_uniform(prepared, Geometry(prepared), direction)
-    # the copied body stays fully opaque. Recolor never opens a pixel.
+    body, _chest, _hands = paint_uniform(src, g0, direction)
+    # recolor may only add opacity. His silhouette is the mask we keep.
+    kept = src[..., 3] > 40
     body[kept, 3] = 255
     shoulder, elbow, hand, bx, by, t = _pose(body, g0, direction, anim, index)
     gx, gy, behind = bx, float(min(by + BALL_R, 99.0)), direction in BACK
@@ -1678,35 +1735,20 @@ def compose(frame: np.ndarray, direction: str, anim: str, index: int):
     ball = np.zeros_like(shadow)
     _paste(ball, ball_sprite(spin_deg(anim, index)), bx, by)
     if behind:
+        # the ball is farther from the camera; the body covers it.
+        # the dribbling forearm stays on top of that silhouette.
         solid = body.copy()
-        solid[solid[..., 3] > 40, 3] = 255
-        under = to_u8(over(over(shadow, ball), premul(solid)))
-        merged = under.copy()
-        draw_dribble_arm(merged, g0, direction, shoulder, elbow, hand)
-        merged = clear_waist_fringe(merged)
-        _occlude_reach(merged, solid, hand[0], hand[1])
+        solid[kept, 3] = 255
+        merged = to_u8(over(over(shadow, ball), premul(solid)))
     else:
         merged = to_u8(over(premul(body), over(shadow, ball)))
-        draw_dribble_arm(merged, g0, direction, shoulder, elbow, hand)
-    h, w = merged.shape[:2]
-    yy, xx = np.mgrid[0:h, 0:w]
-    # the pre-rendered ball is a hair wider than the disc the pose uses
-    ball_zone = (xx - bx) ** 2 + (yy - by) ** 2 <= (BALL_R + 5.0) ** 2
-    pose = (
-        _zone_arm(h, w, shoulder, elbow, hand, pad=2.4)
-        | ball_zone
-        | _zone_shadow(h, w, gx, gy)
-    )
-    # crumbs of the old arm outline, outside his body. Not a repaint of the legs.
-    shell = _dilate(kept, 1)
-    stray = (merged[..., 3] > 40) & ~shell & ~pose
-    if stray.any():
+    draw_dribble_arm(merged, g0, direction, shoulder, elbow, hand, forearm_only=True)
+    lost = kept & (merged[..., 3] <= 40)
+    if lost.any():
         merged = merged.copy()
-        merged[stray] = 0
-    stray = (merged[..., 3] > 40) & ~shell & ~pose
-    merged = _seal_body_slits(merged, g0.neck)
-    holes = silhouette_faults(merged, kept, g0.neck)
-    return merged, kept, int(holes.sum()), int(stray.sum())
+        merged[lost] = body[lost]
+        merged[lost, 3] = 255
+    return merged, kept, _alpha_lost(src, merged), 0
 
 
 def _seal_body_slits(merged: np.ndarray, neck: int) -> np.ndarray:
@@ -1813,17 +1855,20 @@ def main():
             fr = src[r * fh:(r + 1) * fh, c * fw:(c + 1) * fw]
             cell, _kept, missing, stray = compose(fr, direction, anim, index)
             out[r * ofh:(r + 1) * ofh, c * ofw:(c + 1) * ofw] = cell
-            if missing or stray:
+            src_pad = pad_frame(fr)
+            # every opaque James pixel is still opaque, frame for frame
+            gap = _alpha_lost(src_pad, cell)
+            if gap or missing or stray:
                 problems.append(
                     f"{direction} {anim} {index} (col {c}): "
-                    f"{missing} see-through px inside the body, {stray} stray px"
+                    f"{gap} James pixels lost their alpha"
                 )
     if problems:
-        print("body silhouette check failed:")
+        print("alpha mask check failed:")
         for line in problems:
             print(" ", line)
         raise SystemExit(1)
-    print(f"body silhouette check ok ({len(dirs) * cols} frames)")
+    print(f"alpha mask check ok ({len(dirs) * cols} frames)")
     Image.fromarray(out).save(ASSETS / "kid_basketball.png", optimize=True)
     bb = dict(meta)
     bb["image"] = "kid_basketball.png"
