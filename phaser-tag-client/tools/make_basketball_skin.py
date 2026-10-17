@@ -25,7 +25,8 @@ Per frame:
      the ball. The sleeve arm still tags.
 
 Face and hair (under the headband) are untouched. The tagging hand stays
-the original skin; the dribbling arm is painted over the body.
+the original skin. The other arm is removed and one dribbling arm, the
+same thickness as that arm, is drawn from the shoulder to the ball.
 
 Requires: Python 3 + Pillow + numpy.  Usage:
     python3 tools/make_basketball_skin.py [--preview /tmp/basketball_preview.png]
@@ -529,22 +530,92 @@ def place_ball(g: Geometry, direction: str, anim: str, index: int):
 
 
 def drop_limp_arm(body: np.ndarray, g: Geometry, direction: str) -> np.ndarray:
-    """Remove the hanging arm on the dribble side. The sleeve (tag) arm is
-    white, so the skin arm left on that side is the one we replace. The
-    tag-side fist stays, including on the reach frames."""
+    """Clear the original arm on the dribble side, outline included.
+
+    The sleeve stays: that is the tagging arm, on the other side. What
+    remains on the dribble side is skin that used to be the hanging arm,
+    plus the dark pixels wrapped around it.
+    """
     h, w = body.shape[:2]
     yy = np.arange(h)[:, None]
     xx = np.arange(w)[None, :].astype(np.float64)
     side = float(-TAG_SIDE[direction])
-    face = (yy <= g.neck + 1) & skin_mask(body)
-    arms, _hands = arms_and_hands(body, g, face)
-    on_side = (xx - g.head_cx) * side > 3.0
-    limp = arms & on_side & (yy > g.neck + 1)
-    dark = alpha_mask(body) & (lum(body) < 70) & on_side & (yy > g.neck + 1)
-    limp = limp | grow(limp, dark, 1)
+    if direction in PROFILE:
+        # profile draws that arm along the back edge, just past centre
+        face = float(PROFILE[direction])
+        on_side = (xx - g.head_cx) * (-face) > -3.5
+    else:
+        on_side = (xx - g.head_cx) * side > 0.4
+    below = yy > g.neck + 1
+    above_leg = yy < g.hem
+    sk = loose_skin(body) & on_side & below & above_leg
+    # a raised arm during the run still counts, even up at the shoulder
+    raised = loose_skin(body) & on_side & (yy > g.neck - 2) & (yy <= g.neck + 2)
+    raised = raised & ((xx - g.head_cx) * side > 8)
+    sk = sk | raised
+    dark = alpha_mask(body) & (lum(body) < 90) & on_side & (yy > g.neck - 1) & above_leg
+    limp = sk | grow(sk, dark, 2)
     out = body.copy()
     out[limp] = 0
     return out
+
+
+def repair_torso(body: np.ndarray, g: Geometry, direction: str) -> np.ndarray:
+    """Close the bite the removed arm left in the shirt and re-ink that edge.
+
+    Only short gaps on the dribble side are filled, so the chest lettering
+    stays split and the other arm is left alone.
+    """
+    h, w = body.shape[:2]
+    side = float(-TAG_SIDE[direction])
+    out = body.copy()
+    for y in range(int(g.neck) + 2, int(g.hem) + 1):
+        xs = np.nonzero(out[y, :, 3] > 40)[0]
+        if len(xs) < 2:
+            continue
+        for i in range(len(xs) - 1):
+            gap = int(xs[i + 1] - xs[i] - 1)
+            if gap <= 0 or gap > 4:
+                continue
+            mid = (int(xs[i]) + int(xs[i + 1])) / 2.0
+            if (mid - g.head_cx) * side < 2:
+                continue
+            # the neighbour closer to the chest is the shirt colour to extend
+            inner = int(xs[i] if (xs[i] - g.head_cx) * side < (xs[i + 1] - g.head_cx) * side else xs[i + 1])
+            for x in range(int(xs[i]) + 1, int(xs[i + 1])):
+                out[y, x] = out[y, inner]
+    # crisp edge where the shirt now meets empty space
+    a = out[..., 3] > 200
+    rim = silhouette(a)
+    yy, xx = np.mgrid[0:h, 0:w]
+    band = (yy > g.neck + 1) & (yy < g.hem + 2) & ((xx - g.head_cx) * side > 0)
+    out[rim & band, :3] = INK
+    out[rim & band, 3] = 255
+    return out
+
+
+def shoulder_point(g: Geometry, direction: str) -> tuple[float, float]:
+    """Where the dribbling arm leaves the shirt."""
+    side = float(-TAG_SIDE[direction])
+    if direction in PROFILE:
+        # in profile the arm reaches forward, out of the front of the chest
+        face = float(PROFILE[direction])
+        return g.head_cx + face * 4.5, float(g.neck + 10)
+    if direction in BACK:
+        return g.head_cx + side * 9.0, float(g.neck + 8)
+    return g.head_cx + side * 10.0, float(g.neck + 8)
+
+
+def paint_armhole(body: np.ndarray, g: Geometry, sx: float, sy: float) -> None:
+    """Orange ring on the jersey around the socket. The arm covers the middle."""
+    h, w = body.shape[:2]
+    yy, xx = np.mgrid[0:h, 0:w]
+    d = np.hypot(xx - sx, yy - sy)
+    ring = (d >= 2.6) & (d <= 4.6) & (yy > g.neck) & (yy < g.neck + 15)
+    rgb = body[..., :3].astype(np.int16)
+    navy = (body[..., 3] > 200) & (rgb[..., 2] > rgb[..., 0] + 15) & (rgb[..., 2] > 60)
+    rim = silhouette(body[..., 3] > 200)
+    body[ring & navy & ~rim, :3] = ORANGE
 
 
 def scrub_loose_ink(body: np.ndarray) -> np.ndarray:
@@ -595,77 +666,107 @@ def _stamp(rgba: np.ndarray, pts: np.ndarray, rx: float, ry: float, color: np.nd
     rgba[mask, 3] = 255
 
 
-def _segment(p0: tuple[float, float], p1: tuple[float, float], n: int = 14) -> np.ndarray:
+def _along(p0: tuple[float, float], p1: tuple[float, float], step: float = 0.4) -> np.ndarray:
+    dist = float(np.hypot(p1[0] - p0[0], p1[1] - p0[1]))
+    n = max(2, int(dist / step) + 1)
     ts = np.linspace(0.0, 1.0, n)
     return np.stack([p0[0] * (1 - ts) + p1[0] * ts, p0[1] * (1 - ts) + p1[1] * ts], axis=1)
 
 
+def _skin_colors(rgba: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndarray, np.ndarray]:
+    """Highlight and shade taken from the other hand, so this arm matches it."""
+    h, w = rgba.shape[:2]
+    yy = np.arange(h)[:, None]
+    xx = np.arange(w)[None, :]
+    tag = float(TAG_SIDE[direction])
+    r = rgba[..., 0].astype(np.int16)
+    gg = rgba[..., 1].astype(np.int16)
+    b = rgba[..., 2].astype(np.int16)
+    skin = (
+        (rgba[..., 3] > 200) & (r > 170) & (gg > 110) & (r - b > 40)
+        & (yy > g.neck + 4) & (yy < g.hem) & ((xx - g.head_cx) * tag > 2)
+    )
+    samples = rgba[skin][:, :3].astype(np.float64)
+    if len(samples) < 6:
+        face = (
+            (rgba[..., 3] > 200) & (r > 170) & (gg > 100)
+            & (yy > g.top + 16) & (yy < g.neck - 2)
+        )
+        samples = rgba[face][:, :3].astype(np.float64)
+    if len(samples) < 4:
+        mid = np.array([240.0, 174.0, 122.0])
+    else:
+        mid = np.median(samples, axis=0)
+    light = np.clip(mid + np.array([8.0, 10.0, 8.0]), 0, 255)
+    shade = np.clip(mid * np.array([0.84, 0.78, 0.76]), 0, 255)
+    return light, shade
+
+
+def _paint_limb(rgba: np.ndarray, pts: np.ndarray, radius: float,
+                light: np.ndarray, shade: np.ndarray) -> None:
+    """One pixel of dark outline, skin filling the rest, lit from the upper left."""
+    _stamp(rgba, pts, radius, radius, INK)
+    skin_r = max(1.15, radius - 1.0)
+    _stamp(rgba, pts, skin_r, skin_r, shade)
+    lit = pts + np.array([-0.75, -0.7])
+    _stamp(rgba, lit, max(0.8, skin_r - 0.85), max(0.8, skin_r - 0.85), light)
+
+
 def draw_dribble_arm(rgba: np.ndarray, g: Geometry, direction: str,
                      bx: float, by: float, ry: float, t: float) -> tuple[float, float]:
-    """Slim arm from the shoulder to a mitt on the crown of the ball.
-    A small outward bow while the ball is up, straightening as the hand
-    pushes down. The forearm stops at the wrist so it doesn't stab
-    through the ball. Returns the hand centre."""
-    side = float(-TAG_SIDE[direction])
-    if direction in PROFILE:
-        # out of the chest, reaching ahead to the ball
-        sx = g.head_cx + side * 2.0
-        sy = float(g.neck + 16)
-    elif direction in BACK:
-        sx = g.head_cx + side * 7.0
-        sy = float(g.neck + 14)
-    else:
-        sx = g.head_cx + side * 8.0
-        sy = float(g.neck + 13)
-    # start inside the shirt so the arm grows out of the shoulder
-    sx0, sy0 = sx - side * 1.5, sy
+    """One arm, shoulder to elbow to a round hand on the ball.
 
-    # mitt on the crown. Back views shift it onto the side that peeks out.
+    The elbow bends out while the ball is up and straightens as the hand
+    pushes down. Width matches the other arm: a 1px outline around skin.
+    Returns the hand centre.
+    """
+    side = float(-TAG_SIDE[direction])
+    sx, sy = shoulder_point(g, direction)
+    # overlap the shirt by a pixel so the arm comes out of the armhole
+    if direction in PROFILE:
+        face = float(PROFILE[direction])
+        sx0, sy0 = sx - face * 2.0, sy
+    else:
+        sx0, sy0 = sx - side * 1.6, sy
+
+    # hand sits on top of the ball so the fist reads, not buried in it.
+    # Back views put it on the side that peeks past the body.
     if direction in BACK:
-        hx = bx + side * ry * 0.28
-        hy = by - ry * 0.42
+        hx = bx + side * ry * 0.42
+        hy = by - ry * 0.40
     else:
         hx = bx
-        hy = by - ry * 0.70
-    # wrist: a few pixels above the mitt, back toward the shoulder
-    wx = hx + (sx0 - hx) * 0.18
-    wy = hy - 2.4
+        hy = by - ry * 0.92
 
-    bow = 2.6 * (1.0 - t) + 0.8
-    mx = (sx0 + wx) * 0.5 + side * bow
-    my = (sy0 + wy) * 0.5 + 0.6
-    ts = np.linspace(0.0, 1.0, 22)
-    omt = 1.0 - ts
-    limb = np.stack([
-        omt ** 2 * sx0 + 2 * omt * ts * mx + ts ** 2 * wx,
-        omt ** 2 * sy0 + 2 * omt * ts * my + ts ** 2 * wy,
-    ], axis=1)
-
-    face = skin_mask(rgba) & (np.arange(rgba.shape[0])[:, None] < g.neck - 2)
-    face = face & (np.arange(rgba.shape[0])[:, None] > g.top + 16)
-    samples = rgba[face][:, :3].astype(np.float64)
-    if len(samples) >= 8:
-        tone = np.median(samples, axis=0)
+    # Elbow out to the dribble side. A perpendicular bow was dropping the
+    # joint down the shirt, which read as a second arm lying on the torso.
+    u = t * t * (3.0 - 2.0 * t)
+    bend = 13.0 * (1.0 - u) + 7.0 * u
+    if direction in PROFILE:
+        ex = sx0 + (hx - sx0) * 0.50
+        ey = sy0 + (hy - sy0) * 0.55 + bend * 0.45
     else:
-        tone = np.array([244.0, 190.0, 140.0])
-    shade = np.clip(tone * 0.70, 0, 255)
-    edge = INK
+        # straight out to the side, then back in to the ball
+        ex = sx0 + side * bend
+        ey = sy0 + (hy - sy0) * 0.58
+    if ey < g.neck + 6:
+        ey = float(g.neck + 6)
 
-    # forearm ~6px wide, close to the kid's own arms
-    _stamp(rgba, limb, 3.15, 3.15, edge)
-    _stamp(rgba, limb, 2.15, 2.15, shade)
-    _stamp(rgba, limb, 1.25, 1.25, tone)
+    hand_r = 4.05
+    fx, fy = hx - ex, hy - ey
+    fl = float(np.hypot(fx, fy)) or 1.0
+    wx = hx - fx / fl * (hand_r * 0.72)
+    wy = hy - fy / fl * (hand_r * 0.72)
 
-    # three short fingers on the leather, then the palm over their base
-    fingers = []
-    for dx in (-2.5, 0.0, 2.5):
-        fingers.append(_segment((hx + dx, hy + 0.2), (hx + dx * 0.75, hy + 3.5), 6))
-    fing = np.concatenate(fingers, axis=0)
-    _stamp(rgba, fing, 1.35, 1.35, edge)
-    _stamp(rgba, fing, 0.75, 0.75, tone)
-    _stamp(rgba, np.array([[hx, hy + 0.3]]), 5.3, 3.5, edge)
-    _stamp(rgba, np.array([[hx, hy]]), 3.9, 2.4, tone)
-    _stamp(rgba, np.array([[hx, hy - 0.7]]), 2.2, 1.15, shade)
+    light, shade = _skin_colors(rgba, g, direction)
+    # same thickness as the other arm: ~7px across, 1px of that outline
+    arm_r = 3.45
+    upper = _along((sx0, sy0), (ex, ey))
+    fore = _along((ex, ey), (wx, wy))
+    _paint_limb(rgba, upper, arm_r, light, shade)
+    _paint_limb(rgba, fore, arm_r, light, shade)
+    _paint_limb(rgba, np.array([[ex, ey]]), arm_r + 0.15, light, shade)
+    _paint_limb(rgba, np.array([[hx, hy]]), hand_r, light, shade)
     return float(hx), float(hy)
 
 
@@ -674,7 +775,7 @@ def _occlude_reach(merged: np.ndarray, under: np.ndarray, body: np.ndarray,
     """Put the torso back over the reaching arm, but leave the hand."""
     h, w = merged.shape[:2]
     yy, xx = np.mgrid[0:h, 0:w]
-    hand = ((xx - hx) / 7.2) ** 2 + ((yy - (hy + 0.4)) / 5.6) ** 2 <= 1.0
+    hand = ((xx - hx) / 5.2) ** 2 + ((yy - hy) / 4.8) ** 2 <= 1.0
     restore = (body[..., 3] > 180) & ~hand
     merged[restore] = under[restore]
 
@@ -687,7 +788,9 @@ def baller(frame: np.ndarray, direction: str, anim: str, index: int) -> np.ndarr
     body, _chest, _hands = paint_uniform(src, g, direction)
     g = Geometry(body)
     body = drop_limp_arm(body, g, direction)
+    body = repair_torso(body, g, direction)
     body = scrub_loose_ink(body)
+    paint_armhole(body, g, *shoulder_point(g, direction))
     t = bounce_t(anim, index)
     bx, by, gx, gy, behind = place_ball(g, direction, anim, index)
     shadow = shadow_layer(body.shape[:2], gx, gy, strength=0.35 + 0.65 * t)
