@@ -334,7 +334,7 @@ skin carries its own frame size and feet line. Animation keys are
   y = 96; 10px each side holds the ball). Generated from `kid.png` by
   `tools/make_basketball_skin.py`. Navy jersey with orange trim, an NY
   wordmark and number 11 on the front (11 on the back), white headband,
-  white compression sleeve on the tagging arm, and orange sneakers. An
+  bare arms, and orange sneakers. An
   orange basketball is dribbled in every animation. The ball stays a
   circle and leads him in the direction he faces, close to the
   dribbling-side foot (behind the body when he faces away). One arm

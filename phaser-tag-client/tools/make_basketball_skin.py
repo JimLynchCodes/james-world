@@ -13,7 +13,7 @@ Per frame:
      front views get an orange NEW YORK wordmark and number 11, back
      views a larger 11, profiles a 1 on the facing flank;
   2. shorts -> navy with an orange leg hem;
-  3. the arm James tags with -> white compression sleeve (hand stays bare);
+  3. both arms stay bare skin, the same tone as James;
   4. white headband across the forehead (wraps the hair on back views);
   5. sneakers -> orange with a white sole, side stripe and toe;
   6. an orange basketball with the original round seam pattern, dribbled
@@ -23,12 +23,11 @@ Per frame:
      lower on screen when he faces the camera, just ahead of the front
      foot in profile, and farther from the camera (drawn behind the body)
      when he faces away. One arm hangs from that shoulder and dribbles.
-     The sleeve arm still tags.
+     The tagging arm stays bare skin and still tags.
 
-Face and hair (under the headband) are untouched. The tagging hand stays
-the original skin. The other arm is removed. The dribbling arm is one
-tapered limb (no joint dots), the same width as the sleeve arm, hanging
-at his side with the hand between the hip and the knee.
+Face, hair and neck (under the headband) are James's. Both arms are bare
+skin. The dribbling arm is one tapered limb hanging at his side, with
+the hand between the hip and the knee.
 
 Requires: Python 3 + Pillow + numpy.  Usage:
     python3 tools/make_basketball_skin.py [--preview /tmp/basketball_preview.png]
@@ -372,15 +371,8 @@ def paint_uniform(f: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndarra
 
     arm = tagging_arm(arms | (outline & grow(arms, a, 1)), g, direction)
     fist = fist_mask(arm & ~rim, g, direction)
-    # the original hand detector, so a hanging arm still ends in skin
     fist = fist | (hands & arm & ~rim)
-    sleeve = arm & ~fist & ~rim & (yy > g.neck)
-    if sleeve.any():
-        rgb = np.where(sleeve[..., None], shade(WHITE, L, 0.92, 1.02), rgb)
-        cuff = grow(fist, sleeve, 1) & sleeve
-        rgb = np.where(cuff[..., None], WHITE_SHADE, rgb)
-    # put the fist back in the kid's own skin, on top of the sleeve
-    rgb = np.where(fist[..., None], f[..., :3].astype(np.float64), rgb)
+    # the tagging arm stays the kid's own skin. No compression sleeve.
 
     # orange trim sits one pixel in from the silhouette
     inner = ~rim
@@ -390,8 +382,8 @@ def paint_uniform(f: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndarra
         hem = jersey & inner & (yy >= jbot - 1)
         rgb = np.where(neck[..., None], ORANGE, rgb)
         rgb = np.where(hem[..., None], ORANGE, rgb)
-    # armhole: only the shoulder, not a trail of orange down the sleeve
-    shoulder = jersey & inner & grow(sleeve, a, 1) & (yy <= g.neck + 8)
+    # orange armhole on the shirt only, where either arm leaves the jersey
+    shoulder = jersey & inner & grow(arms, a, 1) & (yy > g.neck) & (yy <= g.neck + 8)
     rgb = np.where(shoulder[..., None], ORANGE, rgb)
     if shorts.any():
         ys = np.nonzero((shorts & inner).any(axis=1))[0]
@@ -578,34 +570,143 @@ def _tuck_back(body: np.ndarray, g: Geometry, direction: str,
     return shoulder, (ex, ey), (hx, hand[1]), (bx, high[1]), (bx, low[1])
 
 
-def drop_limp_arm(body: np.ndarray, g: Geometry, direction: str) -> np.ndarray:
-    """Clear the original arm on the dribble side, outline included.
+def _is_cloth(rgb: np.ndarray) -> np.ndarray:
+    """Jersey, shorts and orange trim. These are the body, not the arm."""
+    r = rgb[..., 0].astype(np.int16)
+    g = rgb[..., 1].astype(np.int16)
+    b = rgb[..., 2].astype(np.int16)
+    navy = (b > r + 12) & (b > 45)
+    orange = (r > 170) & (g < 170) & (b < 90) & (r > g + 40)
+    return navy | orange
 
-    The sleeve stays: that is the tagging arm, on the other side. What
-    remains on the dribble side is skin that used to be the hanging arm,
-    plus the dark pixels wrapped around it.
+
+def drop_limp_arm(body: np.ndarray, g: Geometry, direction: str) -> np.ndarray:
+    """Clear the original arm on the dribble side.
+
+    Only bare skin and the outline pixel touching it. The head, the neck
+    and the jersey stay. Navy used to get swept up with the outline and
+    left a hole the grass showed through.
     """
     h, w = body.shape[:2]
     yy = np.arange(h)[:, None]
     xx = np.arange(w)[None, :].astype(np.float64)
     side = float(-TAG_SIDE[direction])
-    if direction in PROFILE:
-        # profile draws that arm along the back edge, just past centre
-        face = float(PROFILE[direction])
-        on_side = (xx - g.head_cx) * (-face) > -3.5
-    else:
-        on_side = (xx - g.head_cx) * side > 0.4
-    below = yy > g.neck + 1
+    on_side = (xx - g.head_cx) * side > 1.2
+    # below the chin, so the back of the head and the neck are not an arm
+    below = yy > g.neck + 6
     above_leg = yy < g.hem
-    sk = loose_skin(body) & on_side & below & above_leg
-    # a raised arm during the run still counts, even up at the shoulder
-    raised = loose_skin(body) & on_side & (yy > g.neck - 2) & (yy <= g.neck + 2)
-    raised = raised & ((xx - g.head_cx) * side > 8)
+    cloth = _is_cloth(body[..., :3])
+    sk = loose_skin(body) & on_side & below & above_leg & ~cloth
+    # a raised forearm on the run, still clear of the skull
+    raised = (
+        loose_skin(body) & on_side & ~cloth
+        & (yy > g.neck + 2) & (yy <= g.neck + 6)
+        & ((xx - g.head_cx) * side > 11)
+    )
     sk = sk | raised
-    dark = alpha_mask(body) & (lum(body) < 90) & on_side & (yy > g.neck - 1) & above_leg
-    limp = sk | grow(sk, dark, 2)
+    dark = alpha_mask(body) & (lum(body) < 55) & ~cloth & on_side & below & above_leg
+    limp = sk | grow(sk, dark, 1)
     out = body.copy()
     out[limp] = 0
+    return out
+
+
+def restore_body(erased: np.ndarray, painted: np.ndarray, g: Geometry) -> np.ndarray:
+    """Put the head, neck and any eaten jersey back from the painted kid.
+
+    The arm we meant to remove was skin. Cloth and everything above the
+    chin were never supposed to become transparent.
+    """
+    out = erased.copy()
+    yy = np.arange(erased.shape[0])[:, None]
+    deleted = (painted[..., 3] > 40) & (erased[..., 3] < 20)
+    cloth = _is_cloth(painted[..., :3])
+    head = yy <= g.neck + 5
+    out[deleted & (cloth | head)] = painted[deleted & (cloth | head)]
+    # the whole head and neck, even where the erase thought it found an arm
+    keep = head & (painted[..., 3] > 20)
+    out[keep] = painted[keep]
+    return out
+
+
+def _outside_clear(alpha: np.ndarray, thresh: int = 24) -> np.ndarray:
+    """Transparent pixels a flood fill can reach from the frame border."""
+    h, w = alpha.shape
+    solid = alpha > thresh
+    outside = np.zeros((h, w), dtype=bool)
+    q: list[tuple[int, int]] = []
+    for y in range(h):
+        for x in (0, w - 1):
+            if not solid[y, x]:
+                outside[y, x] = True
+                q.append((y, x))
+    for x in range(w):
+        for y in (0, h - 1):
+            if not solid[y, x] and not outside[y, x]:
+                outside[y, x] = True
+                q.append((y, x))
+    while q:
+        y, x = q.pop()
+        for ny, nx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
+            if 0 <= ny < h and 0 <= nx < w and not solid[ny, nx] and not outside[ny, nx]:
+                outside[ny, nx] = True
+                q.append((ny, nx))
+    return outside
+
+
+def fill_enclosed_holes(body: np.ndarray) -> np.ndarray:
+    """Transparent pixels shut inside the silhouette get the nearest body colour."""
+    h, w = body.shape[:2]
+    outside = _outside_clear(body[..., 3])
+    holes = (body[..., 3] <= 24) & ~outside
+    if not holes.any():
+        return body
+    out = body.copy()
+    src_y = np.full((h, w), -1, dtype=np.int16)
+    src_x = np.full((h, w), -1, dtype=np.int16)
+    q: list[tuple[int, int]] = []
+    for y, x in zip(*np.nonzero(holes)):
+        y = int(y)
+        x = int(x)
+        for ny, nx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
+            if 0 <= ny < h and 0 <= nx < w and out[ny, nx, 3] > 24:
+                src_y[y, x] = ny
+                src_x[y, x] = nx
+                q.append((y, x))
+                break
+    seen = np.zeros((h, w), dtype=bool)
+    head = 0
+    while head < len(q):
+        y, x = q[head]
+        head += 1
+        if seen[y, x]:
+            continue
+        sy, sx = int(src_y[y, x]), int(src_x[y, x])
+        if sy < 0:
+            continue
+        seen[y, x] = True
+        out[y, x, :3] = out[sy, sx, :3]
+        out[y, x, 3] = 255
+        for ny, nx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
+            if 0 <= ny < h and 0 <= nx < w and holes[ny, nx] and not seen[ny, nx] and src_y[ny, nx] < 0:
+                src_y[ny, nx] = sy
+                src_x[ny, nx] = sx
+                q.append((ny, nx))
+    return out
+
+
+def snap_interior(body: np.ndarray) -> np.ndarray:
+    """Partial alpha inside the body reads as the grass or the ball showing through."""
+    a = body[..., 3]
+    outside = _outside_clear(a, thresh=10)
+    # a fringe pixel touches the outside; an interior one does not
+    pad = np.pad(outside, 1, constant_values=True)
+    touches = pad[:-2, 1:-1] | pad[2:, 1:-1] | pad[1:-1, :-2] | pad[1:-1, 2:]
+    ghost = (a > 0) & (a < 250) & ~outside & ~touches
+    if not ghost.any():
+        return body
+    out = body.copy()
+    out[ghost, 3] = 255
     return out
 
 
@@ -666,8 +767,12 @@ def clear_waist_fringe(merged: np.ndarray) -> np.ndarray:
     a = merged[..., 3]
     rgb = merged[..., :3].astype(np.int16)
     yy = np.arange(merged.shape[0])[:, None]
+    outside = _outside_clear(a, thresh=10)
+    pad = np.pad(outside, 1, constant_values=False)
+    touches = pad[:-2, 1:-1] | pad[2:, 1:-1] | pad[1:-1, :-2] | pad[1:-1, 2:]
     fringe = (
         (a > 0) & (a < 200)
+        & touches
         & (yy >= 68) & (yy <= 88)
         & (rgb[..., 0] < 48)
         & (rgb[..., 2] + 6 >= rgb[..., 0])
@@ -742,8 +847,8 @@ def draw_dribble_arm(rgba: np.ndarray, g: Geometry, direction: str,
                      shoulder, elbow, hand) -> None:
     """One continuous tapered arm: filled, antialiased, then outlined.
 
-    A short navy sleeve with an orange cuff covers the shoulder. The mitt
-    is the rounded end of the same shape, not a separate circle.
+    Bare skin, same as the other arm. The mitt is the rounded end of the
+    same shape, not a separate circle.
     """
     h, w = rgba.shape[:2]
     pts, frac, total = _arm_samples(shoulder, elbow, hand)
@@ -769,11 +874,6 @@ def draw_dribble_arm(rgba: np.ndarray, g: Geometry, direction: str,
     lit = nx * -0.60 + ny * -0.80
     light, mid, shade = _skin_colors(rgba, g, direction)
     fill = np.where((lit > 0.12)[..., None], light, np.where((lit > -0.28)[..., None], mid, shade))
-    along = best_s * total
-    sleeve = along < 4.4
-    cuff = (along >= 4.4) & (along < 6.0)
-    fill = np.where(sleeve[..., None], np.where((lit > 0.0)[..., None], NAVY, NAVY_DARK), fill)
-    fill = np.where(cuff[..., None], ORANGE, fill)
 
     skin_zone = best_d <= (radius - 1.0)
     ink_zone = (best_d > (radius - 1.0)) & (best_d <= radius)
@@ -797,13 +897,91 @@ def draw_dribble_arm(rgba: np.ndarray, g: Geometry, direction: str,
     rgba[...] = tucked
 
 
-def _occlude_reach(merged: np.ndarray, under: np.ndarray, body: np.ndarray,
+def _occlude_reach(merged: np.ndarray, body: np.ndarray,
                    hx: float, hy: float) -> None:
-    """Hide the arm behind the torso. The mitt stays out on the ball."""
+    """Opaque body over the ball and the arm. Only the mitt stays out."""
     yy, xx = np.mgrid[0:merged.shape[0], 0:merged.shape[1]]
-    hand = ((xx - hx) / 4.4) ** 2 + ((yy - hy) / 4.6) ** 2 <= 1.0
-    restore = (body[..., 3] > 180) & ~hand
-    merged[restore] = under[restore]
+    hand = ((xx - hx) / 4.2) ** 2 + ((yy - hy) / 4.4) ** 2 <= 1.0
+    cover = (body[..., 3] > 40) & ~hand
+    merged[cover] = body[cover]
+    merged[cover, 3] = 255
+
+
+def _is_ink_px(px) -> bool:
+    return int(px[3]) > 200 and int(px[0]) < 32 and int(px[1]) < 40 and int(px[2]) < 58
+
+
+def _inward_color(row: np.ndarray, x_edge: int, cx: float):
+    """Body colour just inside the outline, walking toward the chest."""
+    step = 1 if x_edge < cx else -1
+    for k in range(0, 12):
+        xx = int(x_edge) + step * k
+        if xx < 0 or xx >= row.shape[0]:
+            break
+        if _is_ink_px(row[xx]):
+            continue
+        if int(row[xx, 3]) > 200:
+            return row[xx].copy()
+    return None
+
+
+def close_arm_gap(merged: np.ndarray, painted: np.ndarray, g: Geometry) -> np.ndarray:
+    """Grass between the new arm and the hip is the old arm, erased.
+
+    That pocket is open at the top, so it is not an enclosed hole, but it
+    still reads as a hole in the body. Fill it with the shirt or leg
+    beside it and drop the outline that the fill just buried.
+    """
+    h, w = merged.shape[:2]
+    yy = np.arange(h)[:, None]
+    missing = (painted[..., 3] > 40) & (merged[..., 3] < 20)
+    missing &= (yy > g.neck + 4) & (yy < g.hem + 14)
+    if not missing.any():
+        return merged
+    out = merged.copy()
+    filled = np.zeros((h, w), dtype=bool)
+    cx = float(g.head_cx)
+    for y in range(h):
+        if not missing[y].any():
+            continue
+        xs = np.nonzero(out[y, :, 3] > 40)[0]
+        if len(xs) < 2:
+            continue
+        for i in range(len(xs) - 1):
+            x0 = int(xs[i])
+            x1 = int(xs[i + 1])
+            gap = x1 - x0 - 1
+            if gap <= 0 or gap > 14:
+                continue
+            sl = missing[y, x0 + 1:x1]
+            if not sl.any() or int(sl.sum()) * 2 < gap:
+                continue
+            inner = x0 if abs(x0 - cx) <= abs(x1 - cx) else x1
+            color = _inward_color(out[y], inner, cx)
+            if color is None:
+                # a row that is only outline (the hem, a shoe) still closes
+                color = out[y, inner].copy()
+                color[3] = 255
+            for x in range(x0 + 1, x1):
+                if missing[y, x]:
+                    out[y, x] = color
+                    out[y, x, 3] = 255
+                    filled[y, x] = True
+    if not filled.any():
+        return out
+    # only the outline pixels that touched the pocket, not every dark shoe
+    a = out[..., 3] > 200
+    rim = silhouette(a)
+    rgb = out[..., :3]
+    ink = (rgb[..., 0] < 32) & (rgb[..., 1] < 40) & (rgb[..., 2] < 58) & a & ~rim
+    pad = np.pad(filled, 1, constant_values=False)
+    beside = pad[:-2, 1:-1] | pad[2:, 1:-1] | pad[1:-1, :-2] | pad[1:-1, 2:]
+    for y, x in zip(*np.nonzero(ink & beside)):
+        color = _inward_color(out[y], int(x), cx)
+        if color is not None:
+            out[y, x, :3] = color[:3]
+            out[y, x, 3] = 255
+    return out
 
 
 def baller(frame: np.ndarray, direction: str, anim: str, index: int) -> np.ndarray:
@@ -811,11 +989,25 @@ def baller(frame: np.ndarray, direction: str, anim: str, index: int) -> np.ndarr
     if not alpha_mask(src).any():
         return src
     g0 = Geometry(src)
-    body, _chest, _hands = paint_uniform(src, g0, direction)
-    g = Geometry(body)
-    body = drop_limp_arm(body, g, direction)
+    painted, _chest, _hands = paint_uniform(src, g0, direction)
+    g = Geometry(painted)
+    body = drop_limp_arm(painted, g, direction)
+    body = restore_body(body, painted, g)
     body = repair_torso(body, g, direction)
     body = scrub_loose_ink(body)
+    body = restore_body(body, painted, g)
+    # the shirt edge, then close whatever that edge just trapped
+    a = body[..., 3] > 200
+    rim = silhouette(a)
+    yy, xx = np.mgrid[0:body.shape[0], 0:body.shape[1]]
+    side = float(-TAG_SIDE[direction])
+    edge = rim & (yy > g.neck + 5) & (yy < g.hem + 2) & ((xx - g.head_cx) * side > -2)
+    body[edge, :3] = INK
+    body[edge, 3] = 255
+    # snap first: raising a soft pixel to opaque can close a gap and
+    # trap the transparent pixels behind it, so the fill runs after
+    body = snap_interior(body)
+    body = fill_enclosed_holes(body)
     t = bounce_t(anim, index)
     # pose is measured on the original kid so the hem stays at the shorts
     shoulder, elbow, rest_hand, high, low, _side = _layout(g0, direction)
@@ -833,15 +1025,20 @@ def baller(frame: np.ndarray, direction: str, anim: str, index: int) -> np.ndarr
     ball = np.zeros_like(shadow)
     _paste(ball, ball_sprite(spin_deg(anim, index)), bx, by)
     if behind:
-        # farther from the camera: the torso hides the arm, the hand peeks out
-        under = to_u8(over(over(shadow, ball), premul(body)))
+        # farther from the camera: opaque body covers the ball, the mitt peeks
+        solid = body.copy()
+        solid[solid[..., 3] > 40, 3] = 255
+        under = to_u8(over(over(shadow, ball), premul(solid)))
         merged = under.copy()
         draw_dribble_arm(merged, g0, direction, shoulder, elbow, hand)
-        _occlude_reach(merged, under, body, hand[0], hand[1])
         merged = clear_waist_fringe(merged)
+        _occlude_reach(merged, solid, hand[0], hand[1])
     else:
         merged = to_u8(over(premul(body), over(shadow, ball)))
         draw_dribble_arm(merged, g0, direction, shoulder, elbow, hand)
+    merged = close_arm_gap(merged, painted, g)
+    merged = snap_interior(merged)
+    merged = fill_enclosed_holes(merged)
     return merged
 
 
