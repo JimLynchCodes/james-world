@@ -9,6 +9,8 @@
  * sets a tap destination.
  */
 
+import { t } from "./i18n";
+
 const ICON = `
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
     <path class="run-lines" d="M4 17h9M2 25h10M5 33h8"/>
@@ -23,9 +25,8 @@ export class RunButton {
     const el = document.createElement("button");
     el.type = "button";
     el.className = "run-button";
-    el.setAttribute("aria-label", "Run (hold)");
     el.setAttribute("aria-pressed", "false");
-    el.innerHTML = `${ICON}<span class="run-label">RUN</span>`;
+    el.innerHTML = `${ICON}<span class="run-label"></span>`;
     el.hidden = true;
     this.el = el;
 
@@ -54,6 +55,13 @@ export class RunButton {
 
     window.addEventListener("blur", () => this.release());
     parent.appendChild(el);
+    this.applyLocale();
+  }
+
+  applyLocale() {
+    const label = this.el.querySelector(".run-label");
+    if (label) label.textContent = t("mobile.run");
+    this.el.setAttribute("aria-label", t("mobile.runAria"));
   }
 
   get held() {

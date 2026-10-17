@@ -26,6 +26,10 @@ import {
   type Settings,
 } from "./settings";
 import { TitleScreen } from "./title";
+import { initI18n, onLocaleChange, t, tPlayers } from "./i18n";
+import { LanguagePicker } from "./languagePicker";
+
+initI18n();
 
 /** Footstep sound for the local kid, per skin. */
 const STEP_SFX: Record<Skin, Sfx> = {
@@ -198,7 +202,7 @@ class GameScene extends Phaser.Scene {
           this.localTargetY = null;
           this.clearTapTarget();
           this.rejoining = this.playing;
-          this.logEvent("Connection lost, reconnecting…");
+          this.logEvent(t("toast.connectionLost"));
         }
         console.info(`[net] socket closed, retrying in ${retryInMs}ms`);
       },
@@ -425,7 +429,9 @@ class GameScene extends Phaser.Scene {
         this.localPlayerId = message.data.player_id;
         this.removeRemotePlayer(message.data.player_id);
         this.spawnLocalPlayer(message.data.name, message.data.x, message.data.y);
-        this.logEvent(`${this.rejoining ? "Reconnected" : "You joined"} as ${message.data.name}`);
+        this.logEvent(
+          t(this.rejoining ? "toast.reconnected" : "toast.joinedSelf", { name: message.data.name })
+        );
         this.rejoining = false;
         break;
 
@@ -435,7 +441,7 @@ class GameScene extends Phaser.Scene {
           toSkin(message.data.skin)
         );
         this.audio?.playSfx("join");
-        this.logEvent(`${message.data.name} joined`);
+        this.logEvent(t("toast.joined", { name: message.data.name }));
         this.updateHud();
         break;
 
@@ -443,7 +449,7 @@ class GameScene extends Phaser.Scene {
         const name = this.remotePlayers.get(message.data.player_id)?.snapshot.name;
         this.removeRemotePlayer(message.data.player_id);
         this.audio?.playSfx("leave");
-        this.logEvent(`${name || "A player"} left`);
+        this.logEvent(name ? t("toast.left", { name }) : t("toast.leftUnknown"));
         this.updateHud();
         break;
       }
@@ -457,7 +463,7 @@ class GameScene extends Phaser.Scene {
 
       case "Error":
         // Keep the status line for the connection / name; errors go to the log.
-        this.logEvent(`Server error: ${message.data.message}`);
+        this.logEvent(t("toast.serverError", { message: message.data.message }));
         break;
     }
   }
@@ -1044,9 +1050,9 @@ class GameScene extends Phaser.Scene {
     const state = this.connected ? "connected" : this.everConnected || this.socketFailed ? "error" : "connecting";
     if (this.connected) this.everConnected = true;
     const text =
-      state === "connected" ? (this.playing && this.localName) || "Connected"
-      : state === "error" ? "Not Connected"
-      : "Connecting…";
+      state === "connected" ? (this.playing && this.localName) || t("hud.connected")
+      : state === "error" ? t("hud.notConnected")
+      : t("hud.connecting");
     if (this.hudStatus && this.hudStatus.textContent !== text) this.hudStatus.textContent = text;
     if (this.hudConnection) {
       this.hudConnection.classList.toggle("connected", state === "connected");
@@ -1128,7 +1134,15 @@ class GameScene extends Phaser.Scene {
     this.hudEnergy.style.transform = `scaleX(${energy / 100})`;
     // Spectator: remotes only. Playing: remotes + you.
     const count = this.remotePlayers.size + (this.playing ? 1 : 0);
-    this.hudPlayers.textContent = `${count} player${count === 1 ? "" : "s"}`;
+    this.hudPlayers.textContent = tPlayers(count);
+  }
+
+  /** Connection line, counts, and YOU / IT, in the current language. */
+  applyLocale() {
+    this.renderStatus();
+    this.updateHud();
+    this.player?.applyLocale();
+    for (const remote of this.remotePlayers.values()) remote.avatar.applyLocale();
   }
 }
 
@@ -1170,10 +1184,10 @@ hud.innerHTML = `
   <div class="status">
     <div>
       <span id="connection" class="connection"></span>
-      <strong id="status">Connecting…</strong>
+      <strong id="status"></strong>
     </div>
-    <div>Players: <span id="players">1</span></div>
-    <div>Energy</div>
+    <div><span id="players-label"></span> <span id="players"></span></div>
+    <div id="energy-label"></div>
     <div class="energy-bar">
       <div id="energy" class="energy-fill"></div>
     </div>
@@ -1191,6 +1205,14 @@ const players = document.querySelector("#players") as HTMLElement;
 const connection = document.querySelector("#connection") as HTMLElement;
 
 const events = document.querySelector("#events") as HTMLElement;
+const playersLabel = document.querySelector("#players-label") as HTMLElement;
+const energyLabel = document.querySelector("#energy-label") as HTMLElement;
+
+const paintHudLabels = () => {
+  playersLabel.textContent = t("hud.playersLabel");
+  energyLabel.textContent = t("hud.energy");
+};
+paintHudLabels();
 
 scene.setHudElements(status, energy, players, events, connection);
 
@@ -1226,19 +1248,54 @@ const applyControls = (s: Readonly<Settings>) => {
 };
 applyControls(settings);
 
+const chrome: { closeSettings: () => void; settingsOpen: boolean; closePicker: () => void; pickerOpen: boolean } = {
+  closeSettings: () => {},
+  settingsOpen: false,
+  closePicker: () => {},
+  pickerOpen: false,
+};
+
 const settingsPanel = new SettingsPanel(hud, settings, saved, {
   onChange: (s, key) => {
     audio.apply(s);
     applyControls(s);
     if (key === "skin") scene.setSkin(s.skin);
   },
-  onOpenChange: open => scene.setUiOpen(open),
+  onOpenChange: open => {
+    chrome.settingsOpen = open;
+    if (open) chrome.closePicker();
+    scene.setUiOpen(open || chrome.pickerOpen);
+  },
   onSound: kind => audio.playSfx(kind === "preview" ? "join" : "click"),
 });
+chrome.closeSettings = () => {
+  if (settingsPanel.isOpen) settingsPanel.close();
+};
+
+const languagePicker = new LanguagePicker(hud, {
+  onSound: () => audio.playSfx("click"),
+  onOpenChange: open => {
+    chrome.pickerOpen = open;
+    if (open) chrome.closeSettings();
+    scene.setUiOpen(open || chrome.settingsOpen);
+  },
+});
+chrome.closePicker = () => {
+  if (languagePicker.isOpen) languagePicker.close();
+};
+
+onLocaleChange(() => {
+  paintHudLabels();
+  controls.innerHTML = controlsHint(settingsPanel.settings.controlMode);
+  mobileControls.applyLocale();
+  scene.applyLocale();
+});
+
 scene.setHudOverlays([
   hud.querySelector(".status") as HTMLElement,
   controls,
   settingsPanel.cog,
+  languagePicker.button,
   ...mobileControls.overlays,
 ]);
 

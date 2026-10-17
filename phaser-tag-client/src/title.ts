@@ -3,6 +3,7 @@
  * (same cartoony look as Settings). The game stays in spectator mode until
  * Start is pressed; see GameScene.startPlaying().
  */
+import { onLocaleChange, t } from "./i18n";
 
 export interface TitleScreenOptions {
   onStart(): void;
@@ -31,9 +32,23 @@ export class TitleScreen {
       if (this.startBtn.disabled) return;
       this.options.onSound?.();
       this.startBtn.disabled = true;
-      this.startBtn.textContent = "Starting…";
+      this.startBtn.textContent = t("title.starting");
       this.options.onStart();
     });
+    this.refresh();
+    onLocaleChange(() => this.refresh());
+  }
+
+  private refresh() {
+    const set = (selector: string, key: "title.kicker" | "title.heading" | "title.blurb") => {
+      const el = this.el.querySelector(selector);
+      if (el) el.textContent = t(key);
+    };
+    set(".title-kicker", "title.kicker");
+    set(".title-heading", "title.heading");
+    set(".title-blurb", "title.blurb");
+    if (!this.startBtn.disabled) this.startBtn.textContent = t("title.start");
+    else this.startBtn.textContent = t("title.starting");
   }
 
   /** Call once the player has joined and the local kid exists. */

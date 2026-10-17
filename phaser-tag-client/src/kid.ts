@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { getLocale, t } from "./i18n";
 import { DEFAULT_SKIN, SKINS, SKIN_IDS, type Skin, type SkinSheet } from "./skins";
 import { DIRECTIONS, nextAvatarAnim, type Direction } from "./tagging";
 
@@ -121,7 +122,8 @@ const LABEL_LINES = ["name", "you", "it"] as const;
 type LabelLine = (typeof LABEL_LINES)[number];
 
 const LABEL_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
-  fontFamily: "system-ui, sans-serif",
+  fontFamily:
+    '"Noto Sans Devanagari", "Noto Nastaliq Urdu", "Noto Naskh Arabic", system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", sans-serif',
   fontStyle: "bold",
   stroke: "#10131a",
   strokeThickness: 4,
@@ -209,6 +211,8 @@ export class KidAvatar {
       scene.add.text(x, y, LABEL_LOOK[line].text, LABEL_LOOK[line].style).setOrigin(0.5, 1);
     this.labels = { name: label("name"), you: label("you"), it: label("it") };
     this.labels.name.setText(name);
+    this.labels.you.setText(t("label.you"));
+    this.labels.it.setText(t("label.it"));
 
     this.sprite.on(
       Phaser.Animations.Events.ANIMATION_COMPLETE,
@@ -264,9 +268,20 @@ export class KidAvatar {
   /** Label stack contents: name, plus the YOU / IT lines when they apply. */
   setLabels(labels: { name: string; you: boolean; it: boolean }) {
     if (this.labels.name.text !== labels.name) this.labels.name.setText(labels.name);
+    this.applyLocale();
     this.showLabel.name = labels.name !== "";
     this.showLabel.you = labels.you;
     this.showLabel.it = labels.it;
+  }
+
+  /** YOU / IT in the current language. Names stay as the server sent them. */
+  applyLocale() {
+    const rtl = getLocale() === "ur-PK";
+    this.labels.you.setText(t("label.you"));
+    this.labels.it.setText(t("label.it"));
+    this.labels.you.setStyle({ rtl });
+    this.labels.it.setStyle({ rtl });
+    this.labels.name.setStyle({ rtl: false });
   }
 
   /** World-space box around the visible kid: body, ring and label stack. */

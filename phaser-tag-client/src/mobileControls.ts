@@ -13,6 +13,7 @@
  * sets a tap-to-move destination.
  */
 
+import { t } from "./i18n";
 import { RunButton } from "./runButton";
 
 /** Fraction of the base radius that counts as "not pushed" (no movement). */
@@ -48,10 +49,10 @@ export class Joystick {
     const el = document.createElement("div");
     el.className = "joystick";
     el.setAttribute("role", "application");
-    el.setAttribute("aria-label", "Joystick: drag to move");
     el.innerHTML = `<div class="joystick-base"><div class="joystick-thumb"></div></div>`;
     el.hidden = true;
     this.el = el;
+    this.applyLocale();
     this.thumb = el.querySelector(".joystick-thumb") as HTMLElement;
 
     el.addEventListener("pointerdown", event => {
@@ -86,6 +87,10 @@ export class Joystick {
 
   get active() {
     return this.pointerId !== null;
+  }
+
+  applyLocale() {
+    this.el.setAttribute("aria-label", t("mobile.joystickAria"));
   }
 
   setVisible(visible: boolean) {
@@ -138,8 +143,7 @@ export class TagButton {
     const el = document.createElement("button");
     el.type = "button";
     el.className = "tag-button";
-    el.setAttribute("aria-label", "Tag");
-    el.innerHTML = `${TAG_ICON}<span class="tag-label">TAG</span>`;
+    el.innerHTML = `${TAG_ICON}<span class="tag-label"></span>`;
     this.el = el;
     const pointers = new Set<number>();
     const update = () => el.classList.toggle("held", pointers.size > 0);
@@ -161,6 +165,13 @@ export class TagButton {
     });
     swallowTouches(el);
     parent.appendChild(el);
+    this.applyLocale();
+  }
+
+  applyLocale() {
+    const label = this.el.querySelector(".tag-label");
+    if (label) label.textContent = t("mobile.tag");
+    this.el.setAttribute("aria-label", t("mobile.tagAria"));
   }
 }
 
@@ -193,6 +204,12 @@ export class MobileControls {
     this.joystick.setVisible(visible);
     this.pad.hidden = !visible;
     if (!visible) this.run.release();
+  }
+
+  applyLocale() {
+    this.joystick.applyLocale();
+    this.tag.applyLocale();
+    this.run.applyLocale();
   }
 
   /** lefty: joystick on the right, buttons on the left. flip: Run left of Tag. */
