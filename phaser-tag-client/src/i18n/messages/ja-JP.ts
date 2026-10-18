@@ -33,12 +33,16 @@ export const jaJP: Messages = {
     "<strong>WASD / 矢印</strong>で移動 · <strong>シフト</strong>で走る · <strong>スペース</strong>か <strong>T</strong>でタッチ",
   "hint.mobile":
     "地面を<strong>タップ</strong>して歩くか、<strong>スティック</strong>を使う · <strong>タッチ</strong>するか、近くのプレイヤーをタップ · <strong>走る</strong>を押し続けるとダッシュ",
+  "hint.mobileTouch":
+    "地面を<strong>タップ</strong>して歩く · <strong>ダブルタップ</strong>で走る · <strong>プレイヤーをタップ</strong>してタッチ",
+  "hint.dismiss": "ヒントを閉じる",
 
   "settings.aria": "設定",
   "settings.title": "設定",
   "settings.close": "設定を閉じる",
   "settings.tab.controls": "操作",
   "settings.tab.sound": "サウンド",
+  "settings.tab.view": "表示",
   "settings.tab.skins": "スキン",
   "settings.tab.credits": "クレジット",
 
@@ -50,6 +54,7 @@ export const jaJP: Messages = {
   "settings.controls.flipTagRun": "タッチと走るを入替",
   "settings.controls.off": "オフ",
   "settings.controls.on": "オン",
+  "settings.controls.hideButtons": "ボタンを隠す",
   "settings.controls.phoneHint":
     "スマホやタブレット？ <strong>タッチ</strong>を選ぶと、スティックと大きなタッチ／走るボタンが出ます。",
 
@@ -68,7 +73,14 @@ export const jaJP: Messages = {
   "howto.joyWalk": "スティックか、地面をタップして歩く",
   "howto.tagTap": "タッチ、または近くのプレイヤーをタップ",
   "howto.holdRun": "長押しで走る",
+  "howto.zoomIn": "ズームイン",
+  "howto.zoomOut": "ズームアウト",
+  "howto.pinch": "2本指でピンチしてズーム",
+  "howto.tapWalk": "地面をタップして歩く",
+  "howto.doubleRun": "ダブルタップで走る",
+  "howto.tapPlayer": "プレイヤーをタップしてタッチ",
   "howto.helpMobile": "地面をドラッグして進もう。組み合わせ自由！スマホやタブレット向き。",
+  "howto.helpTouch": "届かないときは、そこへ歩いていく。",
   "howto.helpKeyboard": "近くの子にタッチして鬼にしよう。",
 
   "settings.sound.heading": "サウンド",
@@ -77,6 +89,13 @@ export const jaJP: Messages = {
   "settings.sound.sfx": "効果音",
   "settings.sound.mood": "ムード",
   "settings.sound.moodHelp": "ムードで背景音楽が決まります。",
+
+  "settings.view.heading": "表示",
+  "settings.view.zoom": "ズーム",
+  "settings.view.out": "引く",
+  "settings.view.in": "寄る",
+  "settings.view.help": "真ん中（0）が通常のズーム。引くと地図が広く見え、寄ると近くなります。",
+  "settings.view.input": "Alt + ↑ か W でズームイン。Alt + ↓ か S でズームアウト。2本指でピンチ。",
 
   "mood.happy": "ハッピー",
   "mood.happy.blurb": "弾むチップチューン",

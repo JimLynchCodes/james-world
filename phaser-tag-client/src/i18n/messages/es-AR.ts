@@ -21,6 +21,8 @@ export const esAR: Partial<Messages> = {
     "<strong>WASD / flechas</strong> para moverte · <strong>MAYÚS</strong> para correr · <strong>ESPACIO</strong> o <strong>T</strong> para manchar",
   "hint.mobile":
     "<strong>Tocá</strong> el piso para caminar o usá la <strong>palanca</strong> · <strong>TOCA</strong> o tocá a un jugador cerca · mantené <strong>CORRÉ</strong> para correr",
+  "hint.mobileTouch":
+    "<strong>Tocá</strong> el piso para caminar · <strong>doble toque</strong> para correr · <strong>tocá a un jugador</strong> cerca para manchar",
 
   "settings.controls.mobile": "Celular",
   "settings.controls.flipJoystick": "Invertir palanca",
@@ -33,7 +35,12 @@ export const esAR: Partial<Messages> = {
   "howto.joyWalk": "Palanca, o tocá el piso, para caminar",
   "howto.tagTap": "Tocá, o tocá a un jugador cerca",
   "howto.holdRun": "Mantené para correr",
+  "howto.pinch": "Pellizcá para hacer zoom",
+  "howto.tapWalk": "Tocá el piso para caminar",
+  "howto.tapPlayer": "Tocá a un jugador para manchar",
   "howto.helpMobile": "Arrastrá en el piso para manejar. ¡Mezclá todo! Ideal para el celular y la tablet.",
+  "howto.helpTouch": "Si está lejos, caminás hacia él.",
+  "settings.view.input": "Alt + ↑ o W acerca. Alt + ↓ o S aleja. Pellizcá con dos dedos.",
   "howto.helpKeyboard": "Tocá a alguien cerca para que quede la mancha.",
 
   "settings.skins.help": "El mismo héroe, otro estilo.",

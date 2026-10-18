@@ -10,6 +10,7 @@ export const enAU: Partial<Messages> = {
   "settings.controls.phoneHint":
     "On a phone or tablet? Choose <strong>Mobile</strong> for a joystick and big TAG and RUN buttons.",
   "howto.helpMobile": "Drag on the ground to steer. Mix and match! Spot on for phones and tablets.",
+  "howto.helpTouch": "Out of reach, you walk towards them.",
   "credits.githubLead": "Have a squiz at the source code for this game, fork it, and give it a star! 😉",
   "credits.linkedinLead": "Feel free to connect with me on LinkedIn:",
 };

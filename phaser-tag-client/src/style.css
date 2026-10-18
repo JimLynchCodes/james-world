@@ -108,13 +108,49 @@ canvas {
   position: absolute;
   left: calc(16px + env(safe-area-inset-left));
   bottom: calc(16px + env(safe-area-inset-bottom));
-  max-width: calc(100vw - 32px);
+  max-width: min(440px, calc(100vw - 32px - env(safe-area-inset-left) - env(safe-area-inset-right)));
   box-sizing: border-box;
-  padding: 10px 12px;
+  padding: 8px 36px 8px 12px;
+  padding-inline: 12px 36px;
   border-radius: 10px;
   background: rgba(10,12,18,.65);
   font-size: 12px;
+  line-height: 1.45;
   color: rgba(255,255,255,.8);
+}
+.controls[hidden] { display: none !important; }
+.controls-copy { margin: 0; }
+.controls-dismiss {
+  position: absolute;
+  top: 4px;
+  inset-inline-end: 4px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255,255,255,.78);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.controls-dismiss svg { width: 14px; height: 14px; }
+.controls-dismiss path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+.controls-dismiss:hover,
+.controls-dismiss:focus-visible {
+  background: rgba(255,255,255,.16);
+  color: #fff;
+}
+.controls-dismiss:focus-visible {
+  outline: 2px solid rgba(255,255,255,.7);
+  outline-offset: 1px;
 }
 
 .connection {
@@ -830,6 +866,52 @@ html[dir="rtl"] .settings-title {
   text-align: center;
 }
 
+/* Zoom: 0 sits in the middle. The fill grows out from the center toward the thumb.
+   Direction stays left-to-right so Out is the left end even in Urdu. */
+.zoom-wrap { direction: ltr; }
+.zoom-cap {
+  flex: none;
+  min-width: 2.4em;
+  font-size: 12px;
+  font-weight: 800;
+  color: #5b4f73;
+  text-align: center;
+}
+/* Phone widths: long words (Alejar / Acercar) were squeezing the track.
+   The words sit under the ends, and the track takes the row. */
+@container settings (max-width: 519px) {
+  .zoom-wrap {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    gap: 2px 10px;
+    align-items: center;
+  }
+  .zoom-slider { grid-column: 1; grid-row: 1; width: 100%; }
+  .zoom-wrap .slider-value {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+    min-width: 48px;
+  }
+  .zoom-cap { min-width: 0; line-height: 1.2; }
+  .zoom-cap:first-child { grid-column: 1; grid-row: 2; justify-self: start; text-align: start; }
+  .zoom-cap:last-of-type { grid-column: 1; grid-row: 2; justify-self: end; text-align: end; }
+}
+.zoom-slider {
+  --p: 50%;
+  background: linear-gradient(
+    to right,
+    var(--cream) 0,
+    var(--cream) min(var(--p), 50%),
+    var(--tangerine) min(var(--p), 50%),
+    var(--tangerine) max(var(--p), 50%),
+    var(--cream) max(var(--p), 50%),
+    var(--cream) 100%
+  );
+}
+.zoom-wrap .slider-value { min-width: 52px; }
+
 /* Mood dropdown */
 .select-wrap { position: relative; }
 .settings-select {
@@ -886,6 +968,18 @@ html[dir="rtl"] .settings-title {
   .settings-select { width: 190px; }
   .settings-pane[data-pane="sound"] .setting-help { margin-top: 2px; padding-left: 4px; }
   .settings-pane[data-pane="sound"] h3 { margin-bottom: 4px; }
+  .settings-pane[data-pane="view"] .setting-row {
+    display: grid;
+    grid-template-columns: 176px minmax(0, 1fr);
+    align-items: center;
+    gap: 16px;
+    margin: 0;
+    padding: 16px 4px 12px;
+  }
+  .settings-pane[data-pane="view"] .slider-wrap { margin-top: 0; }
+  .settings-pane[data-pane="view"] .setting-label { font-size: 16px; }
+  .settings-pane[data-pane="view"] .setting-help { margin-top: 2px; padding-left: 4px; }
+  .settings-pane[data-pane="view"] h3 { margin-bottom: 4px; }
 }
 @container pane (min-width: 560px) {
   .settings-pane[data-pane="sound"] .setting-row { grid-template-columns: 200px minmax(0, 1fr); }
@@ -925,7 +1019,8 @@ html[dir="rtl"] .settings-title {
   min-width: 0;
 }
 .howto-what { min-width: 0; font-size: 15px; font-weight: 800; overflow-wrap: break-word; }
-.howto-or { font-size: 13px; font-weight: 800; color: #5b4f73; }
+.howto-or, .howto-plus { font-size: 13px; font-weight: 800; color: #5b4f73; }
+.howto-plus { padding: 0 1px; }
 .key {
   box-sizing: border-box;
   display: inline-flex;
@@ -979,6 +1074,33 @@ html[dir="rtl"] .settings-title {
   font-weight: 900;
   letter-spacing: 0;
   text-shadow: 0 2px 0 rgba(43, 33, 64, .55);
+}
+.chip-gesture {
+  background: #fff;
+  gap: 4px;
+}
+.chip-gesture svg {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.g-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ink);
+}
+.g-person {
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+  box-shadow: inset 0 -6px 0 var(--ink);
 }
 .chip-tag { background: radial-gradient(circle at 35% 28%, #ffb27a 0 18%, #ff7a3d 45%, #f0532a 100%); }
 .chip-run { background: radial-gradient(circle at 35% 28%, #9fdcff 0 18%, #3ea2ff 45%, #1f6fe0 100%); }
@@ -1052,9 +1174,10 @@ html[dir="rtl"] .settings-title {
   /* Four labelled tabs don't fit one row here. Two by two keeps every
      name readable (a single row clips "Controls" / "Credits"). */
   .settings-tabs {
+    --tab-gap: 8px;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
+    gap: var(--tab-gap);
     align-self: stretch;
   }
   .settings-tab {
@@ -1068,6 +1191,13 @@ html[dir="rtl"] .settings-title {
      with the tab beside it in this two-by-two grid. */
   .settings-tab:hover { transform: none; }
   .settings-tab[aria-selected="true"] { transform: none; }
+  /* Five tabs: a full-width Credits bar reads as a footer. Give it the
+     same width as the others and centre it under the grid. */
+  .settings-tab:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+    width: calc(50% - var(--tab-gap) / 2);
+    justify-self: center;
+  }
   .settings-pane { min-width: 0; padding: 14px 12px 16px; }
   .mode-switch { gap: 8px; }
   .mode-option { font-size: 14px; }
@@ -1078,14 +1208,15 @@ html[dir="rtl"] .settings-title {
 
 /* Getting tight: a slightly smaller tab row still fits every label. */
 @container settings (max-width: 339px) {
-  .settings-tabs { gap: 6px; }
+  .settings-tabs { --tab-gap: 6px; gap: var(--tab-gap); }
   .settings-tab { gap: 4px; padding: 7px 6px; font-size: 13px; }
   .settings-tab svg { width: 18px; height: 18px; }
 }
 
 /* Too narrow for a 2-by-2 of labelled tabs: stack them, full width. */
 @container settings (max-width: 299px) {
-  .settings-tabs { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .settings-tabs { --tab-gap: 8px; grid-template-columns: minmax(0, 1fr); gap: var(--tab-gap); }
+  .settings-tab:last-child:nth-child(odd) { width: auto; justify-self: stretch; }
   .settings-tab { justify-content: flex-start; gap: 8px; padding: 7px 12px; font-size: 14px; }
   .settings-tab svg { width: 20px; height: 20px; }
   .settings-tab:hover { transform: none; }
@@ -1336,12 +1467,13 @@ html[dir="rtl"] .settings-title {
 }
 .joystick.active .joystick-thumb { transition: none; }
 
-/* Mobile: both bottom corners are taken, so the hint sits above the joystick. */
-.hud[data-mode="mobile"] .controls {
+/* Mobile: both bottom corners are taken, so the hint sits above the joystick.
+   Hidden buttons leave the corners free, so the hint stays at the bottom edge. */
+.hud[data-mode="mobile"]:not([data-hide-buttons="true"]) .controls {
   bottom: calc(var(--edge) + var(--stick-size) + 14px + env(safe-area-inset-bottom));
   max-width: min(420px, calc(100vw - 32px - env(safe-area-inset-left) - env(safe-area-inset-right)));
 }
-.hud[data-mode="mobile"][data-lefty="true"] .controls {
+.hud[data-mode="mobile"][data-lefty="true"]:not([data-hide-buttons="true"]) .controls {
   left: auto;
   right: calc(16px + env(safe-area-inset-right));
   text-align: right;

@@ -33,12 +33,16 @@ export const hiIN: Messages = {
     "<strong>WASD / तीर वाले बटन</strong> से चलो · <strong>शिफ्ट</strong> दबाकर दौड़ो · <strong>स्पेस</strong> या <strong>T</strong> से पकड़ो",
   "hint.mobile":
     "ज़मीन पर <strong>टैप</strong> करके चलो या <strong>जॉयस्टिक</strong> इस्तेमाल करो · <strong>पकड़ो</strong> या पास वाले खिलाड़ी पर टैप करो · दौड़ने के लिए <strong>दौड़ो</strong> दबाए रखो",
+  "hint.mobileTouch":
+    "ज़मीन पर <strong>टैप</strong> करके चलो · <strong>दो बार टैप</strong> करके दौड़ो · <strong>खिलाड़ी पर टैप</strong> करके पकड़ो",
+  "hint.dismiss": "संकेत हटाओ",
 
   "settings.aria": "सेटिंग्स",
   "settings.title": "सेटिंग्स",
   "settings.close": "सेटिंग्स बंद करो",
   "settings.tab.controls": "कंट्रोल",
   "settings.tab.sound": "आवाज़",
+  "settings.tab.view": "दृश्य",
   "settings.tab.skins": "रूप",
   "settings.tab.credits": "श्रेय",
 
@@ -50,6 +54,7 @@ export const hiIN: Messages = {
   "settings.controls.flipTagRun": "पकड़ो / दौड़ो पलटो",
   "settings.controls.off": "बंद",
   "settings.controls.on": "चालू",
+  "settings.controls.hideButtons": "बटन छुपाओ",
   "settings.controls.phoneHint":
     "फ़ोन या टैबलेट पर हो? जॉयस्टिक और बड़े पकड़ो और दौड़ो बटन के लिए <strong>मोबाइल</strong> चुनो।",
 
@@ -68,7 +73,14 @@ export const hiIN: Messages = {
   "howto.joyWalk": "जॉयस्टिक, या ज़मीन पर टैप, चलने के लिए",
   "howto.tagTap": "पकड़ो, या पास वाले खिलाड़ी पर टैप करो",
   "howto.holdRun": "दौड़ने के लिए दबाए रखो",
+  "howto.zoomIn": "ज़ूम इन",
+  "howto.zoomOut": "ज़ूम आउट",
+  "howto.pinch": "दो उंगलियों से ज़ूम करो",
+  "howto.tapWalk": "ज़मीन पर टैप करके चलो",
+  "howto.doubleRun": "दो बार टैप करके दौड़ो",
+  "howto.tapPlayer": "खिलाड़ी पर टैप करके पकड़ो",
   "howto.helpMobile": "ज़मीन पर खींचकर दिशा बदलो। जैसे चाहो, मिलाकर खेलो! फ़ोन और टैबलेट के लिए बढ़िया।",
+  "howto.helpTouch": "पहुँच से बाहर हो, तो उसकी तरफ चलते हो।",
   "howto.helpKeyboard": "पास वाले को पकड़ो, ताकि वह डेन बन जाए।",
 
   "settings.sound.heading": "आवाज़",
@@ -77,6 +89,13 @@ export const hiIN: Messages = {
   "settings.sound.sfx": "साउंड इफ़ेक्ट",
   "settings.sound.mood": "मूड",
   "settings.sound.moodHelp": "मूड बैकग्राउंड संगीत चुनता है।",
+
+  "settings.view.heading": "दृश्य",
+  "settings.view.zoom": "ज़ूम",
+  "settings.view.out": "दूर",
+  "settings.view.in": "पास",
+  "settings.view.help": "बीच (0) सामान्य ज़ूम है। दूर करने पर नक्शा ज़्यादा दिखता है, पास करने पर सब बड़ा दिखता है।",
+  "settings.view.input": "Alt + ↑ या W से ज़ूम इन। Alt + ↓ या S से ज़ूम आउट। दो उंगलियों से पिंच करो।",
 
   "mood.happy": "खुश",
   "mood.happy.blurb": "उछलता चिपट्यून",

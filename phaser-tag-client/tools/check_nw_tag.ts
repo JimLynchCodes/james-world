@@ -86,6 +86,23 @@ test("space keyup does not swallow a same-step tag press", () => {
 
 const SKINS = ["kid", "kid_pharaoh", "kid_banana", "kid_trex", "kid_tuxedo", "kid_pirate"] as const;
 
+test("Alt zoom keeps W and Up from walking, and leaves A and Left alone", () => {
+  const zooming = movementAxes(new Set(["KeyW", "KeyA", "ArrowUp"]), { altZoom: true });
+  assert.equal(zooming.dx, -1);
+  assert.equal(zooming.dy, 0);
+  assert.equal(zooming.running, false);
+  const walking = movementAxes(new Set(["KeyW"]), { altZoom: false });
+  assert.equal(walking.dy, -1);
+  const up = movementAxes(new Set(["ArrowUp"]));
+  assert.equal(up.dy, -1);
+  const held = movementAxes(new Set(["KeyW", "ShiftLeft"]), { altZoom: true });
+  assert.equal(held.dx, 0);
+  assert.equal(held.dy, 0);
+  const strafe = movementAxes(new Set(["KeyD", "ShiftLeft"]), { altZoom: true });
+  assert.equal(strafe.dx, 1);
+  assert.equal(strafe.running, true);
+});
+
 test("arrow up+left and WASD northwest are the same axes", () => {
   assert.deepEqual(movementAxes(new Set(["ArrowUp", "ArrowLeft"])), movementAxes(new Set(["KeyW", "KeyA"])));
   const { dx, dy, running } = movementAxes(new Set(["ArrowUp", "ArrowLeft"]));

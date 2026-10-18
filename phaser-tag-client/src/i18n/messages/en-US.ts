@@ -31,12 +31,16 @@ export const enUS = {
     "<strong>WASD / Arrow Keys</strong> move · <strong>SHIFT</strong> run · <strong>SPACE</strong> or <strong>T</strong> tag",
   "hint.mobile":
     "<strong>Tap</strong> the ground to walk or use the <strong>joystick</strong> · <strong>TAG</strong> or tap a nearby player to tag · hold <strong>RUN</strong> to run",
+  "hint.mobileTouch":
+    "<strong>Tap</strong> the ground to walk · <strong>double-tap</strong> to run · <strong>tap a player</strong> to tag",
+  "hint.dismiss": "Dismiss hint",
 
   "settings.aria": "Settings",
   "settings.title": "Settings",
   "settings.close": "Close settings",
   "settings.tab.controls": "Controls",
   "settings.tab.sound": "Sound",
+  "settings.tab.view": "View",
   "settings.tab.skins": "Skins",
   "settings.tab.credits": "Credits",
 
@@ -48,6 +52,7 @@ export const enUS = {
   "settings.controls.flipTagRun": "Flip Tag / Run",
   "settings.controls.off": "Off",
   "settings.controls.on": "On",
+  "settings.controls.hideButtons": "Hide buttons",
   "settings.controls.phoneHint":
     "Playing on a phone or tablet? Pick <strong>Mobile</strong> for a joystick and big TAG and RUN buttons.",
 
@@ -66,7 +71,14 @@ export const enUS = {
   "howto.joyWalk": "Joystick, or tap the ground, to walk",
   "howto.tagTap": "Tag, or tap a nearby player",
   "howto.holdRun": "Hold to run",
+  "howto.zoomIn": "Zoom in",
+  "howto.zoomOut": "Zoom out",
+  "howto.pinch": "Pinch to zoom",
+  "howto.tapWalk": "Tap the ground to walk",
+  "howto.doubleRun": "Double-tap to run",
+  "howto.tapPlayer": "Tap a player to tag",
   "howto.helpMobile": "Drag on the ground to steer. Mix and match! Great for phones and tablets.",
+  "howto.helpTouch": "Out of reach, you walk toward them.",
   "howto.helpKeyboard": "Tag someone nearby to make them it.",
 
   "settings.sound.heading": "Sound",
@@ -75,6 +87,13 @@ export const enUS = {
   "settings.sound.sfx": "Sound effects",
   "settings.sound.mood": "Mood",
   "settings.sound.moodHelp": "The mood picks the background music.",
+
+  "settings.view.heading": "View",
+  "settings.view.zoom": "Zoom",
+  "settings.view.out": "Out",
+  "settings.view.in": "In",
+  "settings.view.help": "The middle (0) is the normal zoom. Out shows more of the map; in brings you closer.",
+  "settings.view.input": "Alt + ↑ or W zooms in. Alt + ↓ or S zooms out. Pinch with two fingers.",
 
   "mood.happy": "Happy",
   "mood.happy.blurb": "Bouncy chiptune",

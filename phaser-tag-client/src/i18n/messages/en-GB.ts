@@ -10,6 +10,7 @@ export const enGB: Partial<Messages> = {
   "mood.chillin.blurb": "Lo-fi hip-hop loop",
   "credits.githubLead": "Have a look at the source code for this game, fork it, and give it a star! 😉",
   "howto.helpKeyboard": "Tag someone nearby to make them it.",
+  "howto.helpTouch": "Out of reach, you walk towards them.",
   "settings.controls.phoneHint":
     "Playing on a phone or tablet? Choose <strong>Mobile</strong> for a joystick and big TAG and RUN buttons.",
 };

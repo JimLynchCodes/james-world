@@ -36,12 +36,16 @@ export const esMX: Messages = {
     "<strong>WASD / flechas</strong> para moverte · <strong>MAYÚS</strong> para correr · <strong>ESPACIO</strong> o <strong>T</strong> para tocar",
   "hint.mobile":
     "<strong>Toca</strong> el suelo para caminar o usa la <strong>palanca</strong> · <strong>TOCA</strong> o toca a un jugador cerca · mantén <strong>CORRE</strong> para correr",
+  "hint.mobileTouch":
+    "<strong>Toca</strong> el suelo para caminar · <strong>doble toque</strong> para correr · <strong>toca a un jugador</strong> cerca para que la lleve",
+  "hint.dismiss": "Cerrar el aviso",
 
   "settings.aria": "Ajustes",
   "settings.title": "Ajustes",
   "settings.close": "Cerrar ajustes",
   "settings.tab.controls": "Controles",
   "settings.tab.sound": "Sonido",
+  "settings.tab.view": "Vista",
   "settings.tab.skins": "Trajes",
   "settings.tab.credits": "Créditos",
 
@@ -53,6 +57,7 @@ export const esMX: Messages = {
   "settings.controls.flipTagRun": "Invertir Toca / Corre",
   "settings.controls.off": "No",
   "settings.controls.on": "Sí",
+  "settings.controls.hideButtons": "Ocultar botones",
   "settings.controls.phoneHint":
     "¿Juegas en un celular o una tableta? Elige <strong>Celular</strong> para una palanca y botones grandes de TOCA y CORRE.",
 
@@ -71,7 +76,14 @@ export const esMX: Messages = {
   "howto.joyWalk": "Palanca, o toca el suelo, para caminar",
   "howto.tagTap": "Toca, o toca a un jugador cerca",
   "howto.holdRun": "Mantén para correr",
+  "howto.zoomIn": "Acercar",
+  "howto.zoomOut": "Alejar",
+  "howto.pinch": "Pellizca para hacer zoom",
+  "howto.tapWalk": "Toca el suelo para caminar",
+  "howto.doubleRun": "Doble toque para correr",
+  "howto.tapPlayer": "Toca a un jugador para que la lleve",
   "howto.helpMobile": "Arrastra en el suelo para dirigir. ¡Combina como quieras! Ideal para celulares y tabletas.",
+  "howto.helpTouch": "Si está lejos, caminas hacia él.",
   "howto.helpKeyboard": "Toca a alguien cerca para que la lleve.",
 
   "settings.sound.heading": "Sonido",
@@ -80,6 +92,13 @@ export const esMX: Messages = {
   "settings.sound.sfx": "Efectos de sonido",
   "settings.sound.mood": "Ambiente",
   "settings.sound.moodHelp": "El ambiente elige la música de fondo.",
+
+  "settings.view.heading": "Vista",
+  "settings.view.zoom": "Zoom",
+  "settings.view.out": "Alejar",
+  "settings.view.in": "Acercar",
+  "settings.view.help": "El centro (0) es el zoom normal. Alejar muestra más del mapa; acercar te pone más cerca.",
+  "settings.view.input": "Alt + ↑ o W acerca. Alt + ↓ o S aleja. Pellizca con dos dedos.",
 
   "mood.happy": "Feliz",
   "mood.happy.blurb": "Chiptune con brinco",

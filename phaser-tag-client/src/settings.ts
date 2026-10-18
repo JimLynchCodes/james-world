@@ -1,11 +1,12 @@
 /**
  * Settings: persisted preferences (localStorage) plus the cog button and
- * the Settings modal (tabs: Controls, Sound, Skins, Credits). The header and tabs stay
+ * the Settings modal (tabs: Controls, Sound, View, Skins, Credits). The header and tabs stay
  * put; the option panes scroll inside the rounded frame. Plain DOM on
  * top of the Phaser canvas; styles live in style.css under "Settings".
  */
 import { onLocaleChange, t, type MessageKey } from "./i18n";
 import { DEFAULT_SKIN, SKINS, SKIN_IDS, type Skin } from "./skins";
+import { clampLevel, zoomTrackPercent } from "./zoom";
 
 export type ControlMode = "keyboard" | "mobile";
 /**
@@ -40,6 +41,16 @@ export interface Settings {
   mood: Mood;
   /** Which outfit James wears (everyone else sees it too). */
   skin: Skin;
+  /**
+   * Camera zoom. 0 is the middle of the slider and the normal view.
+   * Negative zooms out, positive zooms in. Range -100..100 (about 0.5x..2x).
+   */
+  zoom: number;
+  /**
+   * Mobile mode: hide the joystick and the Tag / Run buttons.
+   * Play is tap-to-walk, double-tap-to-run, and tap-a-player-to-tag.
+   */
+  hideButtons: boolean;
 }
 
 export const STORAGE_KEY = "tag26.settings";
@@ -76,6 +87,8 @@ function defaultSettings(): Settings {
     sfxVolume: 80,
     mood: "happy",
     skin: DEFAULT_SKIN,
+    zoom: 0,
+    hideButtons: false,
   };
 }
 
@@ -131,6 +144,8 @@ export function loadSettings(): LoadedSettings {
   take("sfxVolume", vol(raw.sfxVolume));
   take("mood", oneOf(raw.mood, MOODS.map(m => m.value)));
   take("skin", oneOf(raw.skin, SKIN_IDS));
+  take("zoom", typeof raw.zoom === "number" && Number.isFinite(raw.zoom) ? clampLevel(raw.zoom) : undefined);
+  take("hideButtons", bool(raw.hideButtons));
   // Rewrite saves from older builds ("tap", runSide) in the new shape.
   if (raw.controlMode === "tap" || "runSide" in raw) saveSettings(settings, saved);
   return { settings, saved };
@@ -147,9 +162,11 @@ export function saveSettings(settings: Settings, keys: Iterable<keyof Settings>)
   }
 }
 
-/** Bottom-left controls hint for each mode (HTML). */
-export function controlsHint(mode: ControlMode): string {
-  return mode === "mobile" ? t("hint.mobile") : t("hint.keyboard");
+/** Bottom-left controls hint for the current mode (HTML). */
+export function controlsHint(settings: Pick<Settings, "controlMode" | "hideButtons">): string {
+  if (settings.controlMode === "keyboard") return t("hint.keyboard");
+  if (settings.hideButtons) return t("hint.mobileTouch");
+  return t("hint.mobile");
 }
 
 export interface SettingsPanelOptions {
@@ -161,7 +178,7 @@ export interface SettingsPanelOptions {
   onSound?(kind: "click" | "preview"): void;
 }
 
-type Tab = "controls" | "sound" | "skins" | "credits";
+type Tab = "controls" | "sound" | "view" | "skins" | "credits";
 
 /** Portrait on the Credits tab. Square source, framed in CSS (not stretched). */
 const JAMES_PORTRAIT = `${import.meta.env.BASE_URL}assets/james.webp`;
@@ -193,7 +210,7 @@ const CREDIT_ICONS = {
 };
 
 /** On/off settings shown as switches in the Controls tab (Mobile only). */
-const FLAGS = ["leftyJoystick", "flipTagRun"] as const;
+const FLAGS = ["leftyJoystick", "flipTagRun", "hideButtons"] as const;
 type Flag = (typeof FLAGS)[number];
 
 const SVG_NS = 'xmlns="http://www.w3.org/2000/svg"';
@@ -223,6 +240,7 @@ function cogSvg(): string {
 const ICONS = {
   controls: `<svg ${SVG_NS} viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="7" width="19" height="11" rx="5.5"/><path d="M7.5 10.5v4M5.5 12.5h4"/><circle cx="15.5" cy="11.5" r="1.1"/><circle cx="18" cy="14" r="1.1"/></svg>`,
   sound: `<svg ${SVG_NS} viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11"/></svg>`,
+  view: `<svg ${SVG_NS} viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.2"/><path d="M15.2 15.2 20.5 20.5"/></svg>`,
   skins: `<svg ${SVG_NS} viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 3.5 5 5.5 2.5 9.5l3 2 1.5-1.5V20.5h10V10l1.5 1.5 3-2L19 5.5l-3.5-2a3.5 3.5 0 0 1-7 0z"/></svg>`,
   credits: `<svg ${SVG_NS} viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.2"/><path d="M5.2 19.6c.7-3.4 3.1-5.1 6.8-5.1s6.1 1.7 6.8 5.1"/></svg>`,
   close: `<svg ${SVG_NS} viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>`,
@@ -372,6 +390,8 @@ export class SettingsPanel {
                     data-tab="controls" aria-controls="pane-controls">${ICONS.controls}<span data-i18n="settings.tab.controls"></span></button>
             <button type="button" class="settings-tab" role="tab" id="tab-sound"
                     data-tab="sound" aria-controls="pane-sound">${ICONS.sound}<span data-i18n="settings.tab.sound"></span></button>
+            <button type="button" class="settings-tab" role="tab" id="tab-view"
+                    data-tab="view" aria-controls="pane-view">${ICONS.view}<span data-i18n="settings.tab.view"></span></button>
             <button type="button" class="settings-tab" role="tab" id="tab-skins"
                     data-tab="skins" aria-controls="pane-skins">${ICONS.skins}<span data-i18n="settings.tab.skins"></span></button>
             <button type="button" class="settings-tab" role="tab" id="tab-credits"
@@ -392,6 +412,15 @@ export class SettingsPanel {
                 <button type="button" class="switch" role="switch" aria-labelledby="mode-label"
                         data-toggle="mode" aria-checked="false"><span class="switch-knob"></span></button>
                 <button type="button" class="mode-option" data-mode="mobile" data-i18n="settings.controls.mobile"></button>
+              </div>
+            </div>
+            <div class="setting-row" data-mobile-only>
+              <span class="setting-label" id="hide-buttons-label" data-i18n="settings.controls.hideButtons"></span>
+              <div class="mode-switch">
+                <button type="button" class="mode-option" data-flag="hideButtons" data-value="false" data-i18n="settings.controls.off"></button>
+                <button type="button" class="switch" role="switch" aria-labelledby="hide-buttons-label"
+                        data-toggle="hideButtons" aria-checked="false"><span class="switch-knob"></span></button>
+                <button type="button" class="mode-option" data-flag="hideButtons" data-value="true" data-i18n="settings.controls.on"></button>
               </div>
             </div>
             <div class="setting-row" data-mobile-only>
@@ -433,6 +462,14 @@ export class SettingsPanel {
                   <span class="howto-keys"><kbd class="key key-space" data-i18n="howto.space"></kbd><span class="howto-or" data-i18n="howto.or"></span><kbd class="key">T</kbd></span>
                   <span class="howto-what" data-i18n="howto.tag"></span>
                 </li>
+                <li class="howto-row">
+                  <span class="howto-keys"><kbd class="key key-wide">Alt</kbd><span class="howto-plus">+</span><kbd class="key">W</kbd><span class="howto-or" data-i18n="howto.or"></span><kbd class="key" aria-hidden="true">&#9650;</kbd></span>
+                  <span class="howto-what" data-i18n="howto.zoomIn"></span>
+                </li>
+                <li class="howto-row">
+                  <span class="howto-keys"><kbd class="key key-wide">Alt</kbd><span class="howto-plus">+</span><kbd class="key">S</kbd><span class="howto-or" data-i18n="howto.or"></span><kbd class="key" aria-hidden="true">&#9660;</kbd></span>
+                  <span class="howto-what" data-i18n="howto.zoomOut"></span>
+                </li>
               </ul>
               <ul class="howto-list" data-howto="mobile">
                 <li class="howto-row">
@@ -446,6 +483,28 @@ export class SettingsPanel {
                 <li class="howto-row">
                   <span class="howto-keys"><span class="chip chip-run" data-i18n="mobile.run"></span></span>
                   <span class="howto-what" data-i18n="howto.holdRun"></span>
+                </li>
+                <li class="howto-row">
+                  <span class="howto-keys"><span class="chip chip-gesture chip-pinch" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 7 6.5 12 9 17M15 7l2.5 5L15 17"/></svg></span></span>
+                  <span class="howto-what" data-i18n="howto.pinch"></span>
+                </li>
+              </ul>
+              <ul class="howto-list" data-howto="touch">
+                <li class="howto-row">
+                  <span class="howto-keys"><span class="chip chip-gesture" aria-hidden="true"><span class="g-dot"></span></span></span>
+                  <span class="howto-what" data-i18n="howto.tapWalk"></span>
+                </li>
+                <li class="howto-row">
+                  <span class="howto-keys"><span class="chip chip-gesture" aria-hidden="true"><span class="g-dot"></span><span class="g-dot"></span></span></span>
+                  <span class="howto-what" data-i18n="howto.doubleRun"></span>
+                </li>
+                <li class="howto-row">
+                  <span class="howto-keys"><span class="chip chip-gesture" aria-hidden="true"><span class="g-person"></span></span></span>
+                  <span class="howto-what" data-i18n="howto.tapPlayer"></span>
+                </li>
+                <li class="howto-row">
+                  <span class="howto-keys"><span class="chip chip-gesture chip-pinch" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 7 6.5 12 9 17M15 7l2.5 5L15 17"/></svg></span></span>
+                  <span class="howto-what" data-i18n="howto.pinch"></span>
                 </li>
               </ul>
               <p class="setting-help" data-help></p>
@@ -467,6 +526,23 @@ export class SettingsPanel {
               </div>
             </div>
             <p class="setting-help" data-i18n="settings.sound.moodHelp"></p>
+          </section>
+
+          <section class="settings-pane" role="tabpanel" id="pane-view"
+                   aria-labelledby="tab-view" data-pane="view">
+            <h3 data-i18n="settings.view.heading"></h3>
+            <div class="setting-row slider-row">
+              <label class="setting-label" for="setting-zoom">${ICONS.view}<span data-i18n="settings.view.zoom"></span></label>
+              <div class="slider-wrap zoom-wrap">
+                <span class="zoom-cap" data-i18n="settings.view.out"></span>
+                <input id="setting-zoom" class="settings-slider zoom-slider" type="range"
+                       min="-100" max="100" step="1" value="0" data-key="zoom">
+                <span class="zoom-cap" data-i18n="settings.view.in"></span>
+                <output class="slider-value" for="setting-zoom" data-value="zoom"></output>
+              </div>
+            </div>
+            <p class="setting-help" data-i18n="settings.view.help"></p>
+            <p class="setting-help" data-i18n="settings.view.input"></p>
           </section>
 
           <section class="settings-pane" role="tabpanel" id="pane-skins"
@@ -605,7 +681,13 @@ export class SettingsPanel {
       })
     );
 
+    this.q<HTMLInputElement>(".zoom-slider").addEventListener("input", event => {
+      const slider = event.currentTarget as HTMLInputElement;
+      this.set("zoom", clampLevel(Number(slider.value)));
+    });
+
     this.backdrop.querySelectorAll<HTMLInputElement>(".settings-slider").forEach(slider => {
+      if (slider.classList.contains("zoom-slider")) return;
       const key = slider.dataset.key as (typeof SLIDERS)[number]["key"];
       slider.addEventListener("input", () => this.set(key, Number(slider.value)));
       // Let go of the master / effects slider: play a blip at the new level.
@@ -699,6 +781,23 @@ export class SettingsPanel {
     fade.hidden = !more;
   }
 
+  /**
+   * The camera (pinch, zoom keys, or a resize clamp) landed on `level`.
+   * Saves it and moves the slider without treating it as a new user edit
+   * that would call back into the camera.
+   */
+  adoptZoom(level: number) {
+    const next = clampLevel(level);
+    if (this.values.zoom === next) {
+      this.renderZoom();
+      return;
+    }
+    this.values.zoom = next;
+    this.chosen.add("zoom");
+    saveSettings(this.values, this.chosen);
+    this.renderZoom();
+  }
+
   private set<K extends keyof Settings>(key: K, value: Settings[K]) {
     // Picking a value is an explicit choice even if it equals the default
     // (e.g. confirming the auto-detected control mode), so always save.
@@ -735,12 +834,16 @@ export class SettingsPanel {
     this.backdrop.querySelectorAll<HTMLElement>("[data-keyboard-only]").forEach(row => {
       row.hidden = mobile;
     });
+    const howto = !mobile ? "keyboard" : this.values.hideButtons ? "touch" : "mobile";
     this.backdrop.querySelectorAll<HTMLElement>("[data-howto]").forEach(list => {
-      list.hidden = list.dataset.howto !== this.values.controlMode;
+      list.hidden = list.dataset.howto !== howto;
     });
-    this.q<HTMLElement>("[data-help]").textContent = mobile
-      ? t("howto.helpMobile")
+    this.q<HTMLElement>("[data-help]").textContent =
+      howto === "touch" ? t("howto.helpTouch")
+      : howto === "mobile" ? t("howto.helpMobile")
       : t("howto.helpKeyboard");
+
+    this.renderZoom();
 
     for (const { key } of SLIDERS) {
       const value = this.values[key];
@@ -761,5 +864,14 @@ export class SettingsPanel {
       card.tabIndex = picked ? 0 : -1;
     });
     this.updateScrollFade();
+  }
+
+  /** Zoom thumb, center-out fill, and the numeric level (0 in the middle). */
+  private renderZoom() {
+    const value = this.values.zoom;
+    const slider = this.q<HTMLInputElement>(".zoom-slider");
+    if (Number(slider.value) !== value) slider.value = String(value);
+    slider.style.setProperty("--p", `${zoomTrackPercent(value)}%`);
+    this.q<HTMLOutputElement>("[data-value='zoom']").textContent = String(value);
   }
 }

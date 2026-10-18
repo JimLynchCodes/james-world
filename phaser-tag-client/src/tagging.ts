@@ -175,14 +175,22 @@ export function noteTagKey(queued: boolean, event: DomKeyEvent, phase: "down" | 
   return latchTagPress(queued, phase);
 }
 
-/** Movement from the physical keys currently held. Arrows and WASD share this. */
-export function movementAxes(held: ReadonlySet<string>): { dx: number; dy: number; running: boolean } {
+/**
+ * Movement from the physical keys currently held. Arrows and WASD share this.
+ * While Alt is held for zoom, W / S and Up / Down steer the camera instead
+ * of the kid; A / D and Left / Right still walk.
+ */
+export function movementAxes(
+  held: ReadonlySet<string>,
+  options?: { altZoom?: boolean }
+): { dx: number; dy: number; running: boolean } {
+  const altZoom = options?.altZoom === true;
   let dx = 0;
   let dy = 0;
   if (held.has("ArrowLeft") || held.has("KeyA")) dx -= 1;
   if (held.has("ArrowRight") || held.has("KeyD")) dx += 1;
-  if (held.has("ArrowUp") || held.has("KeyW")) dy -= 1;
-  if (held.has("ArrowDown") || held.has("KeyS")) dy += 1;
+  if (!altZoom && (held.has("ArrowUp") || held.has("KeyW"))) dy -= 1;
+  if (!altZoom && (held.has("ArrowDown") || held.has("KeyS"))) dy += 1;
   const running =
     (held.has("ShiftLeft") || held.has("ShiftRight") || held.has("Shift")) && (dx !== 0 || dy !== 0);
   return { dx, dy, running };

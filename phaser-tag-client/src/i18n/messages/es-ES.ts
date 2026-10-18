@@ -28,6 +28,8 @@ export const esES: Partial<Messages> = {
     "<strong>WASD / flechas</strong> para moverte · <strong>MAYÚS</strong> para correr · <strong>ESPACIO</strong> o <strong>T</strong> para pillar",
   "hint.mobile":
     "<strong>Toca</strong> el suelo para andar o usa el <strong>joystick</strong> · <strong>PILLA</strong> o toca a un jugador cercano · mantén <strong>CORRE</strong> para correr",
+  "hint.mobileTouch":
+    "<strong>Toca</strong> el suelo para andar · <strong>doble toque</strong> para correr · <strong>toca a un jugador</strong> cercano para pillar",
 
   "settings.aria": "Ajustes",
   "settings.title": "Ajustes",
@@ -42,7 +44,10 @@ export const esES: Partial<Messages> = {
   "howto.joyWalk": "Joystick, o toca el suelo, para andar",
   "howto.tagTap": "Pilla, o toca a un jugador cercano",
   "howto.holdRun": "Mantén pulsado para correr",
+  "howto.tapWalk": "Toca el suelo para andar",
+  "howto.tapPlayer": "Toca a un jugador para pillar",
   "howto.helpMobile": "Arrastra por el suelo para dirigir. ¡Combinadlo como queráis! Genial en el móvil y la tableta.",
+  "howto.helpTouch": "Si está lejos, andas hacia él.",
   "howto.helpKeyboard": "Pilla a alguien cerca para que la lleve.",
 
   "settings.skins.help": "El mismo héroe, otro rollo.",
