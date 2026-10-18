@@ -176,6 +176,13 @@ export class KidAvatar {
   private lungeTween: Phaser.Tweens.Tween | null = null;
   private readonly feetOffset: number;
   private skin: Skin = DEFAULT_SKIN;
+  /**
+   * Name labels stay about the same size on screen when the camera zooms.
+   * 1 at the normal zoom; larger in world space when zoomed out.
+   */
+  private labelScale = 1;
+  /** Texture resolution last applied. Recreating it every frame is wasteful. */
+  private labelResolution = 0;
 
   /**
    * @param radius the player's collision radius on the server; sizes the
@@ -291,7 +298,7 @@ export class KidAvatar {
     let right = this.x + FRAME_W * KID_SCALE * 0.3;
     for (const line of LABEL_LINES) {
       if (!this.showLabel[line]) continue;
-      const half = this.labels[line].width / 2;
+      const half = (this.labels[line].width * this.labelScale) / 2;
       left = Math.min(left, this.x - half);
       right = Math.max(right, this.x + half);
     }
@@ -304,7 +311,9 @@ export class KidAvatar {
   get labelTop(): number {
     let top = this.labels.name.y;
     for (const line of LABEL_LINES) {
-      if (this.showLabel[line]) top = Math.min(top, this.labels[line].y - this.labels[line].height);
+      if (this.showLabel[line]) {
+        top = Math.min(top, this.labels[line].y - this.labels[line].height * this.labelScale);
+      }
     }
     return top;
   }
@@ -363,12 +372,36 @@ export class KidAvatar {
     this.tagFacing = null;
   }
 
-  /** Does world point (x, y) land on this kid's body (for tap-to-tag)? */
+  /**
+   * Does world point (x, y) land on this kid's body (for tap-to-tag)?
+   * A little extra slop keeps the target about the same size on screen
+   * when the camera is zoomed out and the sprite draws smaller.
+   */
   hitTest(x: number, y: number): boolean {
     const feetY = this.y + this.feetOffset;
-    const height = FRAME_H * KID_SCALE * 0.9;
-    const halfWidth = FRAME_W * KID_SCALE * 0.3;
-    return Math.abs(x - this.x) <= halfWidth && y <= feetY + 8 && y >= feetY - height;
+    const zoom = this.scene.cameras.main?.zoom || 1;
+    const slop = 14 / (zoom > 0 ? zoom : 1);
+    const height = FRAME_H * KID_SCALE * 0.9 + slop;
+    const halfWidth = FRAME_W * KID_SCALE * 0.3 + slop;
+    return Math.abs(x - this.x) <= halfWidth && y <= feetY + 8 + slop && y >= feetY - height;
+  }
+
+  /**
+   * Counter-scale the name stack so YOU / IT / the name stay readable
+   * when the camera zooms. Resolution tracks the scale so zooming out
+   * doesn't blur the glyphs.
+   */
+  private syncLabelScale() {
+    const zoom = this.scene.cameras.main?.zoom || 1;
+    this.labelScale = 1 / (zoom > 0 ? zoom : 1);
+    const resolution = Math.max(1, Math.min(3, Math.round(this.labelScale * 2) / 2));
+    const restyle = resolution !== this.labelResolution;
+    if (restyle) this.labelResolution = resolution;
+    for (const line of LABEL_LINES) {
+      const text = this.labels[line];
+      if (restyle) text.setResolution(resolution);
+      text.setScale(this.labelScale);
+    }
   }
 
   /** Call every frame after updating x/y/facing/moving/running. */
@@ -413,18 +446,20 @@ export class KidAvatar {
     // sprite so a translucent canopy can cover them too (still readable).
     const depth = 10 + feetY / 10;
     this.sprite.setDepth(depth);
-    let labelY = feetY - this.artHeight - LABEL_GAP;
+    this.syncLabelScale();
+    const s = this.labelScale;
+    let labelY = feetY - this.artHeight - LABEL_GAP * s;
     const firstY = labelY;
     let labelDepth = depth + 0.05;
     for (const line of LABEL_LINES) {
       const text = this.labels[line];
       text.setVisible(this.showLabel[line]);
       if (!this.showLabel[line]) continue;
-      if (line === "it" && labelY !== firstY) labelY -= IT_GAP;
+      if (line === "it" && labelY !== firstY) labelY -= IT_GAP * s;
       text.setPosition(this.x, labelY);
       text.setDepth(labelDepth);
       labelDepth += 0.01;
-      labelY -= text.height - LABEL_TIGHTEN;
+      labelY -= text.height * s - LABEL_TIGHTEN * s;
     }
     // The camera can't scroll above y = 0: at the top wall, the tallest skin
     // with IT + YOU would poke off screen, so nudge the stack down onto the

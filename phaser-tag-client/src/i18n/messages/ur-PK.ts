@@ -33,12 +33,16 @@ export const urPK: Messages = {
     "<strong>WASD / تیر والے بٹن</strong> سے چلو · <strong>شفٹ</strong> دبا کر دوڑو · <strong>سپیس</strong> یا <strong>T</strong> سے پکڑو",
   "hint.mobile":
     "زمین پر <strong>ٹیپ</strong> کر کے چلو یا <strong>جوائے سٹک</strong> استعمال کرو · <strong>پکڑو</strong> یا قریب والے کھلاڑی پر ٹیپ کرو · دوڑنے کے لیے <strong>دوڑو</strong> دبائے رکھو",
+  "hint.mobileTouch":
+    "زمین پر <strong>ٹیپ</strong> کر کے چلو · <strong>دو بار ٹیپ</strong> کر کے دوڑو · <strong>کھلاڑی پر ٹیپ</strong> کر کے پکڑو",
+  "hint.dismiss": "اشارہ ہٹاؤ",
 
   "settings.aria": "سیٹنگز",
   "settings.title": "سیٹنگز",
   "settings.close": "سیٹنگز بند کرو",
   "settings.tab.controls": "کنٹرول",
   "settings.tab.sound": "آواز",
+  "settings.tab.view": "منظر",
   "settings.tab.skins": "لباس",
   "settings.tab.credits": "کریڈٹ",
 
@@ -50,6 +54,7 @@ export const urPK: Messages = {
   "settings.controls.flipTagRun": "پکڑو / دوڑو الٹو",
   "settings.controls.off": "بند",
   "settings.controls.on": "چالو",
+  "settings.controls.hideButtons": "بٹن چھپاؤ",
   "settings.controls.phoneHint":
     "فون یا ٹیبلٹ پر ہو؟ جوائے سٹک اور بڑے پکڑو اور دوڑو بٹنوں کے لیے <strong>موبائل</strong> چنو۔",
 
@@ -68,7 +73,14 @@ export const urPK: Messages = {
   "howto.joyWalk": "جوائے سٹک، یا زمین پر ٹیپ، چلنے کے لیے",
   "howto.tagTap": "پکڑو، یا قریب والے کھلاڑی پر ٹیپ کرو",
   "howto.holdRun": "دوڑنے کے لیے دبائے رکھو",
+  "howto.zoomIn": "زوم ان",
+  "howto.zoomOut": "زوم آؤٹ",
+  "howto.pinch": "دو انگلیوں سے زوم کرو",
+  "howto.tapWalk": "زمین پر ٹیپ کر کے چلو",
+  "howto.doubleRun": "دو بار ٹیپ کر کے دوڑو",
+  "howto.tapPlayer": "کھلاڑی پر ٹیپ کر کے پکڑو",
   "howto.helpMobile": "زمین پر گھسیٹ کر سمت بدلو۔ جیسے چاہو، ملا کر کھیلو! فون اور ٹیبلٹ کے لیے بہترین۔",
+  "howto.helpTouch": "پہنچ سے باہر ہو تو اس کی طرف چلتے ہو۔",
   "howto.helpKeyboard": "قریب والے کو پکڑو، تاکہ وہ ڈین بن جائے۔",
 
   "settings.sound.heading": "آواز",
@@ -77,6 +89,13 @@ export const urPK: Messages = {
   "settings.sound.sfx": "ساؤنڈ ایفیکٹ",
   "settings.sound.mood": "موڈ",
   "settings.sound.moodHelp": "موڈ بیک گراؤنڈ موسیقی چنتا ہے۔",
+
+  "settings.view.heading": "منظر",
+  "settings.view.zoom": "زوم",
+  "settings.view.out": "دور",
+  "settings.view.in": "قریب",
+  "settings.view.help": "درمیان (0) عام زوم ہے۔ دور کرنے سے نقشہ زیادہ دکھتا ہے، قریب کرنے سے سب بڑا دکھتا ہے۔",
+  "settings.view.input": "Alt + ↑ یا W سے زوم ان۔ Alt + ↓ یا S سے زوم آؤٹ۔ دو انگلیوں سے زوم کرو۔",
 
   "mood.happy": "خوش",
   "mood.happy.blurb": "اچھلتا چپ ٹیون",

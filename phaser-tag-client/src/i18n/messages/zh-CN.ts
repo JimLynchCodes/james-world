@@ -33,12 +33,16 @@ export const zhCN: Messages = {
     "<strong>WASD / 方向键</strong>移动 · <strong>SHIFT</strong>奔跑 · <strong>空格</strong>或 <strong>T</strong>抓人",
   "hint.mobile":
     "<strong>点</strong>地面走路，或用<strong>摇杆</strong> · <strong>抓</strong>一下，或点身边的玩家 · 按住<strong>跑</strong>就能冲",
+  "hint.mobileTouch":
+    "<strong>点</strong>地面走路 · <strong>双击</strong>奔跑 · <strong>点玩家</strong>抓人",
+  "hint.dismiss": "关闭提示",
 
   "settings.aria": "设置",
   "settings.title": "设置",
   "settings.close": "关闭设置",
   "settings.tab.controls": "操作",
   "settings.tab.sound": "声音",
+  "settings.tab.view": "视角",
   "settings.tab.skins": "皮肤",
   "settings.tab.credits": "制作",
 
@@ -50,6 +54,7 @@ export const zhCN: Messages = {
   "settings.controls.flipTagRun": "抓人 / 奔跑对调",
   "settings.controls.off": "关",
   "settings.controls.on": "开",
+  "settings.controls.hideButtons": "隐藏按钮",
   "settings.controls.phoneHint":
     "用手机或平板？选<strong>触屏</strong>就能用摇杆，还有大号的抓人和奔跑按钮。",
 
@@ -68,7 +73,14 @@ export const zhCN: Messages = {
   "howto.joyWalk": "摇杆，或点地面，用来走",
   "howto.tagTap": "抓人，或点一下身边的玩家",
   "howto.holdRun": "按住就能跑",
+  "howto.zoomIn": "拉近",
+  "howto.zoomOut": "拉远",
+  "howto.pinch": "双指捏合缩放",
+  "howto.tapWalk": "点地面走路",
+  "howto.doubleRun": "双击地面奔跑",
+  "howto.tapPlayer": "点玩家抓人",
   "howto.helpMobile": "在地面上拖动就能转向。随便搭配！适合手机和平板。",
+  "howto.helpTouch": "够不着的话，会走过去。",
   "howto.helpKeyboard": "拍一下身边的人，让对方当鬼。",
 
   "settings.sound.heading": "声音",
@@ -77,6 +89,13 @@ export const zhCN: Messages = {
   "settings.sound.sfx": "音效",
   "settings.sound.mood": "氛围",
   "settings.sound.moodHelp": "氛围决定背景音乐。",
+
+  "settings.view.heading": "视角",
+  "settings.view.zoom": "缩放",
+  "settings.view.out": "拉远",
+  "settings.view.in": "拉近",
+  "settings.view.help": "中间（0）是正常缩放。拉远能看到更多地图，拉近看得更清楚。",
+  "settings.view.input": "Alt + ↑ 或 W 拉近。Alt + ↓ 或 S 拉远。双指捏合缩放。",
 
   "mood.happy": "欢快",
   "mood.happy.blurb": "蹦跳的芯片音乐",

@@ -28,6 +28,7 @@ import {
 import { TitleScreen } from "./title";
 import { initI18n, onLocaleChange, t, tPlayers } from "./i18n";
 import { LanguagePicker } from "./languagePicker";
+import { ZOOM_KEY_STEP, clampLevel, clampZoom, levelFromZoom, zoomFromLevel } from "./zoom";
 
 initI18n();
 
@@ -81,6 +82,17 @@ function finitePoint(x: unknown, y: unknown): { x: number; y: number } | null {
 }
 /** Tap mode: stop once the server position is this close to the target (px). */
 const TAP_ARRIVE_PX = 10;
+/** Second tap within this window and distance counts as a double-tap (run). */
+const DOUBLE_TAP_MS = 320;
+const DOUBLE_TAP_PX = 48;
+/** A press that drifts farther than this is a drag, not a tap. */
+const TAP_SLOP_PX = 22;
+
+const ZOOM_CODES = new Set(["ArrowUp", "ArrowDown", "KeyW", "KeyS"]);
+
+function isAltEvent(event: KeyboardEvent): boolean {
+  return event.key === "Alt" || event.code === "AltLeft" || event.code === "AltRight";
+}
 /** Footstep sound interval while walking / running (ms). */
 const STEP_MS = { walk: 300, run: 190 };
 
@@ -130,6 +142,28 @@ class GameScene extends Phaser.Scene {
 
   private audio: GameAudio | null = null;
   private controlMode: ControlMode = "keyboard";
+  /** Mobile mode with the joystick and Tag / Run buttons hidden. */
+  private hideButtons = false;
+  /**
+   * Camera zoom slider level. 0 is the normal view. Pinch, zoom keys, and
+   * the View tab all write this; the camera applies a world-bounds clamp.
+   */
+  private zoomLevel = 0;
+  private onZoomLevel: ((level: number) => void) | null = null;
+  /** Alt is held, so W / S and Up / Down zoom instead of walking. */
+  private altHeld = false;
+  /** How long a zoom chord has been held, for the repeat after the first tap. */
+  private zoomHoldMs = 0;
+  /** Two-finger pinch: taps from those fingers must not walk or tag. */
+  private pinchLock = false;
+  private pinch: { dist: number; zoom: number } | null = null;
+  private touches = new Map<number, { x: number; y: number }>();
+  /** Double-tap run while the on-screen buttons are hidden. */
+  private tapRunning = false;
+  private lastTap: { t: number; x: number; y: number } | null = null;
+  /** Where the current ground press started, so a drag isn't a double-tap. */
+  private tapOrigin: { x: number; y: number } | null = null;
+  private pendingTag: { id: number; kid: RemoteSprite; x: number; y: number } | null = null;
   /** Settings modal open: game input is paused. */
   private uiOpen = false;
   /** Mobile mode tap-to-move destination (world px) and the last direction walked toward it. */
@@ -179,6 +213,9 @@ class GameScene extends Phaser.Scene {
     // Title screen: watch the yard. Local kid is created on Start / Welcome.
     this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
     this.cameras.main.centerOn(900, 700);
+    this.syncZoom();
+    this.scale.on(Phaser.Scale.Events.RESIZE, this.onResize);
+    this.installPinch();
 
     // One listener for arrows and WASD. Capture phase runs before Phaser's
     // bubble listener, which drops the event when keyCode is 0 or when
@@ -250,9 +287,13 @@ class GameScene extends Phaser.Scene {
       if (document.hidden) {
         this.input.keyboard?.resetKeys();
         this.held.clear();
+        this.altHeld = false;
       }
     };
-    const onBlur = () => this.held.clear();
+    const onBlur = () => {
+      this.held.clear();
+      this.altHeld = false;
+    };
     document.addEventListener("visibilitychange", releaseKeys);
     window.addEventListener("blur", onBlur);
 
@@ -261,9 +302,15 @@ class GameScene extends Phaser.Scene {
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("keydown", this.onDomKey, true);
       window.removeEventListener("keyup", this.onDomKey, true);
+      this.scale.off(Phaser.Scale.Events.RESIZE, this.onResize);
+      this.removePinch();
       this.socket.close();
     });
   }
+
+  private readonly onResize = () => {
+    this.syncZoom();
+  };
 
   /**
    * Arrows, WASD, Shift, Space, and T. Space and T share one latch: either
@@ -272,19 +319,44 @@ class GameScene extends Phaser.Scene {
    */
   private readonly onDomKey = (event: KeyboardEvent) => {
     const phase: "down" | "up" = event.type === "keydown" ? "down" : "up";
+    if (isAltEvent(event)) this.altHeld = phase === "down";
     if (this.uiOpen) {
       // Settings owns the keyboard. Drop movement keys as they release so
       // closing the modal can't leave a stuck walk.
-      if (phase === "up") this.held = applyPhysicalKey(this.held, event, "up");
+      if (phase === "up") {
+        this.held = applyPhysicalKey(this.held, event, "up");
+        if (isAltEvent(event)) this.altHeld = false;
+      }
       return;
     }
-    if (physicalCode(event)) event.preventDefault();
+    if (physicalCode(event) || isAltEvent(event)) event.preventDefault();
     this.held = applyPhysicalKey(this.held, event, phase);
+    // A tap of the zoom chord steps once. Holding repeats from updateZoomHold.
+    // W / S and the up / down arrows are in `held`, but movement ignores them
+    // while Alt is down (see movementAxes altZoom).
+    if (phase === "down" && !event.repeat && this.altHeld) {
+      const code = physicalCode(event);
+      const chord = (code !== null && ZOOM_CODES.has(code)) || isAltEvent(event);
+      const dir = this.zoomKeyDir();
+      if (chord && dir !== 0) {
+        this.requestZoom(this.zoomLevel + dir * ZOOM_KEY_STEP);
+        this.zoomHoldMs = 0;
+      }
+    }
     if (!this.playing) return;
     this.tagQueued = noteTagKey(this.tagQueued, event, phase);
   };
 
+  /** +1 zoom in, -1 zoom out, 0 when both directions are held (or neither). */
+  private zoomKeyDir(): number {
+    let dir = 0;
+    if (this.held.has("ArrowUp") || this.held.has("KeyW")) dir += 1;
+    if (this.held.has("ArrowDown") || this.held.has("KeyS")) dir -= 1;
+    return Math.sign(dir);
+  }
+
   update(_time: number, delta: number) {
+    this.updateZoomHold(delta);
     if (this.inSecret) {
       // The cave scene reads keys / the joystick itself. Drop tag presses
       // so leaving the cave doesn't swing, and don't send MoveInput.
@@ -398,9 +470,9 @@ class GameScene extends Phaser.Scene {
       else if (this.tapDir) ({ x: dx, y: dy } = this.tapDir);
       const shift =
         this.held.has("ShiftLeft") || this.held.has("ShiftRight") || this.held.has("Shift");
-      return { dx, dy, running: (shift || this.runHeld) && (dx !== 0 || dy !== 0) };
+      return { dx, dy, running: (shift || this.runHeld || this.tapRunning) && (dx !== 0 || dy !== 0) };
     }
-    return movementAxes(this.held);
+    return movementAxes(this.held, { altZoom: this.altHeld });
   }
 
   private sendMovement() {
@@ -701,12 +773,15 @@ class GameScene extends Phaser.Scene {
     }
   }
 
-  setControlMode(mode: ControlMode) {
+  setPlayControls(mode: ControlMode, hideButtons: boolean) {
     this.controlMode = mode;
+    this.hideButtons = hideButtons;
+    if (!hideButtons) this.tapRunning = false;
     if (mode !== "mobile") {
       this.clearTapTarget();
       this.runHeld = false;
       this.joystick = { x: 0, y: 0 };
+      this.pendingTag = null;
     }
   }
 
@@ -716,6 +791,7 @@ class GameScene extends Phaser.Scene {
     this.joystick = { x: dx, y: dy };
     const now = dx !== 0 || dy !== 0;
     if (now && this.tapTarget) this.clearTapTarget();
+    if (now) this.tapRunning = false;
     if (was !== now) this.inputTimer = 0; // start / stop right away
   }
 
@@ -731,7 +807,7 @@ class GameScene extends Phaser.Scene {
    */
   dungeonAxes(): { dx: number; dy: number; mode: ControlMode } {
     if (this.controlMode === "keyboard") {
-      const axes = movementAxes(this.held);
+      const axes = movementAxes(this.held, { altZoom: this.altHeld });
       return { dx: axes.dx, dy: axes.dy, mode: "keyboard" };
     }
     if (this.joystick.x !== 0 || this.joystick.y !== 0) {
@@ -961,7 +1037,10 @@ class GameScene extends Phaser.Scene {
     this.uiOpen = open;
     this.tagQueued = false;
     this.held.clear();
+    this.altHeld = false;
+    this.zoomHoldMs = 0;
     this.tapDragging = false;
+    this.pendingTag = null;
     const keyboard = this.input?.keyboard;
     if (!keyboard) return; // not created yet; create() applies it
     keyboard.enabled = !open;
@@ -989,28 +1068,78 @@ class GameScene extends Phaser.Scene {
     });
 
     // Phaser only reports presses on the canvas itself, so clicks on the
-    // HUD, the cog or the modal never reach these handlers.
+    // HUD, the cog, the hint's X, or the modal never reach these handlers.
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
       if (!this.playing || this.controlMode !== "mobile" || this.uiOpen || this.inSecret) return;
-      const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
-      const kid = this.remoteAt(world.x, world.y);
-      if (kid && this.distanceToPlayer(kid) < TAG_DISTANCE) {
-        if (!this.observeSecretTag()) this.tryTag(kid); // tap a nearby kid: tag them
+      if (this.pinchLock || this.touches.size >= 2) {
+        this.pendingTag = null;
+        this.clearTapTarget();
         return;
       }
-      // Tap the ground (or a far-away kid): walk there; drag to steer.
+      const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+      const kid = this.remoteAt(world.x, world.y);
+      // In range: wait for the finger to lift before tagging, so a second
+      // finger (a pinch) can cancel it. Out of range: walk toward them.
+      if (kid && this.distanceToPlayer(kid) < TAG_DISTANCE) {
+        this.pendingTag = { id: pointer.id, kid, x: pointer.x, y: pointer.y };
+        this.tapRunning = false;
+        return;
+      }
+      const now = this.time.now;
+      const double =
+        this.hideButtons &&
+        this.lastTap !== null &&
+        now - this.lastTap.t <= DOUBLE_TAP_MS &&
+        Phaser.Math.Distance.Between(pointer.x, pointer.y, this.lastTap.x, this.lastTap.y) <= DOUBLE_TAP_PX;
+      this.tapRunning = double;
       this.tapDragging = true;
       this.tapPointerId = pointer.id;
+      this.tapOrigin = { x: pointer.x, y: pointer.y };
       this.setTapTarget(kid ? kid.avatar.x : world.x, kid ? kid.avatar.y : world.y);
     });
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
+      if (this.pinchLock || this.controlMode !== "mobile" || this.uiOpen) return;
+      if (this.pendingTag && pointer.id === this.pendingTag.id && pointer.isDown) {
+        const moved = Phaser.Math.Distance.Between(pointer.x, pointer.y, this.pendingTag.x, this.pendingTag.y);
+        if (moved <= TAP_SLOP_PX) return;
+        const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+        this.pendingTag = null;
+        this.tapRunning = false;
+        this.tapDragging = true;
+        this.tapPointerId = pointer.id;
+        this.tapOrigin = { x: pointer.x, y: pointer.y };
+        this.setTapTarget(world.x, world.y);
+        return;
+      }
       if (!this.tapDragging || pointer.id !== this.tapPointerId || !pointer.isDown) return;
-      if (this.controlMode !== "mobile" || this.uiOpen) return;
       const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
       this.setTapTarget(world.x, world.y);
     });
     const stopDrag = (pointer: Phaser.Input.Pointer) => {
-      if (pointer.id === this.tapPointerId) this.tapDragging = false;
+      if (this.pinchLock) {
+        if (this.pendingTag?.id === pointer.id) this.pendingTag = null;
+        if (pointer.id === this.tapPointerId) this.tapDragging = false;
+        return;
+      }
+      if (this.pendingTag && this.pendingTag.id === pointer.id) {
+        const moved = Phaser.Math.Distance.Between(pointer.x, pointer.y, this.pendingTag.x, this.pendingTag.y);
+        const kid = this.pendingTag.kid;
+        this.pendingTag = null;
+        if (moved <= TAP_SLOP_PX) {
+          this.lastTap = { t: this.time.now, x: pointer.x, y: pointer.y };
+          if (this.distanceToPlayer(kid) < TAG_DISTANCE && !this.observeSecretTag()) this.tryTag(kid);
+        }
+        return;
+      }
+      if (pointer.id !== this.tapPointerId) return;
+      const dragged =
+        this.tapOrigin !== null &&
+        Phaser.Math.Distance.Between(pointer.x, pointer.y, this.tapOrigin.x, this.tapOrigin.y) > TAP_SLOP_PX;
+      this.tapDragging = false;
+      this.tapOrigin = null;
+      // A drag isn't the first half of a double-tap.
+      if (dragged) this.lastTap = null;
+      else this.lastTap = { t: this.time.now, x: pointer.x, y: pointer.y };
     };
     this.input.on(Phaser.Input.Events.POINTER_UP, stopDrag);
     this.input.on(Phaser.Input.Events.POINTER_UP_OUTSIDE, stopDrag);
@@ -1041,7 +1170,131 @@ class GameScene extends Phaser.Scene {
     this.tapTarget = null;
     this.tapDir = null;
     this.tapDragging = false;
+    this.tapRunning = false;
+    this.tapOrigin = null;
     this.tapMarker?.setVisible(false);
+  }
+
+  // --- Camera zoom ------------------------------------------------------------
+
+  /** Settings, pinch, and zoom keys all meet here. Returns the level actually shown. */
+  setZoomLevel(level: number): number {
+    const cam = this.cameras?.main;
+    if (!cam || !(cam.width > 0) || !(cam.height > 0)) {
+      this.zoomLevel = clampLevel(level);
+      return this.zoomLevel;
+    }
+    const zoom = clampZoom(zoomFromLevel(level), cam.width, cam.height);
+    const effective = levelFromZoom(zoom);
+    this.zoomLevel = effective;
+    if (Math.abs(cam.zoom - zoom) > 0.0005) cam.setZoom(zoom);
+    return effective;
+  }
+
+  setZoomListener(listener: (level: number) => void) {
+    this.onZoomLevel = listener;
+  }
+
+  /** Apply the stored level and tell Settings if the world bounds clamped it. */
+  syncZoom() {
+    this.requestZoom(this.zoomLevel);
+  }
+
+  private requestZoom(level: number) {
+    const applied = this.setZoomLevel(level);
+    this.onZoomLevel?.(applied);
+  }
+
+  private updateZoomHold(delta: number) {
+    if (this.uiOpen || this.inSecret || !this.altHeld || this.zoomKeyDir() === 0) {
+      this.zoomHoldMs = 0;
+      return;
+    }
+    this.zoomHoldMs += delta;
+    if (this.zoomHoldMs < 180) return;
+    const step = Math.max(1, Math.round(delta * 0.055));
+    this.requestZoom(this.zoomLevel + this.zoomKeyDir() * step);
+  }
+
+  private installPinch() {
+    window.addEventListener("touchstart", this.onTouchStart, { capture: true, passive: false });
+    window.addEventListener("touchmove", this.onTouchMove, { capture: true, passive: false });
+    window.addEventListener("touchend", this.onTouchEnd, { capture: true, passive: false });
+    window.addEventListener("touchcancel", this.onTouchEnd, { capture: true, passive: false });
+  }
+
+  private removePinch() {
+    window.removeEventListener("touchstart", this.onTouchStart, { capture: true });
+    window.removeEventListener("touchmove", this.onTouchMove, { capture: true });
+    window.removeEventListener("touchend", this.onTouchEnd, { capture: true });
+    window.removeEventListener("touchcancel", this.onTouchEnd, { capture: true });
+  }
+
+  /** Joystick / Tag / Run / the hint sit above the canvas and are not pinches. */
+  private onGameSurface(touch: Touch): boolean {
+    const canvas = this.game?.canvas;
+    const target = touch.target;
+    if (!canvas || !(target instanceof Node)) return false;
+    return target === canvas || canvas.contains(target);
+  }
+
+  private readonly onTouchStart = (event: TouchEvent) => {
+    if (this.uiOpen || this.inSecret) return;
+    for (const touch of event.changedTouches) {
+      if (!this.onGameSurface(touch)) continue;
+      this.touches.set(touch.identifier, { x: touch.clientX, y: touch.clientY });
+    }
+    if (this.touches.size < 2) return;
+    if (event.cancelable) event.preventDefault();
+    this.pinchLock = true;
+    this.pendingTag = null;
+    this.lastTap = null;
+    this.clearTapTarget();
+    this.inputTimer = 0;
+    this.armPinch();
+  };
+
+  private readonly onTouchMove = (event: TouchEvent) => {
+    for (const touch of event.changedTouches) {
+      if (!this.touches.has(touch.identifier)) continue;
+      this.touches.set(touch.identifier, { x: touch.clientX, y: touch.clientY });
+    }
+    if (!this.pinchLock || this.touches.size < 2) return;
+    if (event.cancelable) event.preventDefault();
+    this.armPinch();
+    if (!this.pinch) return;
+    const dist = this.touchSpan();
+    if (dist < 12) return;
+    const cam = this.cameras.main;
+    const zoom = clampZoom(this.pinch.zoom * (dist / this.pinch.dist), cam.width, cam.height);
+    this.requestZoom(levelFromZoom(zoom));
+  };
+
+  private readonly onTouchEnd = (event: TouchEvent) => {
+    for (const touch of event.changedTouches) this.touches.delete(touch.identifier);
+    if (this.touches.size < 2) this.pinch = null;
+    if (this.touches.size === 0 && this.pinchLock) {
+      // pointerup can land in this same turn; keep the lock until it has
+      // skipped the tag, then drop it.
+      queueMicrotask(() => {
+        if (this.touches.size === 0) this.pinchLock = false;
+      });
+    }
+  };
+
+  private touchSpan(): number {
+    const pts = [...this.touches.values()];
+    if (pts.length < 2) return 0;
+    return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+  }
+
+  /** Remember the finger span once it's wide enough to be a real pinch. */
+  private armPinch() {
+    if (this.pinch) return;
+    const dist = this.touchSpan();
+    if (dist < 24) return;
+    const cam = this.cameras.main;
+    this.pinch = { dist, zoom: cam.zoom > 0 ? cam.zoom : zoomFromLevel(this.zoomLevel) };
   }
 
   /** Steer toward the tap target from the server position; stop on arrival. */
@@ -1245,7 +1498,14 @@ hud.innerHTML = `
     <div id="events" class="events"></div>
   </div>
 
-  <div class="controls"></div>
+  <div class="controls">
+    <p class="controls-copy"></p>
+    <button type="button" class="controls-dismiss">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>
+      </svg>
+    </button>
+  </div>
 `;
 
 document.body.appendChild(hud);
@@ -1282,20 +1542,47 @@ const title = new TitleScreen({
 scene.setTitle(title);
 
 const controls = hud.querySelector(".controls") as HTMLElement;
+const hintCopy = controls.querySelector(".controls-copy") as HTMLElement;
+const hintDismiss = controls.querySelector(".controls-dismiss") as HTMLButtonElement;
+/** Not saved. Comes back on a Keyboard / Mobile switch and on refresh. */
+let hintDismissed = false;
+
+const stopHintPress = (event: Event) => {
+  event.preventDefault();
+  event.stopPropagation();
+};
+hintDismiss.addEventListener("pointerdown", stopHintPress);
+hintDismiss.addEventListener("pointerup", stopHintPress);
+hintDismiss.addEventListener("click", event => {
+  stopHintPress(event);
+  hintDismissed = true;
+  controls.hidden = true;
+  hintDismiss.blur();
+});
+
 const mobileControls = new MobileControls(hud, {
   onJoystick: (dx, dy) => scene.setJoystick(dx, dy),
   onRunHeld: held => scene.setRunHeld(held),
   onTag: () => scene.tagPressed(),
 });
 
-const applyControls = (s: Readonly<Settings>) => {
-  scene.setControlMode(s.controlMode);
-  controls.innerHTML = controlsHint(s.controlMode);
-  mobileControls.setVisible(s.controlMode === "mobile");
+const paintHint = (s: Readonly<Settings>) => {
+  hintCopy.innerHTML = controlsHint(s);
+  hintDismiss.setAttribute("aria-label", t("hint.dismiss"));
+  hintDismiss.title = t("hint.dismiss");
+  controls.hidden = hintDismissed;
+};
+
+const applyControls = (s: Readonly<Settings>, key?: keyof Settings) => {
+  if (key === "controlMode") hintDismissed = false;
+  scene.setPlayControls(s.controlMode, s.hideButtons);
+  paintHint(s);
+  mobileControls.setVisible(s.controlMode === "mobile" && !s.hideButtons);
   mobileControls.setLayout(s.leftyJoystick, s.flipTagRun);
   // Lets the CSS keep the controls hint clear of the joystick / buttons.
   hud.dataset.mode = s.controlMode;
   hud.dataset.lefty = String(s.leftyJoystick);
+  hud.dataset.hideButtons = String(s.hideButtons);
 };
 applyControls(settings);
 
@@ -1308,8 +1595,13 @@ const chrome: { closeSettings: () => void; settingsOpen: boolean; closePicker: (
 
 const settingsPanel = new SettingsPanel(hud, settings, saved, {
   onChange: (s, key) => {
+    if (key === "zoom") {
+      const applied = scene.setZoomLevel(s.zoom);
+      if (applied !== s.zoom) settingsPanel.adoptZoom(applied);
+      return;
+    }
     audio.apply(s);
-    applyControls(s);
+    applyControls(s, key);
     if (key === "skin") scene.setSkin(s.skin);
   },
   onOpenChange: open => {
@@ -1335,9 +1627,12 @@ chrome.closePicker = () => {
   if (languagePicker.isOpen) languagePicker.close();
 };
 
+scene.setZoomListener(level => settingsPanel.adoptZoom(level));
+scene.syncZoom();
+
 onLocaleChange(() => {
   paintHudLabels();
-  controls.innerHTML = controlsHint(settingsPanel.settings.controlMode);
+  paintHint(settingsPanel.settings);
   mobileControls.applyLocale();
   scene.applyLocale();
 });
