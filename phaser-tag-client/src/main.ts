@@ -1627,6 +1627,10 @@ chrome.closePicker = () => {
   if (languagePicker.isOpen) languagePicker.close();
 };
 
+// Seed the saved level before the listener exists. syncZoom otherwise
+// reports the scene's default (0) and the listener would save that over
+// the stored choice.
+scene.setZoomLevel(settings.zoom);
 scene.setZoomListener(level => settingsPanel.adoptZoom(level));
 scene.syncZoom();
 
