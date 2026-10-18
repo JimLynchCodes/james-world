@@ -339,8 +339,10 @@ skin carries its own frame size and feet line. Animation keys are
   James's own arm width from the shoulder down to the ball, and the torso
   under that arm stays filled, so a frame never shows a second skinny limb.
   An orange basketball is dribbled in every animation. The ball stays a
-  circle and leads him in the direction he faces, close to the
-  dribbling-side foot (behind the body when he faces away). The hand flicks
+  circle and leads him in the direction he faces: lower on screen when he
+  faces the camera, ahead of the front foot in profile (further ahead on a
+  run), and higher on screen, partly behind the body, when he faces away.
+  The hand flicks
   the ball and the seams turn a little each bounce. Footsteps
   are a gym-floor sneaker squeak (`basketballStep`). Re-run:
   `python3 tools/make_basketball_skin.py [--preview /tmp/basketball.png]`.

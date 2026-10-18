@@ -25,8 +25,9 @@ filled. The other arm is unchanged. At most two arms are visible.
   5. an orange basketball, still a circle, dribbled on every frame.
      Seams are pre-rendered at a few rotations so the spin stays crisp.
      The ball stays in front of him along the way he faces: lower on
-     screen when he faces the camera, just ahead of the front foot in
-     profile, and behind the body when he faces away.
+     screen when he faces the camera, ahead of the front foot in
+     profile (further ahead on a run), and higher on screen, partly
+     behind the body, when he faces away.
 
 Face, hair and neck (under the headband) are James's.
 
@@ -731,10 +732,12 @@ def _dribble_side(direction: str) -> float:
 def _layout(g: Geometry, direction: str):
     """Rest pose and the ball's high/low centres.
 
-    The arm hangs. Its hand sits on the crown of the ball at the top of
-    the bounce, and the ball drops to the ground without the arm chasing.
+    The ball leads him in the direction he faces. On a back view that is
+    higher on the screen, partly behind the torso. The arm hangs to the
+    hand, which sits on the crown of the ball at the top of the bounce.
     """
-    side = _dribble_side(direction)
+    side = _ball_side(direction)
+    fx, fy = _FACE[direction]
     cx, neck, hem = float(g.head_cx), float(g.neck), float(g.hem)
     floor_y = 98.0 - BALL_R
     if direction in PROFILE:
@@ -745,17 +748,38 @@ def _layout(g: Geometry, direction: str):
         ball = (cx + face * 11.0, hem - 4.0)
         low = min(hem + 6.0, floor_y)
     elif direction in BACK:
-        # the limb stays behind the torso; the mitt is what peeks out
-        shoulder = (cx + side * 2.5, neck + 9.0)
-        elbow = (cx + side * 3.5, neck + 16.0)
-        hand = (cx + side * 12.0, hem - 18.0)
-        ball = (cx + side * 16.5 + _FACE[direction][0] * 2.0, hem - 12.0)
-        low = hem - 6.0
+        # Higher than the hips, and off to the side he is facing, so the
+        # ball leads him. North has nowhere to go sideways, so it sits
+        # behind the chest. The arm travels one way, down and out to the
+        # near side of the ball. A hook back up splits the limb and leaves
+        # a navy gap where the shirt shows through.
+        if fx == 0.0:
+            ball_x = cx + side * 1.0
+            high_y = neck + 8.0
+            shoulder = (cx + side * 8.0, neck + 8.0)
+            hand = (ball_x + side * 4.0, high_y + 5.0)
+        else:
+            ball_x = cx + fx * 15.0
+            high_y = neck + 6.0
+            # A near-vertical arm. A sideways one is a wide slab on
+            # screen, and the jersey shows through the steps.
+            shoulder = (cx + side * 7.0, neck + 5.0)
+            # The mitt stops on the ball. A longer arm ran past it and
+            # left the hand dangling under the ball.
+            hand = (ball_x - side * 8.0, high_y + 7.0)
+        low = high_y + 8.0
+        # Straight, so the outline is one capsule and not a kink.
+        elbow = (
+            (shoulder[0] + hand[0]) * 0.5,
+            (shoulder[1] + hand[1]) * 0.5,
+        )
+        ball = (ball_x, high_y)
     elif direction in ("SE", "SW"):
-        shoulder = (cx + side * 8.5, neck + 7.0)
-        elbow = (cx + side * 13.5, hem - 19.0)
-        hand = (cx + side * 11.5, hem - 14.0)
-        ball = (cx + side * 13.0, hem - 6.0)
+        # In front of him: lower on screen, and to the side he faces.
+        shoulder = (cx + fx * 8.5, neck + 7.0)
+        elbow = (cx + fx * 13.5, hem - 19.0)
+        hand = (cx + fx * 11.5, hem - 14.0)
+        ball = (cx + fx * 13.0, hem - 6.0)
         low = min(hem + 5.0, floor_y)
     else:
         shoulder = (cx + side * 8.0, neck + 7.0)
@@ -1155,14 +1179,17 @@ def draw_dribble_arm(rgba: np.ndarray, g: Geometry, direction: str,
 
     # the root sits under the jersey so the limb grows out of the body
     # instead of a floating cap. Those pixels are his, put back as they were.
+    # A back-view arm is short and lies on the ball. Putting the shirt back
+    # over that root was slicing the limb and leaving a navy shard.
     base = premul(rgba)
     tucked = to_u8(over(base, layer))
     if forearm_only:
         ex, ey = elbow
         near = (np.hypot(X - ex, Y - ey) <= 3.0) & (rgba[..., 3] > 200)
-    else:
+        tucked[near] = rgba[near]
+    elif direction not in BACK:
         near = (np.hypot(X - sx, Y - sy) <= 5.2) & (Y <= sy + 1.5) & (rgba[..., 3] > 200)
-    tucked[near] = rgba[near]
+        tucked[near] = rgba[near]
     rgba[...] = tucked
 
 
@@ -1626,9 +1653,14 @@ def _dribble_skin(src: np.ndarray, g: Geometry, direction: str,
 
 
 def _ball_side(direction: str) -> float:
-    """Screen side of the hand on the ball. In profile that is the way he faces."""
-    if direction in PROFILE:
-        return float(PROFILE[direction])
+    """Screen side of the hand on the ball.
+
+    That is the way he faces. North and south have no sideways facing, so
+    the hand stays on the non-tagging side.
+    """
+    fx = _FACE[direction][0]
+    if fx != 0.0:
+        return fx
     return _dribble_side(direction)
 
 
@@ -1708,9 +1740,10 @@ def fold_dribble_limb(src: np.ndarray, g: Geometry, direction: str) -> tuple[np.
     dark = (f[..., 3] > 40) & (L < 70)
     exterior = ((limb | (near & dark)) & ~core)
     # shirt-like, so paint_uniform treats the covered torso as cloth
-    f[interior, 0] = 96
-    f[interior, 1] = 96
-    f[interior, 2] = 80
+    # A real jersey colour, so a pixel paint misses is still in the palette.
+    f[interior, 0] = int(JERSEY_MID[0])
+    f[interior, 1] = int(JERSEY_MID[1])
+    f[interior, 2] = int(JERSEY_MID[2])
     f[interior, 3] = 255
     f[exterior] = 0
 
@@ -1726,9 +1759,9 @@ def fold_dribble_limb(src: np.ndarray, g: Geometry, direction: str) -> tuple[np.
             x1 = int(xs[i + 1])
             if x1 <= x0 or not core[y, x0:x1].all():
                 continue
-            f[y, x0:x1, 0] = 96
-            f[y, x0:x1, 1] = 96
-            f[y, x0:x1, 2] = 80
+            f[y, x0:x1, 0] = int(JERSEY_MID[0])
+            f[y, x0:x1, 1] = int(JERSEY_MID[1])
+            f[y, x0:x1, 2] = int(JERSEY_MID[2])
             f[y, x0:x1, 3] = 255
     kept = core & ((src[..., 3] > 40) | interior)
     return f, kept
@@ -1838,15 +1871,41 @@ def prepare_james(src: np.ndarray, g: Geometry, direction: str) -> tuple[np.ndar
     return out, kept
 
 
+def _lead_x(body: np.ndarray, g: Geometry, face: float) -> float:
+    """The toe that is furthest along the way he faces."""
+    a = body[..., 3] > 180
+    h = a.shape[0]
+    y0 = max(0, int(g.hem) - 4)
+    y1 = min(h, int(round(g.hem)) + 16)
+    best = None
+    for y in range(y0, y1):
+        xs = np.nonzero(a[y])[0]
+        if len(xs) < 3:
+            continue
+        x = float(xs[-1] if face > 0 else xs[0])
+        if best is None or (face > 0 and x > best) or (face < 0 and x < best):
+            best = x
+    if best is None:
+        return float(g.head_cx + face * 12.0)
+    return best
+
+
 def _pose(body: np.ndarray, g0: Geometry, direction: str, anim: str, index: int):
     t = bounce_t(anim, index)
     shoulder, elbow, rest_hand, high, low, _side = _layout(g0, direction)
-    if direction in BACK:
-        shoulder, elbow, rest_hand, high, low = _tuck_back(
-            body, g0, direction, shoulder, elbow, rest_hand, high, low)
     hand = _flick_hand(elbow, rest_hand, t)
     bx = high[0] * (1.0 - t) + low[0] * t
     by = high[1] * (1.0 - t) + low[1] * t
+    # A run stride leaves the standing dribble inside the legs, at the
+    # back knee. Push the ball, and the hand on it, out past the lead toe.
+    if anim == "run" and direction in PROFILE:
+        face = float(PROFILE[direction])
+        target = _lead_x(body, g0, face) + face * 6.0
+        if (target - bx) * face > 2.0:
+            shift = target - bx
+            bx = target
+            hand = (hand[0] + shift, hand[1])
+            elbow = (elbow[0] + shift * 0.7, elbow[1])
     margin = BALL_R + 0.6
     bx = float(np.clip(bx, margin, 100.0 - margin))
     by = float(np.clip(by, margin, 100.0 - margin))
@@ -2329,6 +2388,80 @@ def green_pixels(merged: np.ndarray, g: Geometry, bx: float, by: float) -> int:
     return int(green.sum())
 
 
+def arm_shard(merged: np.ndarray, g: Geometry, direction: str) -> str:
+    """Navy or orange showing through a split in one arm.
+
+    A gap only a few pixels wide, with skin on both sides, is the limb
+    folding back on itself. The shirt between the two arms is much wider
+    and is not a shard.
+    """
+    h, w = merged.shape[:2]
+    yy = np.arange(h)[:, None]
+    skin = _skin_mask_flat(merged)
+    skin &= (yy > g.neck + 2) & (yy < g.hem - 1)
+    if not skin.any():
+        return ""
+    rgb = merged[..., :3]
+    cloth = np.zeros((h, w), dtype=bool)
+    for col in (JERSEY_LIGHT, JERSEY_MID, JERSEY_SHADOW, ORANGE, ORANGE_HOT, INK):
+        cloth |= (
+            (rgb[..., 0] == int(col[0]))
+            & (rgb[..., 1] == int(col[1]))
+            & (rgb[..., 2] == int(col[2]))
+        )
+    cloth &= merged[..., 3] > 200
+    # Only the ball side. The jersey between the two arms is not a shard,
+    # and a profile keeps both arms close enough to trip a looser test.
+    side = _ball_side(direction)
+    cx = float(g.head_cx)
+    hits = 0
+    band = cloth & (yy > g.neck + 2) & (yy < g.hem - 1)
+    ys, xs = np.nonzero(band)
+    for y, x in zip(ys.tolist(), xs.tolist()):
+        if (float(x) - cx) * side <= 0.0:
+            continue
+        left = right = False
+        for d in range(1, 4):
+            if x - d >= 0 and skin[y, x - d] and (float(x - d) - cx) * side > 0.0:
+                left = True
+            if x + d < w and skin[y, x + d] and (float(x + d) - cx) * side > 0.0:
+                right = True
+        if left and right:
+            hits += 1
+    if hits < 4:
+        return ""
+    return f"{hits}px navy shard in the arm"
+
+
+def facing_fault(merged: np.ndarray, g: Geometry, bx: float, by: float, direction: str) -> str:
+    """Ball centre relative to the body must lead along the facing vector.
+
+    E is +x, NE is +x and -y (up the screen), N is -y. A component that
+    the facing vector leaves at 0 is free, so a south dribble can sit to
+    one side as long as it is in front of him.
+    """
+    h, w = merged.shape[:2]
+    yy, xx = np.mgrid[0:h, 0:w]
+    ball = (xx - bx) ** 2 + (yy - by) ** 2 <= (BALL_R + 2.0) ** 2
+    # The head sits above every dribble. "Higher on screen" is versus the
+    # torso and legs, which is the body the ball leads.
+    body = (merged[..., 3] > 200) & ~ball & (yy > g.neck)
+    ys, xs = np.nonzero(body)
+    if len(xs) < 40:
+        return ""
+    dx = bx - float(xs.mean())
+    dy = by - float(ys.mean())
+    fx, fy = _FACE[direction]
+    bits = []
+    if fx != 0.0 and dx * fx < 6.0:
+        bits.append(f"dx {dx:.1f} against {fx:+.0f}")
+    if fy != 0.0 and dy * fy < 4.0:
+        bits.append(f"dy {dy:.1f} against {fy:+.0f}")
+    if not bits:
+        return ""
+    return f"ball ({dx:+.1f},{dy:+.1f}) " + ", ".join(bits)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--preview", type=Path, help="write a labelled contact sheet")
@@ -2358,11 +2491,15 @@ def main():
             green = green_pixels(cell, g, bx, by)
             # the filled chest must stay opaque
             open_chest = int((kept & (cell[..., 3] <= 40)).sum())
-            if arms > 2 or off or specks or green or holes or open_chest:
+            facing = facing_fault(cell, g, bx, by, direction)
+            shard = arm_shard(cell, g, direction)
+            if arms > 2 or off or specks or green or holes or open_chest or facing or shard:
                 problems.append(
                     f"{direction} {anim} {index} (col {c}): "
                     f"{arms} arms, {off} off-palette, {specks} speckles, "
                     f"{green} green, {open_chest} chest holes"
+                    + (f", {facing}" if facing else "")
+                    + (f", {shard}" if shard else "")
                 )
     if problems:
         print("frame check failed:")
@@ -2370,7 +2507,7 @@ def main():
             print(" ", line)
         print(f"  ({len(problems)} frames)")
         raise SystemExit(1)
-    print(f"frame check ok ({len(dirs) * cols} frames: arms <= 2, palette, no speckles)")
+    print(f"frame check ok ({len(dirs) * cols} frames: arms <= 2, palette, facing, no shards)")
     Image.fromarray(out).save(ASSETS / "kid_basketball.png", optimize=True)
     bb = dict(meta)
     bb["image"] = "kid_basketball.png"
