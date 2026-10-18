@@ -742,10 +742,13 @@ def _layout(g: Geometry, direction: str):
     floor_y = 98.0 - BALL_R
     if direction in PROFILE:
         face = float(PROFILE[direction])
-        shoulder = (cx - face * 2.0, neck + 9.0)
-        elbow = (cx + face * 0.5, hem - 16.0)
-        hand = (cx + face * 6.5, hem - 11.0)
-        ball = (cx + face * 11.0, hem - 4.0)
+        # The near arm, on the side he faces. It hangs from that shoulder
+        # and bends forward and down onto the ball. The shoulder is not
+        # on his back, and nothing reaches behind him.
+        shoulder = (cx + face * 5.0, neck + 8.0)
+        elbow = (cx + face * 10.0, neck + 18.0)
+        hand = (cx + face * 13.0, hem - 10.0)
+        ball = (cx + face * 16.0, hem - 3.0)
         low = min(hem + 6.0, floor_y)
     elif direction in BACK:
         # Higher than the hips, and off to the side he is facing, so the
@@ -755,19 +758,19 @@ def _layout(g: Geometry, direction: str):
         # a navy gap where the shirt shows through.
         if fx == 0.0:
             ball_x = cx + side * 1.0
-            high_y = neck + 8.0
-            shoulder = (cx + side * 8.0, neck + 8.0)
-            hand = (ball_x + side * 4.0, high_y + 5.0)
+            high_y = neck + 3.0
+            shoulder = (cx + side * 8.0, neck + 6.0)
+            hand = (ball_x + side * 4.0, high_y + 4.0)
         else:
             ball_x = cx + fx * 15.0
-            high_y = neck + 6.0
+            high_y = neck + 3.0
             # A near-vertical arm. A sideways one is a wide slab on
             # screen, and the jersey shows through the steps.
             shoulder = (cx + side * 7.0, neck + 5.0)
             # The mitt stops on the ball. A longer arm ran past it and
             # left the hand dangling under the ball.
             hand = (ball_x - side * 8.0, high_y + 7.0)
-        low = high_y + 8.0
+        low = high_y + 5.0
         # Straight, so the outline is one capsule and not a kink.
         elbow = (
             (shoulder[0] + hand[0]) * 0.5,
@@ -2172,17 +2175,78 @@ def _drop_crumbs(merged: np.ndarray, g: Geometry, kept: np.ndarray) -> np.ndarra
     return out
 
 
+def _clear_rear_arm(body: np.ndarray, g: Geometry, direction: str) -> np.ndarray:
+    """Drop skin that sticks out past the rear edge of the torso.
+
+    On a side view that is the arm coming straight out of his back.
+    The dribbling arm is drawn afterwards, on the side he faces.
+    """
+    fx = _FACE[direction][0]
+    if fx == 0.0 or direction not in PROFILE:
+        return body
+    h, w = body.shape[:2]
+    yy = np.arange(h)[:, None]
+    skin = _skin_mask_flat(body)
+    skin &= (yy > g.neck + 2) & (yy < g.hem - 1)
+    rgb = body[..., :3]
+    cloth = np.zeros((h, w), dtype=bool)
+    for col in (
+        JERSEY_LIGHT, JERSEY_MID, JERSEY_SHADOW,
+        SHORTS_LIGHT, SHORTS_MID, SHORTS_SHADOW, ORANGE,
+    ):
+        cloth |= (
+            (rgb[..., 0] == int(col[0]))
+            & (rgb[..., 1] == int(col[1]))
+            & (rgb[..., 2] == int(col[2]))
+        )
+    cloth &= body[..., 3] > 200
+    kill = np.zeros((h, w), dtype=bool)
+    xs = np.arange(w)[None, :]
+    for y in range(int(g.neck) + 2, int(g.hem)):
+        row = np.nonzero(cloth[y])[0]
+        if len(row) < 4:
+            continue
+        if fx > 0.0:
+            edge = int(row.min())
+            kill[y] = skin[y] & (xs[0] < edge - 1)
+        else:
+            edge = int(row.max())
+            kill[y] = skin[y] & (xs[0] > edge + 1)
+    if not kill.any():
+        return body
+    out = body.copy()
+    out[kill] = 0
+    # the outline of that arm, still sitting past the rear edge
+    ink = (
+        (out[..., 0] == int(INK[0]))
+        & (out[..., 1] == int(INK[1]))
+        & (out[..., 2] == int(INK[2]))
+        & (out[..., 3] > 200)
+        & (yy > g.neck + 2)
+        & (yy < g.hem)
+    )
+    pad = np.pad(kill, 1, constant_values=False)
+    beside = (
+        pad[:-2, 1:-1] | pad[2:, 1:-1] | pad[1:-1, :-2] | pad[1:-1, 2:]
+        | pad[:-2, :-2] | pad[:-2, 2:] | pad[2:, :-2] | pad[2:, 2:]
+    )
+    rear = (xs - g.head_cx) * (-fx) > 0
+    out[ink & beside & rear] = 0
+    return out
+
+
 def compose(frame: np.ndarray, direction: str, anim: str, index: int):
     """Fold the ball-side arm into the torso, recolor with a flat palette,
     then draw one arm from the shoulder to the hand on the ball.
     """
     src = pad_frame(frame)
     if not alpha_mask(src).any():
-        return src, np.zeros(src.shape[:2], dtype=bool), 0, 0
+        return src, np.zeros(src.shape[:2], dtype=bool), 0, (0.0, 0.0, 0.0, 0.0)
     g0 = Geometry(src)
     folded, kept = fold_dribble_limb(src, g0, direction)
     body, _chest, _hands = paint_uniform(folded, Geometry(folded), direction)
     body[kept, 3] = 255
+    body = _clear_rear_arm(body, g0, direction)
     shoulder, elbow, hand, bx, by, t = _pose(body, g0, direction, anim, index)
     gx, gy, behind = bx, float(min(by + BALL_R, 99.0)), direction in BACK
     shadow = shadow_layer(body.shape[:2], gx, gy, strength=0.35 + 0.65 * t)
@@ -2205,7 +2269,7 @@ def compose(frame: np.ndarray, direction: str, anim: str, index: int):
         merged[hole, 3] = 255
     merged = _snap_body_palette(merged, g0, bx, by)
     merged = _drop_crumbs(merged, g0, kept)
-    return merged, kept, int((kept & (merged[..., 3] <= 40)).sum()), (bx, by)
+    return merged, kept, int((kept & (merged[..., 3] <= 40)).sum()), (bx, by, hand[0], hand[1])
 
 
 def _seal_body_slits(merged: np.ndarray, neck: int) -> np.ndarray:
@@ -2433,33 +2497,82 @@ def arm_shard(merged: np.ndarray, g: Geometry, direction: str) -> str:
     return f"{hits}px navy shard in the arm"
 
 
-def facing_fault(merged: np.ndarray, g: Geometry, bx: float, by: float, direction: str) -> str:
-    """Ball centre relative to the body must lead along the facing vector.
+def _rear_skin(merged: np.ndarray, g: Geometry, direction: str) -> int:
+    """Skin pixels past the rear edge of the torso. That is an arm out the back."""
+    fx = _FACE[direction][0]
+    if fx == 0.0 or direction not in PROFILE:
+        return 0
+    h, w = merged.shape[:2]
+    yy = np.arange(h)[:, None]
+    skin = _skin_mask_flat(merged)
+    skin &= (yy > g.neck + 2) & (yy < g.hem - 1)
+    rgb = merged[..., :3]
+    cloth = np.zeros((h, w), dtype=bool)
+    for col in (
+        JERSEY_LIGHT, JERSEY_MID, JERSEY_SHADOW,
+        SHORTS_LIGHT, SHORTS_MID, SHORTS_SHADOW, ORANGE,
+    ):
+        cloth |= (
+            (rgb[..., 0] == int(col[0]))
+            & (rgb[..., 1] == int(col[1]))
+            & (rgb[..., 2] == int(col[2]))
+        )
+    cloth &= merged[..., 3] > 200
+    n = 0
+    xs = np.arange(w)
+    for y in range(int(g.neck) + 2, int(g.hem)):
+        row = np.nonzero(cloth[y])[0]
+        if len(row) < 4:
+            continue
+        if fx > 0.0:
+            edge = int(row.min())
+            n += int((skin[y] & (xs < edge - 1)).sum())
+        else:
+            edge = int(row.max())
+            n += int((skin[y] & (xs > edge + 1)).sum())
+    return n
+
+
+def facing_fault(merged: np.ndarray, g: Geometry, bx: float, by: float,
+                 hx: float, hy: float, direction: str) -> str:
+    """Hand and ball must lead the body along the facing vector.
 
     E is +x, NE is +x and -y (up the screen), N is -y. A component that
     the facing vector leaves at 0 is free, so a south dribble can sit to
-    one side as long as it is in front of him.
+    one side as long as it is in front of him. Skin past the rear edge of
+    a side-view torso is an arm sticking out of his back.
     """
     h, w = merged.shape[:2]
     yy, xx = np.mgrid[0:h, 0:w]
     ball = (xx - bx) ** 2 + (yy - by) ** 2 <= (BALL_R + 2.0) ** 2
-    # The head sits above every dribble. "Higher on screen" is versus the
-    # torso and legs, which is the body the ball leads.
-    body = (merged[..., 3] > 200) & ~ball & (yy > g.neck)
+    # Chest and shorts, not the legs. A hand on a low dribble is still in
+    # front of the torso even when the feet pull the full-body centre down.
+    body = (merged[..., 3] > 200) & ~ball & (yy > g.neck) & (yy < g.hem)
     ys, xs = np.nonzero(body)
     if len(xs) < 40:
         return ""
-    dx = bx - float(xs.mean())
-    dy = by - float(ys.mean())
+    cx = float(xs.mean())
+    cy = float(ys.mean())
     fx, fy = _FACE[direction]
     bits = []
+    dx = bx - cx
+    dy = by - cy
     if fx != 0.0 and dx * fx < 6.0:
-        bits.append(f"dx {dx:.1f} against {fx:+.0f}")
+        bits.append(f"ball dx {dx:.1f} against {fx:+.0f}")
     if fy != 0.0 and dy * fy < 4.0:
-        bits.append(f"dy {dy:.1f} against {fy:+.0f}")
+        bits.append(f"ball dy {dy:.1f} against {fy:+.0f}")
+    hdx = hx - cx
+    hdy = hy - cy
+    if fx != 0.0 and hdx * fx < 0.0:
+        bits.append(f"hand dx {hdx:.1f} against {fx:+.0f}")
+    if fy != 0.0 and hdy * fy < 0.0:
+        bits.append(f"hand dy {hdy:.1f} against {fy:+.0f}")
+    rear = _rear_skin(merged, g, direction)
+    if rear > 6:
+        bits.append(f"{rear}px arm behind the back")
     if not bits:
         return ""
-    return f"ball ({dx:+.1f},{dy:+.1f}) " + ", ".join(bits)
+    return f"({dx:+.1f},{dy:+.1f}) " + ", ".join(bits)
 
 
 def main():
@@ -2484,14 +2597,14 @@ def main():
             if not alpha_mask(pad_frame(fr)).any():
                 continue
             g = Geometry(pad_frame(fr))
-            bx, by = ball_xy
+            bx, by, hx, hy = ball_xy
             arms = count_arms(cell, g)
             off = palette_off(cell, g, bx, by)
             specks = isolated_speckles(cell, g, bx, by)
             green = green_pixels(cell, g, bx, by)
             # the filled chest must stay opaque
             open_chest = int((kept & (cell[..., 3] <= 40)).sum())
-            facing = facing_fault(cell, g, bx, by, direction)
+            facing = facing_fault(cell, g, bx, by, hx, hy, direction)
             shard = arm_shard(cell, g, direction)
             if arms > 2 or off or specks or green or holes or open_chest or facing or shard:
                 problems.append(
