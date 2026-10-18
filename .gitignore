@@ -26,3 +26,4 @@ phaser-tag-client/dist/
 .env.*.local
 
 ../phaser-tag-client/node_modules/
+node_modules/
