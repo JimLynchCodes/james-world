@@ -25,4 +25,4 @@ phaser-tag-client/dist/
 *.local
 .env.*.local
 
-phaser-game-client/node_modules/*
+../phaser-tag-client/node_modules/
