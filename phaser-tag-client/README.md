@@ -334,13 +334,14 @@ skin carries its own frame size and feet line. Animation keys are
   y = 96; 10px each side holds the ball). Generated from `kid.png` by
   `tools/make_basketball_skin.py`. Navy sleeveless jersey with orange trim, an NY
   wordmark and number 11 on the front (11 on the back), white headband,
-  bare arms, and orange sneakers. The body is James's own silhouette
-  recolored in place, so side and diagonal frames keep his waist and legs.
+  bare arms, and orange sneakers. Jersey, shorts and skin use a few flat
+  shades instead of per-pixel recoloring. The ball-side arm is redrawn at
+  James's own arm width from the shoulder down to the ball, and the torso
+  under that arm stays filled, so a frame never shows a second skinny limb.
   An orange basketball is dribbled in every animation. The ball stays a
   circle and leads him in the direction he faces, close to the
-  dribbling-side foot (behind the body when he faces away). His dribbling
-  hand and forearm sit over that silhouette and flick the ball; the seams
-  turn a little each bounce. Footsteps
+  dribbling-side foot (behind the body when he faces away). The hand flicks
+  the ball and the seams turn a little each bounce. Footsteps
   are a gym-floor sneaker squeak (`basketballStep`). Re-run:
   `python3 tools/make_basketball_skin.py [--preview /tmp/basketball.png]`.
 
