@@ -10,6 +10,7 @@ export const esCO: Partial<Messages> = {
   "credits.githubLead": "Échale una mirada al código de este juego, hazle un fork y ponle una estrella. 😉",
   "skin.banana.note": "¡A lamer rapidito!",
   "skin.pharaoh.note": "¡Camina como egipcio!",
+  "skin.spaceman.note": "Un pasito chiquito...",
   "howto.helpKeyboard": "Toca a alguien cerca para que la lleve.",
   "settings.controls.phoneHint":
     "¿Juegas en el celular o en una tableta? Elige <strong>Celular</strong> para una palanca y botones grandes de TOCA y CORRE.",

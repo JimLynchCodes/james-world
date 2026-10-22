@@ -10,11 +10,12 @@
  *   tuxedo - public/assets/kid_tuxedo.png  (tools/make_tuxedo_skin.py)
  *   pirate - public/assets/kid_pirate.png  (tools/make_pirate_skin.py)
  *   pharaoh - public/assets/kid_pharaoh.png (tools/make_pharaoh_skin.py)
+ *   spaceman - public/assets/kid_spaceman.png (tools/make_spaceman_skin.py)
  *
  * The id is what goes over the wire (`skin` in Join / SetSkin /
  * PlayerSnapshot); the server falls back to "james" for unknown values.
  */
-export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate" | "pharaoh";
+export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate" | "pharaoh" | "spaceman";
 
 export const DEFAULT_SKIN: Skin = "james";
 
@@ -111,6 +112,19 @@ export const SKINS: Record<Skin, SkinSheet> = {
     baselineY: 116,
     // striped crown tops out ~106px above the feet
     artHeight: 106,
+  },
+  spaceman: {
+    id: "spaceman",
+    label: "Spaceman James",
+    note: "One small step...",
+    texture: "kid_spaceman",
+    url: `${BASE}assets/kid_spaceman.png`,
+    // same frames and feet line as James; the helmet rim sits a couple of
+    // pixels above the hair
+    frameWidth: 80,
+    frameHeight: 100,
+    baselineY: 96,
+    artHeight: 93,
   },
 };
 

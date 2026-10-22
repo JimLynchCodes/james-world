@@ -237,7 +237,8 @@ player stops.
 - **Skins**: a card per outfit, with a live preview: **James** (default),
   **Banana James** (squeaky shoes), **T-rex James** (scary stomp),
   **Tuxedo James** (dress-shoe click), **Pirate James** (boot clomp), and
-  **Pharaoh James** (sand shuffle, short horn on a tag). See "Skins" below.
+  **Pharaoh James** (sand shuffle, short horn on a tag), and
+  **Spaceman James** (radio beep, low-gravity hop). See "Skins" below.
 
 Only settings the user has actually chosen are saved in `localStorage`
 (`tag26.settings`), and they are applied on load. Invalid or unknown saved
@@ -329,6 +330,17 @@ skin carries its own frame size and feet line. Animation keys are
   whoosh plus a short muted horn, an open fifth (`pharaohSwing`), both on
   the SFX bus. Re-run:
   `python3 tools/make_pharaoh_skin.py [--preview /tmp/pharaoh.png]`.
+- `spaceman`: `public/assets/kid_spaceman.png` (80x100 frames, feet on y = 96;
+  same size as James). Generated from `kid.png` by `tools/make_spaceman_skin.py`.
+  White suit with grey shading, a rounded helmet (James's face and hair show
+  through the visor on front and side views; back views are the helmet),
+  a chest panel, red and blue accent stripes, chunky gloves and boots, and
+  a backpack with two boosters. Walk and run add a cosmetic low-gravity hop
+  (the shadow stays on the ground). Holding run ramps blue booster flames
+  over about a second and a half; that uses the existing `running` flag, so
+  other players see it too. Footsteps are a soft radio beep (`spacemanStep`);
+  the tag is a suit whoosh plus a short radio chirp (`spacemanSwing`). Re-run:
+  `python3 tools/make_spaceman_skin.py [--preview /tmp/spaceman.png]`.
 
 Multiplayer: the client sends its skin in `Join` (`skin`, optional) and
 `SetSkin { skin }` when it changes in Settings. The server stores it on the

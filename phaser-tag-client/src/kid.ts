@@ -1,7 +1,8 @@
 import Phaser from "phaser";
 import { getLocale, t } from "./i18n";
 import { DEFAULT_SKIN, SKINS, SKIN_IDS, type Skin, type SkinSheet } from "./skins";
-import { DIRECTIONS, nextAvatarAnim, type Direction } from "./tagging";
+import { SPACEMAN_BOOSTERS } from "./spacemanBoosters";
+import { DIRECTIONS, directionFromAngle, nextAvatarAnim, type Direction } from "./tagging";
 
 export { directionFromAngle } from "./tagging";
 
@@ -24,6 +25,9 @@ export { directionFromAngle } from "./tagging";
  * frames (tricorn hat on top, cutlass at the sides).
  * Pharaoh James (`kid_pharaoh.png`, from tools/make_pharaoh_skin.py) has
  * padded frames (nemes crown on top, cape flared at the sides).
+ * Spaceman James (`kid_spaceman.png`, from tools/make_spaceman_skin.py)
+ * keeps James's frame. Walk and run add a cosmetic low-gravity hop, and
+ * holding run lights the boosters (see `syncSpaceman`).
  * Animation keys are `<texture>-<anim>-<dir>`, e.g. `kid_banana-walk-SE`.
  */
 const FRAME_W = 80;
@@ -82,7 +86,80 @@ function animOf(key: string | undefined): string | undefined {
 
 /** Register all kid animations for every skin once per game (idempotent). */
 export function createKidAnimations(scene: Phaser.Scene) {
+  createSpacemanFlame(scene);
   for (const id of SKIN_IDS) createSkinAnimations(scene, SKINS[id]);
+}
+
+const FLAME_W = 12;
+const FLAME_H = 18;
+
+/** Blue booster flame, root at the top, four flicker frames. Pixel art. */
+function createSpacemanFlame(scene: Phaser.Scene) {
+  if (scene.textures.exists("spaceman-flame")) return;
+  const frames = 4;
+  const canvas = document.createElement("canvas");
+  canvas.width = FLAME_W * frames;
+  canvas.height = FLAME_H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const core = "#f4fbff";
+  const hot = "#8ad8ff";
+  const mid = "#2f8cff";
+  const edge = "#163a9a";
+  for (let i = 0; i < frames; i++) {
+    const ox = i * FLAME_W;
+    const len = 11 + (i % 2);
+    const wobble = i === 2 ? 1 : i === 3 ? -1 : 0;
+    for (let y = 0; y < len; y++) {
+      const t = y / 13;
+      const half = Math.max(1, Math.round(3.1 * (1 - t)));
+      const cx = 6 + (y > 5 ? wobble : 0);
+      for (let x = cx - half; x <= cx + half; x++) {
+        if (x < 0 || x >= FLAME_W) continue;
+        const edgePx = x === cx - half || x === cx + half || y === len - 1;
+        const corePx = Math.abs(x - cx) <= (y < 4 ? 1 : 0) && y < len - 4;
+        ctx.fillStyle = corePx ? (y < 2 ? core : hot) : edgePx ? edge : mid;
+        ctx.fillRect(ox + x, y, 1, 1);
+      }
+    }
+  }
+  scene.textures.addSpriteSheet("spaceman-flame", canvas, {
+    frameWidth: FLAME_W,
+    frameHeight: FLAME_H,
+  });
+  scene.textures.get("spaceman-flame").setFilter(Phaser.Textures.FilterMode.NEAREST);
+}
+
+/** Screen-space forward vector for a facing (y grows downward). */
+const FLAME_FWD: Record<Direction, [number, number]> = {
+  E: [1, 0],
+  SE: [0.7071, 0.7071],
+  S: [0, 1],
+  SW: [-0.7071, 0.7071],
+  W: [-1, 0],
+  NW: [-0.7071, -0.7071],
+  N: [0, -1],
+  NE: [0.7071, -0.7071],
+};
+
+/**
+ * Ease-in/out bound with a float at the top. `hang` (0..1) lengthens the
+ * time spent near the apex; the ends stay soft so he doesn't pop off the ground.
+ */
+function moonArc(phase: number, hang: number): number {
+  const lobe = Math.sin(Math.PI * phase);
+  const eased = lobe * lobe * (3 - 2 * lobe);
+  const lifted = 1 - (1 - eased) * (1 - eased);
+  return eased * (1 - hang) + lifted * hang;
+}
+
+/** Exhaust points backward and a little downward, away from the suit. */
+function flameVector(dir: Direction): [number, number] {
+  const [fx, fy] = FLAME_FWD[dir];
+  const x = -fx;
+  const y = -fy + 0.8;
+  const len = Math.hypot(x, y) || 1;
+  return [x / len, y / len];
 }
 
 function createSkinAnimations(scene: Phaser.Scene, sheet: SkinSheet) {
@@ -176,6 +253,11 @@ export class KidAvatar {
   private lungeTween: Phaser.Tweens.Tween | null = null;
   private readonly feetOffset: number;
   private skin: Skin = DEFAULT_SKIN;
+  /** Cosmetic low-gravity hop (world px). Never written into x/y. */
+  private hop = 0;
+  /** 0..1 booster flame, ramped while `running` is held. */
+  private flame = 0;
+  private flames: Phaser.GameObjects.Sprite[] | null = null;
   /**
    * Name labels stay about the same size on screen when the camera zooms.
    * 1 at the normal zoom; larger in world space when zoomed out.
@@ -302,7 +384,7 @@ export class KidAvatar {
       left = Math.min(left, this.x - half);
       right = Math.max(right, this.x + half);
     }
-    const top = Math.min(this.labelTop, feetY - this.artHeight);
+    const top = Math.min(this.labelTop, feetY - this.hop - this.artHeight);
     const bottom = feetY + this.shadow.height / 2;
     return new Phaser.Geom.Rectangle(left, top, right - left, bottom - top);
   }
@@ -404,6 +486,84 @@ export class KidAvatar {
     }
   }
 
+  /**
+   * Low-gravity hop locked to the stride, and a booster flame that ramps
+   * while run is held. Both are sprite offsets: x/y, the hitbox and the
+   * shadow's position stay on the ground.
+   */
+  private syncSpaceman(dt: number) {
+    const airborne = this.skin === "spaceman" && this.moving && !this.tagging;
+    if (airborne) {
+      const progress = this.sprite.anims.getProgress();
+      // Two bounds per walk/run cycle, so the hop matches the feet.
+      const phase = (progress * 2) % 1;
+      const running = this.running;
+      this.hop = (running ? 14 : 6) * moonArc(phase, running ? 0.62 : 0.38);
+    } else {
+      this.hop *= Math.exp(-dt / 90);
+      if (this.hop < 0.05) this.hop = 0;
+    }
+    if (this.skin === "spaceman" && this.running) this.flame = Math.min(1, this.flame + dt / 1500);
+    else this.flame = Math.max(0, this.flame - dt / 480);
+    // The ring stays under the feet and reads smaller when he's higher.
+    this.shadow.setScale(this.skin === "spaceman" ? 1 - 0.2 * (this.hop / 14) : 1);
+  }
+
+  /** Blue exhaust from the backpack nozzles. Hidden when the flame has faded. */
+  private placeFlames() {
+    const show = this.skin === "spaceman" && this.flame > 0.02 && this.sprite.visible;
+    if (!show) {
+      this.flames?.forEach((flame) => flame.setVisible(false));
+      return;
+    }
+    const flames = this.ensureFlames();
+    if (!flames) return;
+    const index = Number(this.sprite.frame.name);
+    const anchors = SPACEMAN_BOOSTERS[index];
+    if (!anchors) {
+      flames.forEach((flame) => flame.setVisible(false));
+      return;
+    }
+    const sheet = SKINS.spaceman;
+    const scale = this.sprite.scaleX;
+    const [dx, dy] = flameVector(directionFromAngle(this.tagFacing ?? this.facing));
+    const intensity = this.flame;
+    const time = this.scene.time.now;
+    const kick = (2 + 5 * intensity) * Math.abs(scale);
+    const points: readonly (readonly [number, number])[] = [
+      [anchors[0], anchors[1]],
+      [anchors[2], anchors[3]],
+    ];
+    points.forEach(([bx, by], i) => {
+      const flame = flames[i];
+      if (!flame) return;
+      flame.setPosition(
+        this.sprite.x + (bx - sheet.frameWidth / 2) * scale + dx * kick,
+        this.sprite.y + (by - sheet.baselineY) * scale + dy * kick,
+      );
+      flame.setRotation(Math.atan2(dy, dx) - Math.PI / 2);
+      const wobble = 0.86 + 0.14 * Math.sin(time / 70 + i * 1.7);
+      flame.setScale(Math.abs(scale) * (0.32 + 1.05 * intensity) * wobble);
+      flame.setAlpha(Math.min(1, 0.45 + 0.55 * intensity) * wobble);
+      flame.setFrame((Math.floor(time / 70) + i) % 4);
+      flame.setDepth(this.sprite.depth - 0.02);
+      flame.setVisible(true);
+    });
+  }
+
+  private ensureFlames(): Phaser.GameObjects.Sprite[] | null {
+    if (this.flames) return this.flames;
+    if (!this.scene.textures.exists("spaceman-flame")) return null;
+    const make = () => {
+      const flame = this.scene.add.sprite(0, 0, "spaceman-flame");
+      flame.setOrigin(0.5, 0.12);
+      flame.setVisible(false);
+      return flame;
+    };
+    this.flames = [make(), make()];
+    return this.flames;
+  }
+
   /** Call every frame after updating x/y/facing/moving/running. */
   update() {
     const facing = this.tagFacing ?? this.facing;
@@ -438,17 +598,20 @@ export class KidAvatar {
     const ly = Math.sin(facing) * lunge * 0.6;
 
     const feetY = this.y + this.feetOffset;
+    const dt = Math.min(50, this.scene.game.loop.delta);
+    this.syncSpaceman(dt);
     this.shadow.setPosition(this.x, feetY);
-    this.sprite.setPosition(this.x + lx, feetY + ly);
+    this.sprite.setPosition(this.x + lx, feetY + ly - this.hop);
     // Lower on screen = drawn in front.
     // Same depth band as schoolyard props (trees / bushes / fence), so a
     // kid north of a trunk sorts behind it. Labels sit just above the
     // sprite so a translucent canopy can cover them too (still readable).
     const depth = 10 + feetY / 10;
     this.sprite.setDepth(depth);
+    this.placeFlames();
     this.syncLabelScale();
     const s = this.labelScale;
-    let labelY = feetY - this.artHeight - LABEL_GAP * s;
+    let labelY = feetY - this.hop - this.artHeight - LABEL_GAP * s;
     const firstY = labelY;
     let labelDepth = depth + 0.05;
     for (const line of LABEL_LINES) {
@@ -477,13 +640,18 @@ export class KidAvatar {
     this.sprite.setVisible(visible);
     this.shadow.setVisible(visible);
     if (visible) this.update();
-    else for (const line of LABEL_LINES) this.labels[line].setVisible(false);
+    else {
+      for (const line of LABEL_LINES) this.labels[line].setVisible(false);
+      this.flames?.forEach((flame) => flame.setVisible(false));
+    }
   }
 
   destroy() {
     this.lungeTween?.stop();
     this.sprite.destroy();
     this.shadow.destroy();
+    this.flames?.forEach((flame) => flame.destroy());
+    this.flames = null;
     for (const line of LABEL_LINES) this.labels[line].destroy();
   }
 }

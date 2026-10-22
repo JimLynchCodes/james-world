@@ -14,7 +14,7 @@
 
 import type { Mood, Settings } from "./settings";
 
-export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "click" | "blip" | "secret";
+export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "spacemanStep" | "spacemanSwing" | "click" | "blip" | "secret";
 
 const CROSSFADE_S = 1.5;
 const LOOKAHEAD_S = 0.15;
@@ -530,6 +530,8 @@ export class GameAudio {
   private pirateSteps = 0;
   /** Pharaoh James alternates feet so the sand shuffle isn't a machine gun. */
   private pharaohFoot = false;
+  /** Spaceman James alternates a high and low radio beep. */
+  private spacemanFoot = false;
   private lastJoin = 0;
   private buffers = new Map<Mood, AudioBuffer>();
   private loads = new Map<Mood, LoadStatus>();
@@ -764,6 +766,19 @@ export class GameAudio {
           release: 0.06,
         });
         syn.tone(t, 78 * p, { gain: 0.035 * v, attack: 0.004, release: 0.05 });
+        break;
+      }
+      case "spacemanStep": { // Spaceman James: soft radio beep plus a quiet suit whoosh
+        this.spacemanFoot = !this.spacemanFoot;
+        const beep = (this.spacemanFoot ? 880 : 660) * (0.98 + Math.random() * 0.04);
+        syn.tone(t, beep, { type: "square", gain: 0.04 * v, attack: 0.001, hold: 0.018, release: 0.045, filter: 3200 });
+        syn.noise(t, { filter: "bandpass", freq: 1200, sweepTo: 420, q: 0.7, gain: 0.05 * v, attack: 0.012, release: 0.07 });
+        break;
+      }
+      case "spacemanSwing": { // Spaceman James's tag: suit whoosh plus a tiny radio chirp
+        syn.noise(t, { filter: "bandpass", freq: 520, sweepTo: 2100, q: 1.2, gain: 0.3 * v, attack: 0.03, release: 0.15 });
+        syn.tone(t + 0.04, 990, { type: "square", gain: 0.035 * v, attack: 0.002, release: 0.05, filter: 3600 });
+        syn.tone(t + 0.09, 1480, { type: "square", gain: 0.028 * v, attack: 0.002, release: 0.045, filter: 3600 });
         break;
       }
       case "pharaohSwing": { // Pharaoh James's tag: cloth whoosh plus a short muted horn (open fifth)

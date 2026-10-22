@@ -1498,7 +1498,7 @@ html[dir="rtl"] .settings-title {
   --gap: 16px;
   display: flex;
   flex-wrap: wrap;
-  /* a short last row (six skins) sits centred */
+  /* a short last row (seven skins) sits centred */
   justify-content: center;
   gap: var(--gap);
   margin-bottom: 14px;
@@ -1637,7 +1637,7 @@ html[dir="rtl"] .settings-title {
   .skin-note { align-self: center; font-size: 11px; text-align: center; }
   .skin-card[data-skin="pharaoh"] { --draw: 0.8; }
 }
-/* Short laptop screens: a tighter 3-up so all six skins fit unscrolled. */
+/* Short laptop screens: a tighter 3-up so the skins fit with little scrolling. */
 @media (max-height: 700px) {
   @container pane (min-width: 670px) {
     .skin-card { --s: .9; gap: 2px; padding: 8px 10px 10px; }

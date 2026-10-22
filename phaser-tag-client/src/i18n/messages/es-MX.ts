@@ -125,6 +125,8 @@ export const esMX: Messages = {
   "skin.pirate.note": "¡Arrr, la llevas!",
   "skin.pharaoh": "James faraón",
   "skin.pharaoh.note": "¡Camina como egipcio!",
+  "skin.spaceman": "James astronauta",
+  "skin.spaceman.note": "Un pequeño paso...",
 
   "settings.credits.heading": "Créditos",
   "credits.bio":

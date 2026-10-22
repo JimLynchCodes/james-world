@@ -8,6 +8,7 @@ export const esDO: Partial<Messages> = {
   "skin.pirate.note": "¡Arrr, tú la tienes!",
   "skin.trex.note": "¡T-Rex, tú la llevas!",
   "skin.banana.note": "¡A lamer a mil!",
+  "skin.spaceman.note": "Un pasito...",
   "howto.helpKeyboard": "Tócalo si lo tienes cerca para que la lleve.",
   "howto.tag": "¡Toca!",
   "credits.bio":

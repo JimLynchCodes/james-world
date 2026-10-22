@@ -6,6 +6,7 @@ export const enGB: Partial<Messages> = {
   "skin.banana.note": "Lickety-split!",
   "skin.tuxedo.note": "Dressed to impress!",
   "skin.pharaoh.note": "Walk like an Egyptian!",
+  "skin.spaceman.note": "One small step…",
   "settings.sound.moodHelp": "The mood chooses the background music.",
   "mood.chillin.blurb": "Lo-fi hip-hop loop",
   "credits.githubLead": "Have a look at the source code for this game, fork it, and give it a star! 😉",

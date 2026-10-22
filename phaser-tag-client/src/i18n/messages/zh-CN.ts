@@ -122,6 +122,8 @@ export const zhCN: Messages = {
   "skin.pirate.note": "啊哈，你是鬼！",
   "skin.pharaoh": "法老詹姆斯",
   "skin.pharaoh.note": "走路像埃及人！",
+  "skin.spaceman": "宇航员詹姆斯",
+  "skin.spaceman.note": "一小步……",
 
   "settings.credits.heading": "制作",
   "credits.bio":
