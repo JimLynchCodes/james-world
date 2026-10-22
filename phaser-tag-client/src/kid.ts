@@ -522,10 +522,14 @@ export class KidAvatar {
     }
     const sheet = SKINS.spaceman;
     const scale = this.sprite.scaleX;
-    const [dx, dy] = flameVector(directionFromAngle(this.tagFacing ?? this.facing));
+    const facingDir = directionFromAngle(this.tagFacing ?? this.facing);
+    const [baseX, baseY] = flameVector(facingDir);
+    // Facing the camera, the exhaust is behind the suit. Side and back
+    // views draw it in front so it can leave the boosters.
+    const behind = facingDir === "S" || facingDir === "SE" || facingDir === "SW";
     const intensity = this.flame;
     const time = this.scene.time.now;
-    const kick = (2 + 5 * intensity) * Math.abs(scale);
+    const kick = (3 + 6 * intensity) * Math.abs(scale);
     const points: readonly (readonly [number, number])[] = [
       [anchors[0], anchors[1]],
       [anchors[2], anchors[3]],
@@ -533,16 +537,22 @@ export class KidAvatar {
     points.forEach(([bx, by], i) => {
       const flame = flames[i];
       if (!flame) return;
+      const spread = i === 0 ? -0.28 : 0.28;
+      const sx = baseX - baseY * spread;
+      const sy = baseY + baseX * spread;
+      const len = Math.hypot(sx, sy) || 1;
+      const dx = sx / len;
+      const dy = sy / len;
       flame.setPosition(
         this.sprite.x + (bx - sheet.frameWidth / 2) * scale + dx * kick,
         this.sprite.y + (by - sheet.baselineY) * scale + dy * kick,
       );
       flame.setRotation(Math.atan2(dy, dx) - Math.PI / 2);
       const wobble = 0.86 + 0.14 * Math.sin(time / 70 + i * 1.7);
-      flame.setScale(Math.abs(scale) * (0.32 + 1.05 * intensity) * wobble);
-      flame.setAlpha(Math.min(1, 0.45 + 0.55 * intensity) * wobble);
+      flame.setScale(Math.abs(scale) * (0.5 + 1.7 * intensity) * wobble);
+      flame.setAlpha(Math.min(1, 0.55 + 0.45 * intensity) * wobble);
       flame.setFrame((Math.floor(time / 70) + i) % 4);
-      flame.setDepth(this.sprite.depth - 0.02);
+      flame.setDepth(this.sprite.depth + (behind ? -0.02 : 0.03));
       flame.setVisible(true);
     });
   }

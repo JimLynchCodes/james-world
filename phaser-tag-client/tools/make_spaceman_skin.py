@@ -654,20 +654,38 @@ def draw_pack(g, body, arms, head, direction, h, w):
             inset &= erode(rect, 1)
             paint(pack, lab, inset, MID, L_PACK)
 
-    # Nozzle centres come from the booster shape even when the front view
-    # hides them behind the suit (the flames still need a place to start).
-    def centre(src: np.ndarray) -> tuple[int, int] | None:
-        if not src.any():
+    # Exhaust leaves the outer tip of each booster. Side and back tips sit
+    # just past the pack so the flame isn't buried inside the suit. Front
+    # tips stay behind the chest, where the body hides them.
+    def exhaust_point(mask: np.ndarray) -> tuple[int, int] | None:
+        ys, xs = np.nonzero(mask)
+        if len(ys) == 0:
             return None
-        ys, xs = np.nonzero(src)
-        return int(round(xs.mean())), int(round(ys.mean()))
+        if direction == "E":
+            i = int(np.argmin(xs))
+            return max(0, int(xs[i]) - 3), int(ys[i])
+        if direction == "W":
+            i = int(np.argmax(xs))
+            return min(w - 1, int(xs[i]) + 3), int(ys[i])
+        if direction in BACK:
+            i = int(np.argmax(ys))
+            return int(xs[i]), min(h - 1, int(ys[i]) + 3)
+        i = int(np.argmin(ys))
+        return int(xs[i]), int(ys[i])
 
     for src in (h1 if h1.any() else n1, h2 if h2.any() else n2):
-        found = centre(src)
+        found = exhaust_point(src)
         if found is not None:
             nozzles.append(found)
     while len(nozzles) < 2:
         nozzles.append(nozzles[0] if nozzles else (w // 2, y1))
+    # Both side exhausts leave from the rear edge, not one buried in the suit.
+    if direction == "E":
+        rear = min(p[0] for p in nozzles)
+        nozzles = [(rear, p[1]) for p in nozzles]
+    elif direction == "W":
+        rear = max(p[0] for p in nozzles)
+        nozzles = [(rear, p[1]) for p in nozzles]
 
     if direction in FRONT:
         boosters = np.zeros((h, w), dtype=bool)
