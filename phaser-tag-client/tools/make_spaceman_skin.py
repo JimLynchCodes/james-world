@@ -8,11 +8,12 @@ Output: public/assets/kid_spaceman.png + kid_spaceman.json
 Same frame size, columns, rows, animation ranges and feet line as kid.png.
 Every frame starts from that exact base frame (same direction, animation and
 frame index). The suit is painted over the body; nothing opaque in the base
-frame is erased. Face and hair stay James's, seen through the visor, on
-every view where he faces the camera or sideways. Back views are the back
-of the helmet. The backpack and its two boosters sit on his back: visible
-when he faces away, on the rear side in profile, and behind the body (a
-shoulder peek at most) when he faces the camera.
+frame is erased. Front and side views wear a hard helmet: the hair becomes
+the shell, and James's face (plus the hair inside the opening) shows through
+a light-blue visor. Back views are that same shell, shaded, not a flat fill.
+The backpack and its two boosters sit on his back: visible when he faces
+away, on the rear side in profile, and behind the body (a shoulder peek at
+most) when he faces the camera.
 
 Requires: Python 3 + Pillow + numpy.  Usage:
     python3 tools/make_spaceman_skin.py [--preview /tmp/spaceman_preview.png]
@@ -51,6 +52,8 @@ PANEL = (36, 72, 158)
 RED = (204, 46, 54)
 BLUE = (46, 108, 214)
 YELLOW = (240, 196, 48)
+# Glass is only used inside the visor (L_KEEP), so it stays out of the suit palette.
+GLASS = (150, 206, 236)
 PALETTE = {OUTLINE, HI, MID, LO, RIM, GLINT, PANEL, RED, BLUE, YELLOW}
 
 FRONT = {"SE", "S", "SW"}
@@ -120,6 +123,41 @@ def paint(img: np.ndarray, lab: np.ndarray, mask: np.ndarray, color: tuple[int, 
     img[mask, 2] = color[2]
     img[mask, 3] = 255
     lab[mask] = label
+
+
+def shell_bands(mask: np.ndarray, yy: np.ndarray, xx: np.ndarray):
+    """Broad light-to-dark bands: lighter top-left, grey bottom-right.
+
+    Thresholds are wide on purpose so the shell doesn't speckle.
+    """
+    mid = np.zeros(mask.shape, dtype=bool)
+    lo = np.zeros(mask.shape, dtype=bool)
+    ys, xs = np.nonzero(mask)
+    if len(ys) == 0:
+        return mid, lo
+    y0, y1 = int(ys.min()), int(ys.max())
+    x0, x1 = int(xs.min()), int(xs.max())
+    ny = (yy - y0) / max(1, y1 - y0)
+    nx = (xx - x0) / max(1, x1 - x0)
+    light = nx * 0.55 + ny * 0.85
+    mid[mask & (light >= 0.34) & (light < 0.62)] = True
+    lo[mask & (light >= 0.62)] = True
+    return mid, lo
+
+
+def glass_tint(img: np.ndarray, mask: np.ndarray) -> None:
+    """Flat blue glass over the visor. Quantized so the face doesn't speckle."""
+    if not mask.any():
+        return
+    px = img[mask, :3].astype(np.int16)
+    glass = np.array(GLASS, dtype=np.int16)
+    mixed = (px * 3 + glass) // 4
+    q = (mixed // 20) * 20 + 10
+    q = np.clip(q, 0, 255).astype(np.uint8)
+    img[mask, 0] = q[:, 0]
+    img[mask, 1] = q[:, 1]
+    img[mask, 2] = q[:, 2]
+    img[mask, 3] = 255
 
 
 def shade_rows(mask: np.ndarray) -> np.ndarray:
@@ -218,26 +256,33 @@ def suit_frame(base: np.ndarray, direction: str) -> tuple[np.ndarray, np.ndarray
     out = closed.copy()
     lab = np.zeros((h, w), dtype=np.uint8)
 
-    if show_face:
-        lab[head & a] = L_KEEP
-    else:
-        # Back of the helmet: flat white over the hair, no dither.
-        paint(out, lab, head, HI, L_HELM)
-        paint(out, lab, shade_rows(head), MID, L_HELM)
-
-    # Suit over every body pixel that isn't the preserved head.
+    # Suit over every body pixel that isn't the head. The head is the helmet,
+    # painted below. Arms are shaded on their own so a diagonal sleeve doesn't
+    # pick up a speckled right-edge shadow.
     body = suit_body & ~head
+    torso = body & ~arms
     paint(out, lab, body, HI, L_SUIT)
-    paint(out, lab, shade_rows(body & ~shoes), MID, L_SUIT)
+    paint(out, lab, shade_rows(torso & ~shoes), MID, L_SUIT)
 
-    # Chunky gloves: the hand, plus one pixel of transparent space around it.
+    # One clean sleeve per arm: solid white, a grey elbow fold, a red band.
+    arm_px = arms & ~hands & (yy > head_cut) & a
+    paint(out, lab, arm_px, HI, L_SUIT)
+    for comp in components8(arm_px):
+        if comp.sum() < 12:
+            continue
+        paint(out, lab, limb_band(comp, 0.58, 1), LO, L_SUIT)
+        paint(out, lab, limb_band(comp, 0.30, 2), RED, L_SUIT)
+
+    # Chunky grey gloves. One extra pixel, attached to the hand only.
     glove_extra = dilate(hands, 1) & ~a & (yy > head_cut) & (yy < g.hem + 4)
-    # Keep the extra pixel attached to the hand, never a bridge to the torso.
     glove_extra &= dilate(hands, 1)
-    paint(out, lab, hands, HI, L_GLOVE)
-    paint(out, lab, shade_rows(hands), MID, L_GLOVE)
-    paint(out, lab, glove_extra, HI, L_GLOVE)
-    # Wrist cuff in the darker grey, where the hand meets the sleeve.
+    paint(out, lab, hands, MID, L_GLOVE)
+    paint(out, lab, glove_extra, MID, L_GLOVE)
+    # A light knuckle on the upper edge of each glove.
+    above = np.zeros_like(hands)
+    above[1:] = hands[:-1]
+    knuckle = hands & ~above
+    paint(out, lab, knuckle, HI, L_GLOVE)
     cuff = hands & dilate(body & ~hands, 1)
     paint(out, lab, cuff, LO, L_GLOVE)
 
@@ -269,8 +314,11 @@ def suit_frame(base: np.ndarray, direction: str) -> tuple[np.ndarray, np.ndarray
         paint(out, lab, comp & (yy == top), LO, L_BOOT)
         if top + 1 < bot:
             paint(out, lab, comp & (yy == top + 1), RED, L_BOOT)
-        paint(out, lab, comp & (yy == bot), OUTLINE, L_BOOT)
-        paint(out, lab, shade_rows(comp & (yy > top + 1) & (yy < bot)), MID, L_BOOT)
+        # Coloured sole. The row above it stays the dark welt.
+        if bot - 1 > top + 1:
+            paint(out, lab, comp & (yy == bot - 1), OUTLINE, L_BOOT)
+        paint(out, lab, comp & (yy == bot), BLUE, L_BOOT)
+        paint(out, lab, shade_rows(comp & (yy > top + 1) & (yy < bot - 1)), MID, L_BOOT)
 
     # Silhouette outline of everything so far (head shell comes next and
     # outlines itself). Preserved face pixels keep James's own outline.
@@ -279,71 +327,30 @@ def suit_frame(base: np.ndarray, direction: str) -> tuple[np.ndarray, np.ndarray
     edge &= lab != L_KEEP
     paint(out, lab, edge, OUTLINE, L_LINE)
 
-    # Arm rim so each arm reads against the torso, still James's own arm.
-    # The pinched crease between them becomes outline too: opaque, so the
-    # suit has no hole, and dark, so it doesn't fuse into a second limb.
-    arm_rim = arms & dilate(~arms, 1) & (lab != L_KEEP)
-    paint(out, lab, arm_rim, OUTLINE, L_LINE)
+    # The pinched crease between arm and torso becomes outline: opaque, so
+    # the suit has no hole, and dark, so the sleeve doesn't fuse to the chest.
+    # The outer edge is already the silhouette. A second rim around a
+    # diagonal arm staircases into broken specks, so it is not drawn.
     paint(out, lab, crease & (yy > head_cut), OUTLINE, L_LINE)
     # And the new glove's outer edge.
     glove_edge = (lab == L_GLOVE) & dilate(lab != L_GLOVE, 1) & ~((lab != L_GLOVE) & solid & (lab != 0))
     glove_edge = (lab == L_GLOVE) & ~erode(solid, 1)
     paint(out, lab, glove_edge, OUTLINE, L_LINE)
 
-    # Red arm stripe, blue thigh stripe. One clean row on each limb.
-    for comp in components8(arms & (lab != L_LINE)):
-        if comp.sum() < 12:
-            continue
-        ys = np.nonzero(comp)[0]
-        span = int(ys.max() - ys.min())
-        y = int(ys.min() + max(2, round(span * 0.34)))
-        band = comp & (yy == y)
-        # Leave the outline pixel at each end.
-        xs = np.nonzero(band[y])[0] if 0 <= y < h else []
-        if len(xs) >= 3:
-            band = band.copy()
-            band[y, xs[0]] = False
-            band[y, xs[-1]] = False
-        paint(out, lab, band, RED, L_SUIT)
-    thighs = shins & (yy <= g.hem + 4) & (lab != L_LINE)
+    # Red thigh stripe and a grey knee fold. One solid band, not a speck.
+    thighs = shins & (yy <= g.hem + 6) & (lab != L_LINE)
     for side in (xx < g.hip_cx, xx >= g.hip_cx):
         comp = thighs & side
-        if comp.sum() < 4:
+        if comp.sum() < 6:
             continue
-        band = widest_stripe(comp)
-        paint(out, lab, band, BLUE, L_SUIT)
+        paint(out, lab, limb_band(comp, 0.45, 1), LO, L_SUIT)
+        paint(out, lab, limb_band(comp, 0.2, 2), RED, L_SUIT)
 
     # Chest panel with three buttons. Front gets the full panel; profiles
     # get the front edge of it.
     paint_panel(out, lab, g, direction, a, arms, yy, xx)
 
-    # Helmet bubble around the head, plus ear cups. Never covers the body.
-    shell, ears = helmet_shell(head & a, a | (lab != 0), g, direction, h, w)
-    # The shell is a white helmet: dark outline outside, white inside.
-    # A few blue pixels at the top are the visor rim, with a white glint.
-    if shell.any():
-        helmet_fill = (lab == L_HELM) | (head & a)
-        outer = shell & ~erode(shell | helmet_fill, 1)
-        inner = shell & ~outer
-        paint(out, lab, inner, HI, L_HELM)
-        paint(out, lab, shade_rows(inner), MID, L_HELM)
-        paint(out, lab, outer, OUTLINE, L_HELM)
-        if show_face and inner.any():
-            paint(out, lab, visor_rim_arc(inner, direction), RIM, L_HELM)
-        glint = visor_glint(inner if inner.any() else shell, direction)
-        paint(out, lab, glint, GLINT, L_HELM)
-    if ears.any():
-        paint(out, lab, ears, HI, L_EAR)
-        paint(out, lab, shade_rows(ears), MID, L_EAR)
-        solid_now = alpha_mask(out) | ears
-        paint(out, lab, ears & ~erode(solid_now, 1), OUTLINE, L_EAR)
-        for comp in components8(ears):
-            ys, xs = np.nonzero(comp)
-            if len(ys) < 3:
-                continue
-            cy, cx = int(np.median(ys)), int(np.median(xs))
-            if comp[cy, cx]:
-                paint(out, lab, _at(comp, cy, cx), RIM, L_EAR)
+    paint_helmet(out, lab, closed, head & a, direction, g, h, w, yy, xx)
 
     # Backpack layer, then composite so it can never show through the body
     # on front / side views. On back views it is the surface we see.
@@ -361,12 +368,30 @@ def suit_frame(base: np.ndarray, direction: str) -> tuple[np.ndarray, np.ndarray
     if holes.any():
         paint(out, lab, holes, HI, L_SUIT)
         # re-outline only if a hole-fill touched the silhouette (it shouldn't)
-    # Drop faint fringes so they don't read as stray specks.
-    faint = (out[..., 3] > 0) & (out[..., 3] <= 40)
-    out[faint] = 0
+    # The silhouette pass paints the sole the same dark as the outline.
+    # Put the coloured sole back on the interior of the bottom row.
+    for side in (xx < g.hip_cx, xx >= g.hip_cx):
+        foot = (out[..., 3] > 40) & side & (yy >= g.bottom - 3) & (yy <= g.bottom + 1) & ~foot_gap
+        foot &= np.isin(lab, (L_BOOT, L_LINE, L_SUIT))
+        if foot.sum() < 4:
+            continue
+        bot = int(np.nonzero(foot)[0].max())
+        row = foot & (yy == bot)
+        xs = np.nonzero(row[bot])[0]
+        if len(xs) < 3:
+            continue
+        sole = row.copy()
+        sole[bot, xs[0]] = False
+        sole[bot, xs[-1]] = False
+        paint(out, lab, sole, BLUE, L_BOOT)
+        if bot - 1 >= 0:
+            welt = foot & (yy == bot - 1) & (lab == L_LINE)
+            paint(out, lab, welt, OUTLINE, L_BOOT)
 
-    # Base opaque pixels stay opaque and fully solid.
-    out[base_a, 3] = 255
+    # Fully opaque or fully clear. A half-alpha suit lets the grass show through.
+    visible = out[..., 3] > 40
+    out[~visible] = 0
+    out[visible, 3] = 255
     return out, lab, nozzles
 
 
@@ -380,6 +405,194 @@ def _at(mask: np.ndarray, y: int, x: int) -> np.ndarray:
     if 0 <= y < mask.shape[0] and 0 <= x < mask.shape[1]:
         m[y, x] = True
     return m
+
+
+def limb_band(comp: np.ndarray, frac: float, thick: int) -> np.ndarray:
+    """A solid cross-band on a limb. Skips a row that would be a single speck."""
+    band = np.zeros_like(comp)
+    ys = np.nonzero(comp.any(axis=1))[0]
+    if len(ys) < 3:
+        return band
+    i = min(len(ys) - 1, max(0, int(round((len(ys) - 1) * frac))))
+    h = comp.shape[0]
+    for dy in range(thick):
+        y = int(ys[i]) + dy
+        if not 0 <= y < h:
+            continue
+        xs = np.nonzero(comp[y])[0]
+        if len(xs) < 2:
+            continue
+        band[y] = comp[y]
+        if len(xs) >= 4:
+            band[y, xs[0]] = False
+            band[y, xs[-1]] = False
+    if int(band.sum()) < 2:
+        return np.zeros_like(comp)
+    return band
+
+
+def ear_cups(shell: np.ndarray, blocked: np.ndarray, direction: str, h: int, w: int) -> np.ndarray:
+    """Small darker ear pieces on the shell. Recolour only; don't grow or hole it."""
+    ears = np.zeros_like(shell)
+    ys, xs = np.nonzero(shell)
+    if len(ys) == 0:
+        return ears
+    y0, y1 = int(ys.min()), int(ys.max())
+    x0, x1 = int(xs.min()), int(xs.max())
+    ear_y = y0 + int((y1 - y0) * 0.46)
+
+    def stamp(cx: int, cy: int) -> None:
+        for dy in range(-2, 3):
+            for dx in range(-1, 2):
+                y, x = cy + dy, cx + dx
+                if 0 <= y < h and 0 <= x < w and shell[y, x]:
+                    ears[y, x] = True
+
+    if direction == "E":
+        stamp(x0 + max(4, int((x1 - x0) * 0.22)), ear_y)
+    elif direction == "W":
+        stamp(x1 - max(4, int((x1 - x0) * 0.22)), ear_y)
+    else:
+        stamp(x0 + 3, ear_y)
+        stamp(x1 - 3, ear_y)
+    return ears
+
+
+def paint_helmet(out, lab, base, head, direction, g, h, w, yy, xx) -> None:
+    """Hard shell over the hair, glass visor over the face. Back views are the shell."""
+    if not head.any():
+        return
+    show_face = direction not in BACK
+    face = skin_mask(base) & head
+    visor = np.zeros_like(head)
+    ys, xs = np.nonzero(head)
+    y0, y1 = int(ys.min()), int(ys.max())
+    x0, x1 = int(xs.min()), int(xs.max())
+    if show_face:
+        span_y = max(1, y1 - y0)
+        # Brow line: everything above this is the hard dome, even if a
+        # hair highlight was classified as skin.
+        brow = y0 + max(4, int(span_y * 0.32))
+        face_zone = face & (yy >= brow)
+        face_main = np.zeros_like(head)
+        for comp in components8(face_zone):
+            if comp.sum() >= 25:
+                face_main |= comp
+        if face_main.any():
+            fys, fxs = np.nonzero(face_main)
+            cx = (float(fxs.min()) + float(fxs.max())) / 2
+            cy = (float(fys.min()) + float(fys.max())) / 2
+            rx = max(4.0, (fxs.max() - fxs.min()) / 2 + 1.0)
+            ry = max(4.0, (fys.max() - fys.min()) / 2 + 1.0)
+            # Side views: the opening sits on the facing side so the shell
+            # still wraps the back of the head.
+            if direction == "E":
+                cx = fxs.min() + (fxs.max() - fxs.min()) * 0.58
+                rx *= 0.9
+            elif direction == "W":
+                cx = fxs.min() + (fxs.max() - fxs.min()) * 0.42
+                rx *= 0.9
+            elif direction == "SE":
+                cx += 1.5
+            elif direction == "SW":
+                cx -= 1.5
+            ellipse = ((yy - cy) / ry) ** 2 + ((xx - cx) / rx) ** 2 <= 1.0
+            visor = head & ellipse & (yy >= brow - 1)
+            visor |= face_main
+            # Keep the outer hair column as shell so the helmet encloses the head.
+            margin = head & ~erode(head, 1)
+            visor &= ~(margin & ~face_main)
+
+    shell = head & ~visor
+    # Close 1px notches in the hair so the shell reads as a smooth helmet
+    # and not a tufted wig. This does not grow the outer silhouette.
+    closed_shell = erode(dilate4(shell | visor, 1), 1)
+    notch = closed_shell & ~shell & ~visor & ~dilate(visor, 1)
+    notch &= (yy <= g.neck) & (yy >= max(0, y0))
+    shell |= notch
+    if show_face:
+        # One pixel of shell outside the hair. Not on the back: that view
+        # is already the full head and must not grow.
+        extra = dilate4(head, 1) & ~head
+        extra &= (yy <= g.neck) & (yy >= max(0, int(g.top) - 1))
+        extra &= ~((yy > g.neck - 1) & alpha_mask(out))
+        hair_l = np.zeros_like(head)
+        hair_r = np.zeros_like(head)
+        hair_l[:, 1:] = head[:, :-1]
+        hair_r[:, :-1] = head[:, 1:]
+        extra &= ~(hair_l & hair_r)
+        shell |= extra
+
+    # Fill 1px gaps pinched between shell pixels, including the new rim.
+    for _ in range(2):
+        gap = ~shell & ~visor & (yy <= g.neck) & (yy >= max(0, y0 - 1))
+        left = np.zeros_like(shell)
+        right = np.zeros_like(shell)
+        left[:, 1:] = shell[:, :-1]
+        right[:, :-1] = shell[:, 1:]
+        shell |= gap & left & right
+
+    paint(out, lab, shell, HI, L_HELM)
+    mid, lo = shell_bands(shell, yy, xx)
+    paint(out, lab, mid, MID, L_HELM)
+    paint(out, lab, lo, LO, L_HELM)
+
+    if visor.any():
+        out[visor] = base[visor]
+        glass_tint(out, visor)
+        lab[visor] = L_KEEP
+        frame = shell & dilate4(visor, 1)
+        paint(out, lab, frame, RIM, L_HELM)
+        paint(out, lab, visor_glint(frame if frame.any() else visor, direction), GLINT, L_HELM)
+
+    solid = alpha_mask(out)
+    edge = shell & ~erode(solid, 1)
+    paint(out, lab, edge, OUTLINE, L_HELM)
+
+    # Collar ring on the suit, just under the helmet.
+    collar = (yy >= g.neck) & (yy <= g.neck + 1)
+    collar &= (xx >= x0 + 1) & (xx <= x1 - 1) & solid & (lab != L_KEEP)
+    paint(out, lab, collar, LO, L_HELM)
+    paint(out, lab, collar & (yy == int(g.neck) + 1), OUTLINE, L_LINE)
+
+    if direction in BACK:
+        top = y0
+        row = np.nonzero(shell[min(h - 1, top)])[0]
+        if len(row) == 0:
+            row = np.nonzero(shell[min(h - 1, top + 1)])[0]
+            top = min(h - 1, top + 1)
+        if len(row):
+            cx = int(row[len(row) // 2])
+            # Two-pixel antenna. Both columns sit on the shell.
+            cols = [cx]
+            if cx + 1 < w and (shell[min(h - 1, top), cx + 1] or (cx > 0 and shell[min(h - 1, top), cx])):
+                cols.append(min(w - 1, cx + 1))
+            for dy in range(1, 4):
+                y = top - dy
+                if y < 0:
+                    break
+                for x in cols:
+                    if out[y, x, 3] == 0:
+                        paint(out, lab, _at(shell, y, x), HI, L_HELM)
+            # Dark vent so it reads against the grey shell.
+            vy = min(h - 3, top + max(5, (y1 - y0) // 3))
+            for dy in (0, 1):
+                for dx in (-1, 0, 1, 2):
+                    paint(out, lab, _at(shell, vy + dy, cx + dx - 1), OUTLINE, L_HELM)
+
+    ears = ear_cups(lab == L_HELM, alpha_mask(out), direction, h, w)
+    if ears.any():
+        paint(out, lab, ears, LO, L_EAR)
+        for comp in components8(ears):
+            eys, exs = np.nonzero(comp)
+            if len(eys) < 3:
+                continue
+            # A lighter pixel on the upper-left so the cup reads as a raised piece.
+            paint(out, lab, _at(comp, int(eys.min()), int(exs.min())), HI, L_EAR)
+        # Keep the helmet's dark edge. The cup sits just inside it.
+        solid = alpha_mask(out)
+        edge = ((lab == L_HELM) | (lab == L_EAR)) & ~erode(solid, 1)
+        paint(out, lab, edge, OUTLINE, L_HELM)
 
 
 def widest_stripe(comp: np.ndarray) -> np.ndarray:
@@ -529,63 +742,59 @@ def paint_panel(out, lab, g, direction, body, arms, yy, xx):
             cx += 1
         elif direction == "SW":
             cx -= 1
-        rect = round_rect(h, w, cx - 3, y0, cx + 3, y0 + 4)
+        rect = round_rect(h, w, cx - 4, y0, cx + 4, y0 + 5)
     elif direction in SIDE:
-        # Front edge of the chest (the side he's facing).
-        band = body & (yy >= y0) & (yy <= y0 + 4) & ~arms & (yy > g.neck)
-        bounds = row_bounds(band, y0, y0 + 4)
-        if bounds is None:
+        # Inset from the front edge so the outline doesn't eat the buttons.
+        facing_right = SIDE[direction] < 0
+        torso_now = np.isin(lab, (L_SUIT, L_LINE)) & ~arms & (yy < g.hem) & (yy > g.neck)
+        band = torso_now & (yy >= y0) & (yy <= y0 + 4)
+        if not band.any():
             return
-        l, r = bounds
-        if SIDE[direction] < 0:  # E, front is to the right
-            rect = round_rect(h, w, r - 3, y0, r - 1, y0 + 3)
+        xs = np.nonzero(band.any(axis=0))[0]
+        edge = int(xs.max() if facing_right else xs.min())
+        if facing_right:
+            rect = round_rect(h, w, edge - 4, y0, edge - 1, y0 + 4)
         else:
-            rect = round_rect(h, w, l + 1, y0, l + 3, y0 + 3)
+            rect = round_rect(h, w, edge + 1, y0, edge + 4, y0 + 4)
     else:
         return
-    # Suit or the outline we already traced: the side chest is only a
-    # couple of pixels inside that outline, and the panel has to land there.
+    # Suit or the outline we already traced.
     torso = np.isin(lab, (L_SUIT, L_LINE)) & ~arms & (yy < g.hem) & (yy > g.neck)
     rect &= torso
-    if direction in SIDE and rect.sum() < 3:
-        # The front of a profile chest is a narrow column. Take the facing
-        # edge of the torso even if the rounded rect missed it.
-        # E faces +x, so the chest's front is the greater x.
-        facing_right = SIDE[direction] < 0
-        band = torso & (yy >= y0) & (yy <= y0 + 3)
-        if band.any():
-            xs = np.nonzero(band.any(axis=0))[0]
-            edge = int(xs.max() if facing_right else xs.min())
-            x0, x1 = (edge - 2, edge) if facing_right else (edge, edge + 2)
-            rect = round_rect(h, w, x0, y0, x1, y0 + 3) & band
-    if rect.sum() < 3:
+    if rect.sum() < 4:
         return
     paint(out, lab, rect, PANEL, L_SUIT)
     rim = rect & dilate(~rect, 1)
-    interior = rect & ~rim
-    # A profile panel is only a few pixels wide, so the rim would eat it.
-    # Keep a row of buttons in the middle and outline the rest.
     ys, xs = np.nonzero(rect)
-    mid_y = int(np.median(ys))
-    row_xs = np.nonzero(rect[mid_y])[0]
-    if len(row_xs) < 3:
-        for dy in (1, -1, 2, -2):
-            y = mid_y + dy
-            if 0 <= y < h and rect[y].sum() >= 3:
-                mid_y = y
-                row_xs = np.nonzero(rect[mid_y])[0]
-                break
-    paint(out, lab, rim, OUTLINE, L_LINE)
-    if len(row_xs) >= 3:
-        picks = [int(row_xs[0]), int(row_xs[len(row_xs) // 2]), int(row_xs[-1])]
-        if len(row_xs) >= 5:
-            picks = [int(row_xs[1]), int(row_xs[len(row_xs) // 2]), int(row_xs[-2])]
-        for x, color in zip(picks, (RED, YELLOW, BLUE)):
-            paint(out, lab, _at(rect, mid_y, x), color, L_SUIT)
-        # Any leftover interior stays the panel colour.
-        keep = interior.copy()
-        keep[mid_y, picks] = False
-        paint(out, lab, keep, PANEL, L_SUIT)
+    # Profile chests are a narrow column, so stack the buttons. Front views
+    # keep a horizontal row inside a wider panel.
+    if direction in SIDE:
+        mid_x = int(np.median(xs))
+        col_ys = np.nonzero(rect[:, mid_x])[0]
+        paint(out, lab, rim, OUTLINE, L_LINE)
+        if len(col_ys) >= 3:
+            picks = [int(col_ys[0]), int(col_ys[len(col_ys) // 2]), int(col_ys[-1])]
+            if len(col_ys) >= 5:
+                picks = [int(col_ys[1]), int(col_ys[len(col_ys) // 2]), int(col_ys[-2])]
+            for y, color in zip(picks, (RED, YELLOW, BLUE)):
+                paint(out, lab, _at(rect, y, mid_x), color, L_SUIT)
+    else:
+        mid_y = int(np.median(ys))
+        row_xs = np.nonzero(rect[mid_y])[0]
+        if len(row_xs) < 3:
+            for dy in (1, -1, 2, -2):
+                y = mid_y + dy
+                if 0 <= y < h and rect[y].sum() >= 3:
+                    mid_y = y
+                    row_xs = np.nonzero(rect[mid_y])[0]
+                    break
+        paint(out, lab, rim, OUTLINE, L_LINE)
+        if len(row_xs) >= 3:
+            picks = [int(row_xs[1]), int(row_xs[len(row_xs) // 2]), int(row_xs[-2])] if len(row_xs) >= 5 else [
+                int(row_xs[0]), int(row_xs[len(row_xs) // 2]), int(row_xs[-1])
+            ]
+            for x, color in zip(picks, (RED, YELLOW, BLUE)):
+                paint(out, lab, _at(rect, mid_y, x), color, L_SUIT)
 
 
 def draw_pack(g, body, arms, head, direction, h, w):
@@ -603,8 +812,9 @@ def draw_pack(g, body, arms, head, direction, h, w):
         # Sit on the back, not on the head or the arms.
         rect &= ~head & ~dilate(arms, 1)
         boost_y = y1 + 1
-        n1, h1 = nozzle(h, w, cx - 3, boost_y)
-        n2, h2 = nozzle(h, w, cx + 3, boost_y)
+        # Far enough apart that the two jets stay separate once scaled.
+        n1, h1 = nozzle(h, w, cx - 5, boost_y)
+        n2, h2 = nozzle(h, w, cx + 5, boost_y)
     elif direction in SIDE:
         back = SIDE[direction]
         y0 = g.neck + 2
@@ -615,19 +825,20 @@ def draw_pack(g, body, arms, head, direction, h, w):
         if bounds is None:
             return pack, lab, [(cx, y1), (cx, y1)]
         left, right = bounds
-        if back < 0:  # pack on the left, tucked onto the upper back
-            x1 = left + 1
-            x0 = x1 - 5
-            ncx1, ncx2 = x0, x0 + 3
+        # Sit the box just outside the back so the visible part is a clean
+        # rectangle, overlapping the suit by one pixel so it stays attached.
+        if back < 0:
+            x1 = left
+            x0 = left - 6
         else:
-            x0 = right - 1
-            x1 = x0 + 5
-            ncx1, ncx2 = x1 - 3, x1
-        rect = round_rect(h, w, x0, y0, x1, y1)
+            x0 = right
+            x1 = right + 6
+        rect = round_rect(h, w, x0, y0, x1, y1 + 2)
         rect &= ~dilate(arms, 1)
-        boost_y = y1
-        n1, h1 = nozzle(h, w, ncx1, boost_y)
-        n2, h2 = nozzle(h, w, ncx2, boost_y)
+        rear = x0 + 1 if back < 0 else x1 - 1
+        inward = 2 if back < 0 else -2
+        n1, h1 = nozzle(h, w, rear, y1)
+        n2, h2 = nozzle(h, w, rear + inward, y1 + 4)
     else:
         # Facing the camera: only the shoulder corners peek. The pack and
         # both boosters stay behind the suit.
@@ -654,38 +865,44 @@ def draw_pack(g, body, arms, head, direction, h, w):
             inset &= erode(rect, 1)
             paint(pack, lab, inset, MID, L_PACK)
 
-    # Exhaust leaves the outer tip of each booster. Side and back tips sit
-    # just past the pack so the flame isn't buried inside the suit. Front
-    # tips stay behind the chest, where the body hides them.
+    # Exhaust leaves the bottom of each nozzle, one pixel below the metal,
+    # nudged backward. Front anchors sit at the heels: the flame is drawn
+    # behind the suit, so only the tip below the boots shows.
     def exhaust_point(mask: np.ndarray) -> tuple[int, int] | None:
         ys, xs = np.nonzero(mask)
         if len(ys) == 0:
             return None
+        bot = int(ys.max())
+        cols = xs[ys == bot]
+        cx = int(cols[len(cols) // 2])
+        y = min(h - 1, bot + 1)
         if direction == "E":
-            i = int(np.argmin(xs))
-            return max(0, int(xs[i]) - 3), int(ys[i])
-        if direction == "W":
-            i = int(np.argmax(xs))
-            return min(w - 1, int(xs[i]) + 3), int(ys[i])
-        if direction in BACK:
-            i = int(np.argmax(ys))
-            return int(xs[i]), min(h - 1, int(ys[i]) + 3)
-        i = int(np.argmin(ys))
-        return int(xs[i]), int(ys[i])
+            cx = max(0, cx - 1)
+        elif direction == "W":
+            cx = min(w - 1, cx + 1)
+        elif direction in BACK:
+            y = min(h - 1, y + 1)
+        return cx, y
 
     for src in (h1 if h1.any() else n1, h2 if h2.any() else n2):
         found = exhaust_point(src)
         if found is not None:
             nozzles.append(found)
     while len(nozzles) < 2:
-        nozzles.append(nozzles[0] if nozzles else (w // 2, y1))
-    # Both side exhausts leave from the rear edge, not one buried in the suit.
-    if direction == "E":
-        rear = min(p[0] for p in nozzles)
-        nozzles = [(rear, p[1]) for p in nozzles]
-    elif direction == "W":
-        rear = max(p[0] for p in nozzles)
-        nozzles = [(rear, p[1]) for p in nozzles]
+        nozzles.append(nozzles[0] if nozzles else (w // 2, min(h - 1, g.bottom)))
+    if direction in FRONT:
+        # Behind the calves. The flame is drawn behind the suit, so only
+        # the tip that passes the boots shows as a glow.
+        heel = min(h - 1, max(0, int(g.bottom) - 22))
+        spread = 6
+        nozzles = [
+            (max(0, int(round(g.hip_cx)) - spread), heel),
+            (min(w - 1, int(round(g.hip_cx)) + spread), heel),
+        ]
+    # Two distinct jets. If a pose collapsed them, push the second down.
+    (ax, ay), (bx, by) = nozzles[0], nozzles[1]
+    if abs(ax - bx) + abs(ay - by) < 3:
+        nozzles[1] = (bx, min(h - 1, ay + 4))
 
     if direction in FRONT:
         boosters = np.zeros((h, w), dtype=bool)
@@ -693,8 +910,11 @@ def draw_pack(g, body, arms, head, direction, h, w):
     else:
         boosters = n1 | n2
         holes = (h1 | h2) & boosters
-    paint(pack, lab, boosters, MID, L_BOOST)
-    paint(pack, lab, holes, OUTLINE, L_BOOST)
+    # Dark metal, so the nozzles read on a white suit. Throat is the outline.
+    # Dark metal ring. A light lip disappears into the white suit.
+    paint(pack, lab, boosters, LO, L_BOOST)
+    edge = boosters & ~erode(boosters, 1)
+    paint(pack, lab, edge | holes, OUTLINE, L_BOOST)
     return pack, lab, nozzles[:2]
 
 
@@ -706,8 +926,10 @@ def composite_pack(body, body_lab, pack, pack_lab, direction, arms, head):
     if direction in BACK:
         # The back is what we see. Don't paint over the head, arms, or boots.
         cover = pm & (body_lab != L_KEEP) & (body_lab != L_GLOVE) & (body_lab != L_BOOT)
-        cover &= ~arms & ~head
-        # Boosters may hang just outside the torso; allow those.
+        cover &= ~head
+        # The pack stays off the arms. The nozzles are allowed over the suit
+        # so the two boosters stay visible on the lower back.
+        cover &= ~arms | (pack_lab == L_BOOST)
         hanging = pm & (pack_lab == L_BOOST) & (body[..., 3] <= 40)
         cover |= hanging
         out[cover] = pack[cover]
@@ -758,10 +980,23 @@ def check_frame(base: np.ndarray, out: np.ndarray, lab: np.ndarray, direction: s
     if bad:
         raise SystemExit(f"{where}: off-palette suit colors {sorted(bad)[:6]}")
 
-    # Preserved head matches the base pixel for pixel.
-    keep = (lab == L_KEEP) & base_a
-    if keep.any() and not np.array_equal(out[keep][:, :3], base[keep][:, :3]):
-        raise SystemExit(f"{where}: visor changed James's face or hair")
+    # Glass tints the visor, so the face is not a byte-for-byte copy. It
+    # does have to stay visible, and every pixel is fully opaque or clear.
+    partial = (out[..., 3] > 0) & (out[..., 3] < 255)
+    if partial.any():
+        raise SystemExit(f"{where}: {int(partial.sum())} semi-transparent pixels")
+    if direction in BACK:
+        if (lab == L_KEEP).any():
+            raise SystemExit(f"{where}: back view shows a face")
+    else:
+        face = skin_mask(base) & base_a & (yy <= g.neck + 1)
+        if face.any():
+            kept = face & (lab == L_KEEP)
+            frac = float(kept.sum()) / float(face.sum())
+            if frac < 0.55:
+                raise SystemExit(f"{where}: visor hides the face ({frac:.2f})")
+        if int((lab == L_KEEP).sum()) < 40:
+            raise SystemExit(f"{where}: visor opening is too small")
 
     # Arms: same components, normal thickness, no skinny extra limb.
     face = (yy <= g.neck + 1) & skin_mask(base)
@@ -801,7 +1036,7 @@ def check_frame(base: np.ndarray, out: np.ndarray, lab: np.ndarray, direction: s
     else:
         # On the back the pack is visible, but not on the face (there is
         # no face) and not replacing an arm.
-        if (np.isin(lab, (L_PACK, L_BOOST)) & arms).any():
+        if ((lab == L_PACK) & arms).any():
             raise SystemExit(f"{where}: backpack covers an arm")
 
     # One solid character: no stray speck disconnected from the body.

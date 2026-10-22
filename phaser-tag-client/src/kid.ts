@@ -90,10 +90,10 @@ export function createKidAnimations(scene: Phaser.Scene) {
   for (const id of SKIN_IDS) createSkinAnimations(scene, SKINS[id]);
 }
 
-const FLAME_W = 12;
-const FLAME_H = 18;
+const FLAME_W = 9;
+const FLAME_H = 24;
 
-/** Blue booster flame, root at the top, four flicker frames. Pixel art. */
+/** Downward teardrop flame, root at the top, four flicker frames. Opaque pixels. */
 function createSpacemanFlame(scene: Phaser.Scene) {
   if (scene.textures.exists("spaceman-flame")) return;
   const frames = 4;
@@ -104,19 +104,21 @@ function createSpacemanFlame(scene: Phaser.Scene) {
   const hot = "#8ad8ff";
   const mid = "#2f8cff";
   const edge = "#163a9a";
+  const lengths = [16, 22, 18, 24];
   for (let i = 0; i < frames; i++) {
     const ox = i * FLAME_W;
-    const len = 11 + (i % 2);
+    const len = lengths[i] ?? FLAME_H;
     const wobble = i === 2 ? 1 : i === 3 ? -1 : 0;
     for (let y = 0; y < len; y++) {
-      const t = y / 13;
-      const half = Math.max(1, Math.round(3.1 * (1 - t)));
-      const cx = 6 + (y > 5 ? wobble : 0);
+      const t = y / (len - 1 || 1);
+      // Wide root, pointed tip.
+      const half = Math.max(0, Math.round(2.2 * (1 - t)));
+      const cx = 4 + (y > len * 0.45 ? wobble : 0);
       for (let x = cx - half; x <= cx + half; x++) {
         if (x < 0 || x >= FLAME_W) continue;
         const edgePx = x === cx - half || x === cx + half || y === len - 1;
-        const corePx = Math.abs(x - cx) <= (y < 4 ? 1 : 0) && y < len - 4;
-        ctx.fillStyle = corePx ? (y < 2 ? core : hot) : edgePx ? edge : mid;
+        const corePx = half > 0 && Math.abs(x - cx) <= (y < len * 0.35 ? 1 : 0) && y < len - 3;
+        ctx.fillStyle = corePx ? (y < 3 ? core : hot) : edgePx ? edge : mid;
         ctx.fillRect(ox + x, y, 1, 1);
       }
     }
@@ -149,16 +151,25 @@ function moonArc(phase: number, hang: number): number {
   return eased * (1 - hang) + lifted * hang;
 }
 
-/** Exhaust points backward and a little downward, away from the suit. */
+/**
+ * Exhaust leaves the nozzles downward, with a smaller backward component.
+ * Facing the camera this is straight down (a glow under the boots). Side
+ * views angle back, away from the chest.
+ */
 function flameVector(dir: Direction): [number, number] {
   const [fx, fy] = FLAME_FWD[dir];
-  const x = -fx;
-  const y = -fy + 0.8;
+  const x = -fx * 0.22;
+  const y = 1 + -fy * 0.22;
   const len = Math.hypot(x, y) || 1;
   return [x / len, y / len];
 }
 
 function createSkinAnimations(scene: Phaser.Scene, sheet: SkinSheet) {
+  // Nearest sampling. Linear filtering blends the suit with the grass
+  // wherever the scale isn't an integer, which reads as a see-through body.
+  if (scene.textures.exists(sheet.texture)) {
+    scene.textures.get(sheet.texture).setFilter(Phaser.Textures.FilterMode.NEAREST);
+  }
   const animKey = (name: AnimName, dir: KidDirection) => `${sheet.texture}-${name}-${dir}`;
   KID_DIRECTIONS.forEach((dir, row) => {
     const frame = (i: number) => row * COLUMNS + i;
@@ -291,6 +302,8 @@ export class KidAvatar {
     this.sprite = scene.add.sprite(x, y + this.feetOffset, sheet.texture, 2 * COLUMNS + ANIM.breathe.start);
     this.sprite.setOrigin(0.5, sheet.baselineY / sheet.frameHeight);
     this.sprite.setScale(KID_SCALE);
+    this.sprite.setBlendMode(Phaser.BlendModes.NORMAL);
+    this.sprite.setAlpha(1);
 
     const label = (line: LabelLine) =>
       scene.add.text(x, y, LABEL_LOOK[line].text, LABEL_LOOK[line].style).setOrigin(0.5, 1);
@@ -494,7 +507,7 @@ export class KidAvatar {
       // Two bounds per walk/run cycle, so the hop matches the feet.
       const phase = (progress * 2) % 1;
       const running = this.running;
-      this.hop = (running ? 14 : 6) * moonArc(phase, running ? 0.62 : 0.38);
+      this.hop = (running ? 20 : 9) * moonArc(phase, running ? 0.62 : 0.38);
     } else {
       this.hop *= Math.exp(-dt / 90);
       if (this.hop < 0.05) this.hop = 0;
@@ -502,7 +515,7 @@ export class KidAvatar {
     if (this.skin === "spaceman" && this.running) this.flame = Math.min(1, this.flame + dt / 1500);
     else this.flame = Math.max(0, this.flame - dt / 480);
     // The ring stays under the feet and reads smaller when he's higher.
-    this.shadow.setScale(this.skin === "spaceman" ? 1 - 0.2 * (this.hop / 14) : 1);
+    this.shadow.setScale(this.skin === "spaceman" ? 1 - 0.22 * (this.hop / 20) : 1);
   }
 
   /** Blue exhaust from the backpack nozzles. Hidden when the flame has faded. */
@@ -526,10 +539,13 @@ export class KidAvatar {
     const [baseX, baseY] = flameVector(facingDir);
     // Facing the camera, the exhaust is behind the suit. Side and back
     // views draw it in front so it can leave the boosters.
+    // Facing the camera, the jets are behind the suit so only the tip
+    // below the boots shows. Side and back draw in front of the pack.
     const behind = facingDir === "S" || facingDir === "SE" || facingDir === "SW";
     const intensity = this.flame;
     const time = this.scene.time.now;
-    const kick = (3 + 6 * intensity) * Math.abs(scale);
+    // Keep the root on the nozzle. Length, not a sideways kick, is the ramp.
+    const kick = (0.4 + 0.8 * intensity) * Math.abs(scale);
     const points: readonly (readonly [number, number])[] = [
       [anchors[0], anchors[1]],
       [anchors[2], anchors[3]],
@@ -537,7 +553,7 @@ export class KidAvatar {
     points.forEach(([bx, by], i) => {
       const flame = flames[i];
       if (!flame) return;
-      const spread = i === 0 ? -0.28 : 0.28;
+      const spread = i === 0 ? -0.08 : 0.08;
       const sx = baseX - baseY * spread;
       const sy = baseY + baseX * spread;
       const len = Math.hypot(sx, sy) || 1;
@@ -548,9 +564,12 @@ export class KidAvatar {
         this.sprite.y + (by - sheet.baselineY) * scale + dy * kick,
       );
       flame.setRotation(Math.atan2(dy, dx) - Math.PI / 2);
-      const wobble = 0.86 + 0.14 * Math.sin(time / 70 + i * 1.7);
-      flame.setScale(Math.abs(scale) * (0.5 + 1.7 * intensity) * wobble);
-      flame.setAlpha(Math.min(1, 0.55 + 0.45 * intensity) * wobble);
+      const wobble = 0.92 + 0.08 * Math.sin(time / 70 + i * 1.7);
+      const width = (0.42 + 0.14 * intensity) * wobble;
+      const length = (0.28 + 2.05 * intensity) * wobble;
+      flame.setScale(Math.abs(scale) * width, Math.abs(scale) * length);
+      flame.setAlpha(1);
+      flame.setBlendMode(Phaser.BlendModes.NORMAL);
       flame.setFrame((Math.floor(time / 70) + i) % 4);
       flame.setDepth(this.sprite.depth + (behind ? -0.02 : 0.03));
       flame.setVisible(true);
@@ -562,7 +581,10 @@ export class KidAvatar {
     if (!this.scene.textures.exists("spaceman-flame")) return null;
     const make = () => {
       const flame = this.scene.add.sprite(0, 0, "spaceman-flame");
-      flame.setOrigin(0.5, 0.12);
+      // Root at the top, so scaleY grows the flame down out of the nozzle.
+      flame.setOrigin(0.5, 0.04);
+      flame.setBlendMode(Phaser.BlendModes.NORMAL);
+      flame.setAlpha(1);
       flame.setVisible(false);
       return flame;
     };
