@@ -97,11 +97,9 @@ const FLAME_H = 18;
 function createSpacemanFlame(scene: Phaser.Scene) {
   if (scene.textures.exists("spaceman-flame")) return;
   const frames = 4;
-  const canvas = document.createElement("canvas");
-  canvas.width = FLAME_W * frames;
-  canvas.height = FLAME_H;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
+  const tex = scene.textures.createCanvas("spaceman-flame", FLAME_W * frames, FLAME_H);
+  if (!tex) return;
+  const ctx = tex.getContext();
   const core = "#f4fbff";
   const hot = "#8ad8ff";
   const mid = "#2f8cff";
@@ -123,11 +121,9 @@ function createSpacemanFlame(scene: Phaser.Scene) {
       }
     }
   }
-  scene.textures.addSpriteSheet("spaceman-flame", canvas, {
-    frameWidth: FLAME_W,
-    frameHeight: FLAME_H,
-  });
-  scene.textures.get("spaceman-flame").setFilter(Phaser.Textures.FilterMode.NEAREST);
+  tex.refresh();
+  for (let i = 0; i < frames; i++) tex.add(i, 0, i * FLAME_W, 0, FLAME_W, FLAME_H);
+  tex.setFilter(Phaser.Textures.FilterMode.NEAREST);
 }
 
 /** Screen-space forward vector for a facing (y grows downward). */
