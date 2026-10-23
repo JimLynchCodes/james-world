@@ -25,10 +25,11 @@ export { directionFromAngle } from "./tagging";
  * frames (tricorn hat on top, cutlass at the sides).
  * Pharaoh James (`kid_pharaoh.png`, from tools/make_pharaoh_skin.py) has
  * padded frames (nemes crown on top, cape flared at the sides).
- * Spaceman James (`kid_spaceman.png`, from tools/make_spaceman_skin.py)
- * is drawn at 4× and shown at 1/4 scale with linear filtering, so the
- * helmet curve stays smooth. Walk and run add a cosmetic low-gravity hop,
- * and holding run lights the boosters (see `syncSpaceman`).
+ * Spaceman James (`kid_spaceman.png` plus `kid_spaceman_b.png`, from
+ * tools/make_spaceman_skin.py) is drawn at 2× and shown at 1/2 scale with
+ * linear filtering. The sheet is split so each texture stays under 4096px.
+ * Walk and run add a cosmetic low-gravity hop, and holding run lights the
+ * boosters (see `syncSpaceman`).
  * Animation keys are `<texture>-<anim>-<dir>`, e.g. `kid_banana-walk-SE`.
  */
 const FRAME_W = 80;
@@ -69,11 +70,34 @@ const RUN_FPS = 15;
 export function preloadKid(scene: Phaser.Scene) {
   for (const id of SKIN_IDS) {
     const sheet = SKINS[id];
-    scene.load.spritesheet(sheet.texture, sheet.url, {
-      frameWidth: sheet.frameWidth,
-      frameHeight: sheet.frameHeight,
-    });
+    const frame = { frameWidth: sheet.frameWidth, frameHeight: sheet.frameHeight };
+    scene.load.spritesheet(sheet.texture, sheet.url, frame);
+    if (sheet.extra) scene.load.spritesheet(sheet.extra.texture, sheet.extra.url, frame);
   }
+}
+
+/**
+ * One cell of the 30-column layout. Spaceman keeps tag and run on a second
+ * texture so neither image is wider than 4096px.
+ */
+function frameRef(sheet: SkinSheet, row: number, col: number): { key: string; frame: number } {
+  const lead = sheet.columns ?? COLUMNS;
+  const extra = sheet.extra;
+  if (!extra || col < extra.columnStart) return { key: sheet.texture, frame: row * lead + col };
+  return { key: extra.texture, frame: row * extra.columns + (col - extra.columnStart) };
+}
+
+/** Global 0..239 index for the booster anchor table, from whichever texture is showing. */
+function boosterIndexOf(sprite: Phaser.GameObjects.Sprite): number {
+  const local = Number(sprite.frame.name);
+  const sheet = SKINS.spaceman;
+  if (sheet.extra && sprite.texture.key === sheet.extra.texture) {
+    const row = Math.floor(local / sheet.extra.columns);
+    const col = sheet.extra.columnStart + (local % sheet.extra.columns);
+    return row * COLUMNS + col;
+  }
+  const lead = sheet.columns ?? COLUMNS;
+  return Math.floor(local / lead) * COLUMNS + (local % lead);
 }
 
 function animKey(name: AnimName, dir: KidDirection, skin: Skin = DEFAULT_SKIN) {
@@ -207,20 +231,18 @@ function createSkinAnimations(scene: Phaser.Scene, sheet: SkinSheet) {
   // wherever the scale isn't an integer, which reads as a see-through body.
   // A hi-res sheet (pixelScale > 1) is minified on screen, so linear
   // sampling smooths the curves without opening the suit.
-  if (scene.textures.exists(sheet.texture)) {
-    const smooth = (sheet.pixelScale ?? 1) > 1;
-    scene.textures.get(sheet.texture).setFilter(
-      smooth ? Phaser.Textures.FilterMode.LINEAR : Phaser.Textures.FilterMode.NEAREST,
-    );
+  const smooth = (sheet.pixelScale ?? 1) > 1;
+  const filter = smooth ? Phaser.Textures.FilterMode.LINEAR : Phaser.Textures.FilterMode.NEAREST;
+  for (const key of [sheet.texture, sheet.extra?.texture]) {
+    if (key && scene.textures.exists(key)) scene.textures.get(key).setFilter(filter);
   }
   const animKey = (name: AnimName, dir: KidDirection) => `${sheet.texture}-${name}-${dir}`;
   KID_DIRECTIONS.forEach((dir, row) => {
-    const frame = (i: number) => row * COLUMNS + i;
     const range = (name: AnimName) =>
-      Array.from({ length: ANIM[name].count }, (_, i) => ({
-        key: sheet.texture,
-        frame: frame(ANIM[name].start + i),
-      }));
+      Array.from({ length: ANIM[name].count }, (_, i) => {
+        const cell = frameRef(sheet, row, ANIM[name].start + i);
+        return { key: cell.key, frame: cell.frame };
+      });
 
     const add = (config: Phaser.Types.Animations.Animation) => {
       if (!scene.anims.exists(config.key!)) scene.anims.create(config);
@@ -350,7 +372,8 @@ export class KidAvatar {
     this.shadow.setDepth(1);
 
     const sheet = SKINS[this.skin];
-    this.sprite = scene.add.sprite(x, y + this.feetOffset, sheet.texture, 2 * COLUMNS + ANIM.breathe.start);
+    const breathe = frameRef(sheet, 2, ANIM.breathe.start);
+    this.sprite = scene.add.sprite(x, y + this.feetOffset, breathe.key, breathe.frame);
     this.sprite.setOrigin(0.5, sheet.baselineY / sheet.frameHeight);
     this.sprite.setScale(this.drawScale);
     this.sprite.setBlendMode(Phaser.BlendModes.NORMAL);
@@ -395,7 +418,11 @@ export class KidAvatar {
     const progress = this.sprite.anims.isPlaying ? this.sprite.anims.getProgress() : 0;
     this.skin = skin;
     const sheet = SKINS[skin];
-    this.sprite.setTexture(sheet.texture, this.sprite.frame.name);
+    const breathe = frameRef(sheet, 2, ANIM.breathe.start);
+    const frameNo = Number(this.sprite.frame.name);
+    const leadFrames = (sheet.columns ?? COLUMNS) * KID_DIRECTIONS.length;
+    const frame = Number.isFinite(frameNo) && frameNo >= 0 && frameNo < leadFrames ? frameNo : breathe.frame;
+    this.sprite.setTexture(breathe.key, frame);
     this.sprite.setOrigin(0.5, sheet.baselineY / sheet.frameHeight);
     this.squash = 1;
     this.prevHop = 0;
@@ -599,8 +626,7 @@ export class KidAvatar {
     }
     const flames = this.ensureFlames();
     if (!flames) return;
-    const index = Number(this.sprite.frame.name);
-    const anchors = SPACEMAN_BOOSTERS[index];
+    const anchors = SPACEMAN_BOOSTERS[boosterIndexOf(this.sprite)];
     if (!anchors) {
       flames.forEach((flame) => flame.setVisible(false));
       return;

@@ -38,6 +38,18 @@ export interface SkinSheet {
    * 1/pixelScale so the character stays the same size, with linear filtering.
    */
   pixelScale?: number;
+  /**
+   * How many columns of the shared 30-column layout live in `url`.
+   * Defaults to 30. The rest, when a single image would pass 4096px, are `extra`.
+   */
+  columns?: number;
+  extra?: {
+    texture: string;
+    url: string;
+    columns: number;
+    /** First logical column stored in this second sheet. */
+    columnStart: number;
+  };
 }
 
 const BASE = import.meta.env.BASE_URL;
@@ -124,12 +136,21 @@ export const SKINS: Record<Skin, SkinSheet> = {
     note: "One small step...",
     texture: "kid_spaceman",
     url: `${BASE}assets/kid_spaceman.png`,
-    // 4× James's sheet so the helmet and suit can curve. Drawn at 1/4 scale.
-    frameWidth: 320,
-    frameHeight: 400,
-    baselineY: 384,
-    artHeight: 372,
-    pixelScale: 4,
+    // 2× James, in two textures so neither side passes 4096px. Drawn at 1/2.
+    // The first sheet is idle, walk and breathe (columns 0–15). Tag and run
+    // are kid_spaceman_b.png.
+    frameWidth: 160,
+    frameHeight: 200,
+    baselineY: 192,
+    artHeight: 186,
+    pixelScale: 2,
+    columns: 16,
+    extra: {
+      texture: "kid_spaceman_b",
+      url: `${BASE}assets/kid_spaceman_b.png`,
+      columns: 14,
+      columnStart: 16,
+    },
   },
 };
 

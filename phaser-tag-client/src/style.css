@@ -1538,10 +1538,14 @@ html[dir="rtl"] .settings-title {
   transform: rotate(-1.5deg);
 }
 .skin-card:focus-visible { outline: 3px dashed var(--tangerine); outline-offset: 3px; }
-/* Spaceman frames are 4× James. Draw them at 1/4 so the card matches,
-   and sample the curves smoothly. Other skins stay pixelated. */
-.skin-card[data-skin="spaceman"] { --draw: calc(var(--s) / 4); }
-.skin-card[data-skin="spaceman"] .skin-preview { image-rendering: auto; }
+/* Spaceman frames are 2× James, and the card uses the first sheet
+   (16 columns: idle, walk, breathe). Sample the curves smoothly.
+   Other skins stay pixelated. */
+.skin-card[data-skin="spaceman"] { --draw: calc(var(--s) / 2); }
+.skin-card[data-skin="spaceman"] .skin-preview {
+  image-rendering: auto;
+  background-size: calc(var(--fw) * var(--draw) * 16px) calc(var(--fh) * var(--draw) * 8px);
+}
 .skin-stage {
   position: relative;
   display: block;

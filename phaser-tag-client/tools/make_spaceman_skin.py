@@ -2,7 +2,8 @@
 """Build the "Spaceman James" skin from the normal kid spritesheet.
 
 Input:  public/assets/kid.png + kid.json (made by tools/slice_kid_sheet.py)
-Output: public/assets/kid_spaceman.png + kid_spaceman.json
+Output: public/assets/kid_spaceman.png + kid_spaceman_b.png
+        public/assets/kid_spaceman.json
         src/spacemanBoosters.ts  (nozzle anchors for the run flames)
 
 Same frame size, columns, rows, animation ranges and feet line as kid.png.
@@ -86,7 +87,11 @@ HELM: dict[str, tuple[float, float, float, float]] = {}
 
 # The game draws this sheet at 1/HD scale with linear filtering, so curves
 # land smoother than the 80×100 pixel sheet without changing on-screen size.
-HD = 4
+# 2× keeps each texture under 4096px: columns 0–15 in kid_spaceman.png and
+# columns 16–29 in kid_spaceman_b.png. A single 4× sheet is 9600px wide,
+# which the GPU replaces with a black rectangle.
+HD = 2
+LEAD_COLS = 16
 
 FRONT = {"SE", "S", "SW"}
 SIDE = {"E": -1, "W": 1}  # screen-x of the back
@@ -1526,6 +1531,35 @@ def _paint_rgb(img: np.ndarray, mask: np.ndarray, color: tuple[int, int, int]) -
     img[mask, 2] = color[2]
 
 
+def _ell_cov(xx: np.ndarray, yy: np.ndarray, cx: float, cy: float, rx: float, ry: float) -> np.ndarray:
+    """Coverage of an ellipse, 1 inside and a one-pixel ramp on the edge."""
+    rx = max(float(rx), 0.6)
+    ry = max(float(ry), 0.6)
+    n = np.sqrt(((xx - cx) / rx) ** 2 + ((yy - cy) / ry) ** 2)
+    aa = 1.25 / max(min(rx, ry), 1.0)
+    return np.clip((1.0 + aa - n) / (2.0 * aa), 0.0, 1.0).astype(np.float32)
+
+
+def _blend(img: np.ndarray, cov: np.ndarray, color: tuple[int, int, int]) -> None:
+    """Paint `color` by coverage. Does not change alpha."""
+    cov = np.asarray(cov, np.float32)
+    if float(cov.max()) <= 0:
+        return
+    a = cov[..., None]
+    base = img[..., :3].astype(np.float32)
+    col = np.array(color, np.float32)
+    img[..., :3] = np.clip(base * (1.0 - a) + col * a, 0, 255).astype(np.uint8)
+
+
+def _blend_rgb(img: np.ndarray, cov: np.ndarray, rgb: np.ndarray) -> None:
+    cov = np.asarray(cov, np.float32)
+    if float(cov.max()) <= 0:
+        return
+    a = cov[..., None]
+    base = img[..., :3].astype(np.float32)
+    img[..., :3] = np.clip(base * (1.0 - a) + rgb.astype(np.float32) * a, 0, 255).astype(np.uint8)
+
+
 def _color_mask(painted: np.ndarray, color: tuple[int, int, int]) -> np.ndarray:
     rgb = painted[..., :3]
     return (
@@ -1550,17 +1584,6 @@ def _foot_gap(painted: np.ndarray) -> np.ndarray:
     return gap
 
 
-def _fit_ellipse(mask: np.ndarray) -> tuple[float, float, float, float] | None:
-    ys, xs = np.nonzero(mask)
-    if len(ys) < 3:
-        return None
-    cx = (float(xs.min()) + float(xs.max())) / 2
-    cy = (float(ys.min()) + float(ys.max())) / 2
-    rx = max(HD * 0.7, (float(xs.max()) - float(xs.min()) + 1) / 2)
-    ry = max(HD * 0.55, (float(ys.max()) - float(ys.min()) + 1) / 2)
-    return cx, cy, rx, ry
-
-
 def render_hd(base: np.ndarray, painted: np.ndarray, lab: np.ndarray, direction: str) -> np.ndarray:
     """Redraw one suited frame at HD with smooth edges and a soft gradient.
 
@@ -1571,10 +1594,12 @@ def render_hd(base: np.ndarray, painted: np.ndarray, lab: np.ndarray, direction:
     H, W = h * HD, w * HD
     yy, xx = np.mgrid[0:H, 0:W]
     body = painted[..., 3] > 40
-    blur = _blur_u8(_upsample(body), 2.15)
+    # Grow by one HD pixel, then blur, so the contour is a curve around the
+    # old staircase instead of a magnified copy of it.
+    blur = _blur_u8(dilate(_upsample(body), 1), 2.15)
     # Soft fringe so linear filtering rounds the silhouette. Interior stays solid.
-    alpha = np.clip((blur.astype(np.int16) - 14) * 2, 0, 255).astype(np.uint8)
-    solid = blur >= 88
+    alpha = np.clip((blur.astype(np.int16) - 28) * 3, 0, 255).astype(np.uint8)
+    solid = blur >= 120
     alpha[solid] = 255
     gap = dilate(_upsample(_foot_gap(painted)), 1)
     alpha[gap] = 0
@@ -1666,21 +1691,26 @@ def render_hd(base: np.ndarray, painted: np.ndarray, lab: np.ndarray, direction:
         rx = rx * HD + HD * 0.55
         ry = ry * HD + HD * 0.45
         norm = ((yy - cy) / ry) ** 2 + ((xx - cx) / rx) ** 2
-        dome = (norm <= 1.0) & (yy <= (g.neck + 0.6) * HD)
-        # Stay inside the frame and don't eat the shoulders below the collar.
-        dome &= (yy >= 0) & (yy < H) & (xx >= 0) & (xx < W)
+        n = np.sqrt(norm)
+        # Same oval as before. A one-pixel ramp keeps the shell smooth
+        # once the frame is only 2× and nearly 1:1 on screen.
+        aa = 1.35 / max(min(rx, ry), 1.0)
+        in_frame = (yy >= 0) & (yy < H) & (xx >= 0) & (xx < W) & (yy <= (g.neck + 0.6) * HD)
+        cov = np.where(in_frame, np.clip((1.0 + aa - n) / (2.0 * aa), 0.0, 1.0), 0.0).astype(np.float32)
+        dome = cov >= 0.5
         nx = (xx - cx) / rx
         ny = (yy - cy) / ry
         helm_light = np.clip(0.78 - nx * 0.42 - ny * 0.48, 0, 1)
         helm = _shade(helm_light, HI, MID, LO)
-        img[dome, :3] = helm[dome]
-        img[dome, 3] = 255
+        _blend_rgb(img, cov, helm)
+        img[..., 3] = np.maximum(img[..., 3], np.clip(cov * 255.0, 0, 255).astype(np.uint8))
         # Neck ring, then a thin rim.
         ring = dome & (yy >= (g.neck - 1.4) * HD)
         _paint_rgb(img, ring, LO)
-        rim_band = dome & (norm >= (1 - 3.2 / max(rx, 1)) ** 2)
-        _paint_rgb(img, rim_band, OUTLINE)
-        alpha_dome = dome
+        rim_px = max(1.6, rx * 0.055)
+        inner_n = 1 - rim_px / max(rx, 1)
+        rim_cov = np.clip(cov - np.clip((inner_n + aa - n) / (2.0 * aa), 0.0, 1.0), 0.0, 1.0)
+        _blend(img, rim_cov, OUTLINE)
 
         if direction not in BACK:
             fx, fy, sx, sy = VISOR_SHAPE[direction]
@@ -1688,26 +1718,15 @@ def render_hd(base: np.ndarray, painted: np.ndarray, lab: np.ndarray, direction:
             frx, fry = max(HD * 3, sx * rx), max(HD * 3, sy * ry)
             vnorm = ((yy - fcy) / fry) ** 2 + ((xx - fcx) / frx) ** 2
             visor = dome & (vnorm <= 1.0) & (yy <= (g.neck - 1.6) * HD)
-            inner = visor & (vnorm <= (1 - 3.4 / max(frx, 1)) ** 2)
+            ring_px = max(1.7, frx * 0.07)
+            inner = visor & (vnorm <= (1 - ring_px / max(frx, 1)) ** 2)
             glass_ring = visor & ~inner
-            # On a profile the ear is the facing edge. A ring there would cover it.
-            if direction == "E":
-                glass_ring &= xx < fcx + frx * 0.12
-            elif direction == "W":
-                glass_ring &= xx > fcx - frx * 0.12
             # Light-blue glass, lighter toward the upper left.
             glass_light = np.clip(0.85 - (xx - fcx) / frx * 0.22 - (yy - fcy) / fry * 0.18, 0, 1)
             glass = _shade(glass_light, _mix(GLASS, HI, 0.28), GLASS, _mix(GLASS, RIM, 0.35))
             img[visor, :3] = glass[visor]
             _paint_rgb(img, glass_ring, RIM)
-            # Face, smoothed from the 1× features so James stays recognizable.
-            # Profiles are drawn as one face (the fitted blobs turned the ear into a bar).
-            if direction in SIDE:
-                _paint_profile_hd(img, visor, direction, H, W)
-            else:
-                _paint_face_hd(img, painted, visor & ~glass_ring, direction, H, W)
-            # Reflection: a soft slash in the upper corner, on the glass.
-            _paint_rgb(img, _visor_streak(visor, direction, H, W), GLINT)
+            _paint_clean_face(img, inner, direction, fcx, fcy, frx, fry, H, W, dome)
         else:
             # Short rounded antenna and a small crown highlight.
             rows = np.nonzero(dome.any(axis=1))[0]
@@ -1725,8 +1744,9 @@ def render_hd(base: np.ndarray, painted: np.ndarray, lab: np.ndarray, direction:
                     img[antenna, 3] = 255
             spot = dome & (((xx - (cx - 0.22 * rx)) / (HD * 1.3)) ** 2 + ((yy - (cy - 0.55 * ry)) / (HD * 0.8)) ** 2 <= 1)
             _paint_rgb(img, spot, GLINT)
-        # Collar outline under the ring.
-        _paint_rgb(img, alpha_dome & rim_band, OUTLINE)
+        # One clean seam under the neck ring.
+        seam = dome & (np.abs(yy - (g.neck + 0.35) * HD) <= 0.6)
+        _paint_rgb(img, seam, OUTLINE)
 
     # Pack and nozzles sit where the 1× composite put them, edges rounded.
     pack = _smooth(lab == L_PACK, 1.5, 100) & (img[..., 3] > 0)
@@ -1739,150 +1759,109 @@ def render_hd(base: np.ndarray, painted: np.ndarray, lab: np.ndarray, direction:
     _paint_rgb(img, boost, METAL)
     _paint_rgb(img, boost & (lit < 0.4), _mix(METAL, OUTLINE, 0.45))
 
-    # Seams that keep the arm from melting into the chest.
-    # Internal seams only. The outer staircase outline is replaced below.
-    line = _smooth(lab == L_LINE, 0.9, 150)
-    inner = erode(img[..., 3] == 255, HD + 1)
-    _paint_rgb(img, line & inner & ~dome, _mix(OUTLINE, MID, 0.2))
+    # A soft fold where the 1× art had a seam. Not a dark copy of that
+    # staircase — those read as broken outlines.
+    crease = _smooth(lab == L_LINE, 2.2, 80) & erode(img[..., 3] == 255, 2) & ~dome
+    _paint_rgb(img, crease, _mix(MID, LO, 0.55))
 
-    # Final silhouette stroke on the solid edge, fringe stays the dark AA.
-    interior = img[..., 3] == 255
-    edge = interior & ~erode(interior, 2)
-    _paint_rgb(img, edge, OUTLINE)
-    # The stroke is the silhouette. Put the sole and the nozzles back inside it.
+    # Suit outline follows the blurred silhouette, so the arms and legs
+    # are one continuous curve. The helmet keeps the ellipse rim above.
+    soft = np.clip((178.0 - blur.astype(np.float32)) / 58.0, 0.0, 1.0)
+    soft = np.where((blur >= 70) & (blur <= 200) & ~dome, soft, 0.0)
+    _blend(img, soft, OUTLINE)
+    # Put the sole and the nozzles back inside that band.
     if boot.any():
         bys = np.nonzero(boot.any(axis=1))[0]
         bot = int(bys.max())
-        sole = boot & (yy >= bot - HD) & interior & ~edge
+        sole = boot & (yy >= bot - HD) & (img[..., 3] == 255) & (soft < 0.45)
         _paint_rgb(img, sole, BLUE)
     nozzle = boost & (img[..., 3] > 0)
-    _paint_rgb(img, nozzle & ~edge, METAL)
-    _paint_rgb(img, nozzle & edge, OUTLINE)
+    _paint_rgb(img, nozzle & (soft < 0.45), METAL)
+    _blend(img, np.where(nozzle, soft, 0.0), OUTLINE)
     return img
 
 
-def _paint_profile_hd(img, visor: np.ndarray, direction: str, H: int, W: int) -> None:
-    """One eye, brow, nose, mouth and a side ear. Hair stays toward the back."""
-    ys, xs = np.nonzero(visor)
-    if len(ys) < 10:
+def _paint_clean_face(img, inner, direction, fcx, fcy, frx, fry, H, W, dome) -> None:
+    """Hair, brows, eyes, a small nose, a mouth, and a profile ear.
+
+    Drawn in the visor, not fitted to the 1× color masks. A tall shade
+    column from that mask became a giant nose, and a vertical hair cut
+    filled half the side visor.
+    """
+    if direction in BACK or int(inner.sum()) < 8:
         return
-    sign = 1 if direction == "E" else -1
-    y0, y1 = float(ys.min()), float(ys.max())
-    x0, x1 = float(xs.min()), float(xs.max())
-    cx = (x0 + x1) / 2.0
-    height = max(1.0, y1 - y0)
-    width = max(1.0, x1 - x0)
     yy, xx = np.mgrid[0:H, 0:W]
-    face_side = (xx - cx) * sign
-    skin = visor & (face_side > -0.02 * width)
-    hair = visor & (face_side < 0.16 * width)
-    _paint_rgb(img, skin, _mix(FACE_MID, GLASS, 0.12))
-    _paint_rgb(
-        img,
-        skin & (yy < y0 + 0.58 * height) & (face_side > 0.02 * width),
-        _mix(FACE_LIGHT, GLASS, 0.1),
+    u = (xx - fcx) / max(float(frx), 1.0)
+    v = (yy - fcy) / max(float(fry), 1.0)
+    skin_light = np.clip(0.9 - u * 0.10 - v * 0.36, 0.0, 1.0)
+    skin = _shade(
+        skin_light,
+        _mix(FACE_LIGHT, GLASS, 0.05),
+        _mix(FACE_MID, GLASS, 0.04),
+        _mix(FACE_SHADE, GLASS, 0.04),
     )
-    _paint_rgb(img, hair, _mix(FACE_HAIR, GLASS, 0.08))
-    ex = cx + sign * 0.26 * width
-    ey = y0 + 0.40 * height
-    erx = max(HD * 1.35, width * 0.085)
-    ery = max(HD * 1.05, height * 0.065)
-    eye = visor & (((xx - ex) / erx) ** 2 + ((yy - ey) / ery) ** 2 <= 1)
-    _paint_rgb(img, eye, _mix(FACE_EYE, GLASS, 0.05))
-    _paint_rgb(img, eye & (yy < ey - ery * 0.2), _mix(FACE_EYE, (220, 224, 228), 0.3))
-    _paint_rgb(img, eye & ((xx - ex) ** 2 + (yy - (ey + ery * 0.12)) ** 2 <= (min(erx, ery) * 0.42) ** 2), (22, 16, 18))
-    brow = visor & (((xx - ex) / (erx * 1.45)) ** 2 + ((yy - (ey - ery * 1.55)) / (HD * 0.65)) ** 2 <= 1)
-    _paint_rgb(img, brow, _mix(FACE_BROW, (20, 12, 12), 0.12))
-    mx = cx + sign * 0.30 * width
-    my = y0 + 0.70 * height
-    mouth = visor & (((xx - mx) / (erx * 1.05)) ** 2 + ((yy - my) / (HD * 0.62)) ** 2 <= 1)
-    _paint_rgb(img, mouth, _mix(FACE_MOUTH, (90, 30, 28), 0.1))
-    nx = cx + sign * 0.40 * width
-    ny = y0 + 0.54 * height
-    nose = visor & (((xx - nx) / (HD * 0.85)) ** 2 + ((yy - ny) / (height * 0.11)) ** 2 <= 1)
-    _paint_rgb(img, nose, _mix(FACE_SHADE, (110, 54, 36), 0.12))
-    # Ear on the facing rim, overlapping the shell so it stays one piece.
-    ear_cx = (x1 if sign > 0 else x0) + sign * HD * 0.35
-    ear_cy = y0 + 0.48 * height
-    ear_rx = max(HD * 2.2, width * 0.12)
-    ear_ry = max(HD * 3.2, height * 0.15)
-    ear = ((xx - ear_cx) / ear_rx) ** 2 + ((yy - ear_cy) / ear_ry) ** 2 <= 1
-    ear &= dilate(img[..., 3] > 200, HD + 1)
-    img[ear, 3] = 255
-    _paint_rgb(img, ear, _mix(FACE_LIGHT, GLASS, 0.06))
-    inner = ((xx - (ear_cx - sign * ear_rx * 0.12)) / (ear_rx * 0.42)) ** 2 + ((yy - ear_cy) / (ear_ry * 0.52)) ** 2 <= 1
-    _paint_rgb(img, ear & inner, _mix(FACE_SHADE, (120, 64, 42), 0.2))
+    img[inner, :3] = skin[inner]
 
+    def disc(cu: float, cv: float, ru: float, rv: float, min_rx: float = 0.8, min_ry: float = 0.7) -> np.ndarray:
+        return _ell_cov(
+            xx, yy,
+            fcx + cu * frx, fcy + cv * fry,
+            max(min_rx, ru * frx), max(min_ry, rv * fry),
+        )
 
-def _paint_face_hd(img, painted, visor: np.ndarray, direction: str, H: int, W: int) -> None:
-    """James's features as smooth shapes inside the visor."""
-    if not visor.any():
-        return
-    hair_c = _glass_mix(FACE_HAIR, 7, 8)
-    brow_c = _glass_mix(FACE_BROW, 7, 8)
-    pupil_c = _glass_mix(FACE_PUPIL, 7, 8)
-    eye_c = _glass_mix(FACE_EYE, 5, 6)
-    light_c = _glass_mix(FACE_LIGHT, 3, 4)
-    mid_c = _glass_mix(FACE_MID, 3, 4)
-    shade_c = _glass_mix(FACE_SHADE, 4, 5)
-    mouth_c = _glass_mix(FACE_MOUTH, 7, 8)
-    yy, xx = np.mgrid[0:H, 0:W]
+    def on_glass(cov: np.ndarray) -> np.ndarray:
+        return np.where(inner, cov, 0.0).astype(np.float32)
 
-    def region(color: tuple[int, int, int], radius: float = 1.15) -> np.ndarray:
-        return _smooth(_color_mask(painted, color), radius, 100) & visor
+    def eye(cu: float, cv: float, scale: float = 1.0) -> None:
+        _blend(img, on_glass(disc(cu, cv, 0.155 * scale, 0.112 * scale, 3.0, 2.2)), FACE_EYE)
+        _blend(img, on_glass(disc(cu + 0.012 * scale, cv + 0.018 * scale, 0.062 * scale, 0.068 * scale, 1.7, 1.7)), FACE_PUPIL)
+        _blend(img, on_glass(disc(cu - 0.04 * scale, cv - 0.028 * scale, 0.028 * scale, 0.022 * scale, 0.7, 0.6)), GLINT)
+        _blend(img, on_glass(disc(cu, cv - 0.175, 0.19 * scale, 0.045, 2.4, 1.35)), FACE_BROW)
 
-    # Skin first, hair and features on top. A little extra glass toward the rim.
-    _paint_rgb(img, region(mid_c, 1.3) | (visor & ~region(hair_c, 1.4)), _mix(FACE_MID, GLASS, 0.18))
-    _paint_rgb(img, region(light_c), _mix(FACE_LIGHT, GLASS, 0.16))
-    _paint_rgb(img, region(shade_c), _mix(FACE_SHADE, GLASS, 0.14))
-    _paint_rgb(img, region(hair_c, 1.35), _mix(FACE_HAIR, GLASS, 0.1))
+    if direction in ("E", "W"):
+        sign = 1.0 if direction == "E" else -1.0
+        # Back of the head, curved into the cheek. Not a vertical half.
+        _blend(img, on_glass(disc(-sign * 0.55, -0.02, 0.46, 0.78)), FACE_HAIR)
+        _blend(img, on_glass(disc(-sign * 0.06, -0.60, 0.70, 0.38)), FACE_HAIR)
+        eye(sign * 0.30, 0.04, 1.05)
+        _blend(img, on_glass(disc(sign * 0.58, 0.20, 0.065, 0.12, 1.45, 2.1)), FACE_SHADE)
+        _blend(img, on_glass(disc(sign * 0.42, 0.44, 0.12, 0.05, 2.4, 1.25)), FACE_MOUTH)
+        # Ear on the back of the shell so the profile reads, attached to the helmet.
+        ear_cx = fcx - sign * frx * 1.02
+        ear_cy = fcy + fry * 0.05
+        ear_rx = max(3.6, frx * 0.20)
+        ear_ry = max(4.8, fry * 0.28)
+        ear = _ell_cov(xx, yy, ear_cx, ear_cy, ear_rx, ear_ry)
+        ear = np.where(dilate(dome, 2), ear, 0.0).astype(np.float32)
+        bowl = _ell_cov(
+            xx, yy,
+            ear_cx + sign * ear_rx * 0.06, ear_cy + ear_ry * 0.02,
+            ear_rx * 0.42, ear_ry * 0.46,
+        )
+        img[..., 3] = np.maximum(img[..., 3], np.clip(ear * 255.0, 0, 255).astype(np.uint8))
+        _blend(img, ear, _mix(FACE_LIGHT, FACE_MID, 0.35))
+        _blend(img, np.clip(ear * bowl, 0, 1), FACE_SHADE)
+        rim = np.clip(ear - _ell_cov(xx, yy, ear_cx, ear_cy, ear_rx * 0.72, ear_ry * 0.72), 0, 1)
+        _blend(img, rim, OUTLINE)
+    elif direction in ("SE", "SW"):
+        sign = 1.0 if direction == "SE" else -1.0
+        _blend(img, on_glass(disc(0.0, -0.58, 0.90, 0.40)), FACE_HAIR)
+        _blend(img, on_glass(disc(-sign * 0.52, -0.12, 0.34, 0.50)), FACE_HAIR)
+        eye(-sign * 0.02, 0.02, 0.78)
+        eye(sign * 0.34, 0.03, 1.02)
+        _blend(img, on_glass(disc(sign * 0.20, 0.26, 0.06, 0.11, 1.4, 2.0)), FACE_SHADE)
+        _blend(img, on_glass(disc(sign * 0.16, 0.50, 0.16, 0.05, 2.6, 1.25)), FACE_MOUTH)
+    else:
+        _blend(img, on_glass(disc(0.0, -0.58, 0.88, 0.40)), FACE_HAIR)
+        _blend(img, on_glass(disc(-0.78, -0.02, 0.22, 0.34)), FACE_HAIR)
+        _blend(img, on_glass(disc(0.78, -0.02, 0.22, 0.34)), FACE_HAIR)
+        eye(-0.32, 0.03, 1.0)
+        eye(0.32, 0.03, 1.0)
+        _blend(img, on_glass(disc(0.0, 0.26, 0.055, 0.11, 1.35, 2.0)), FACE_SHADE)
+        _blend(img, on_glass(disc(0.0, 0.50, 0.18, 0.05, 3.0, 1.3)), FACE_MOUTH)
 
-    for comp in components8(_color_mask(painted, brow_c)):
-        if int(comp.sum()) < 2:
-            continue
-        fit = _fit_ellipse(_upsample(comp))
-        if not fit:
-            continue
-        cx, cy, rx, ry = fit
-        ry = max(ry, HD * 0.55)
-        rx = max(rx, HD * 1.1)
-        _paint_rgb(img, visor & (((yy - cy) / ry) ** 2 + ((xx - cx) / rx) ** 2 <= 1), _mix(FACE_BROW, (20, 12, 12), 0.2))
-
-    for comp in components8(_color_mask(painted, eye_c)):
-        if int(comp.sum()) < 2:
-            continue
-        fit = _fit_ellipse(_upsample(comp))
-        if not fit:
-            continue
-        cx, cy, rx, ry = fit
-        rx = max(rx, HD * 1.15)
-        ry = max(ry, HD * 0.85)
-        eye = visor & (((yy - cy) / ry) ** 2 + ((xx - cx) / rx) ** 2 <= 1)
-        _paint_rgb(img, eye, _mix(FACE_EYE, GLASS, 0.08))
-        _paint_rgb(img, eye & (yy < cy - ry * 0.15), _mix(FACE_EYE, (210, 216, 220), 0.25))
-        pr = max(HD * 0.7, min(rx, ry) * 0.38)
-        _paint_rgb(img, eye & ((xx - cx) ** 2 + (yy - (cy + ry * 0.08)) ** 2 <= pr ** 2), (22, 16, 18))
-
-    for comp in components8(_color_mask(painted, mouth_c)):
-        if int(comp.sum()) < 2:
-            continue
-        fit = _fit_ellipse(_upsample(comp))
-        if not fit:
-            continue
-        cx, cy, rx, ry = fit
-        rx = max(rx, HD * 1.3)
-        ry = max(ry * 0.85, HD * 0.45)
-        _paint_rgb(img, visor & (((yy - cy) / ry) ** 2 + ((xx - cx) / rx) ** 2 <= 1), _mix(FACE_MOUTH, (90, 30, 28), 0.15))
-
-    # Nose: the shade column already painted. A slightly darker oval if present.
-    nose = _color_mask(painted, shade_c)
-    if int(nose.sum()) >= 4:
-        fit = _fit_ellipse(_upsample(nose))
-        if fit:
-            cx, cy, rx, ry = fit
-            ry = max(ry, HD * 0.8)
-            rx = max(HD * 0.45, rx * 0.45)
-            _paint_rgb(img, visor & (((yy - cy) / ry) ** 2 + ((xx - cx) / rx) ** 2 <= 1), _mix(FACE_SHADE, (110, 54, 36), 0.2))
+    streak = _visor_streak(inner, direction, H, W)
+    _blend(img, np.where(streak, np.float32(0.92), np.float32(0)), GLINT)
 
 
 def _visor_streak(visor: np.ndarray, direction: str, H: int, W: int) -> np.ndarray:
@@ -1906,9 +1885,21 @@ def _visor_streak(visor: np.ndarray, direction: str, H: int, W: int) -> np.ndarr
     return m
 
 
+def _frame_notes(hd: np.ndarray, direction: str, where: str) -> None:
+    solid = hd[..., 3] >= 128
+    parts = sum(1 for _ in components8(solid))
+    rgb = hd[..., :3]
+    metal = int(((rgb == METAL).all(axis=2) & solid).sum())
+    blue = int(((rgb == BLUE).all(axis=2) & solid).sum())
+    print(f"  {where}: parts={parts} metal={metal} blue={blue} {hd.shape[1]}x{hd.shape[0]}")
+    if parts != 1:
+        print(f"  WARNING {where}: expected one piece, got {parts}")
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--preview", type=Path, help="write a labelled 3x contact sheet")
+    ap.add_argument("--preview", type=Path, help="write a labelled contact sheet")
+    ap.add_argument("--only", type=str, default="", help="DIR:COL list to render instead of the full sheet")
     args = ap.parse_args()
 
     meta = json.loads((ASSETS / "kid.json").read_text())
@@ -1916,16 +1907,24 @@ def main():
     dirs = meta["directions"]
     src = np.asarray(Image.open(ASSETS / meta["image"]).convert("RGBA"))
     lock_helmets(src, meta)
+    only: set[tuple[str, int]] = set()
+    if args.only:
+        for part in args.only.split(","):
+            name, col = part.split(":")
+            only.add((name, int(col)))
     out = np.zeros((src.shape[0] * HD, src.shape[1] * HD, 4), np.uint8)
     anchors: list[tuple[int, int, int, int]] = []
     for r, direction in enumerate(dirs):
         for c in range(cols):
+            if only and (direction, c) not in only:
+                continue
             fr = src[r * fh : (r + 1) * fh, c * fw : (c + 1) * fw]
             painted, _lab, nozzles = suit_frame(fr, direction)
             check_frame(fr, painted, _lab, direction, f"{direction} col {c}")
             hd = render_hd(fr, painted, _lab, direction)
             y0, x0 = r * fh * HD, c * fw * HD
             out[y0 : y0 + fh * HD, x0 : x0 + fw * HD] = hd
+            _frame_notes(hd, direction, f"{direction} col {c}")
             (ax, ay), (bx, by) = nozzles
             # Center of the 1× nozzle pixel, in the HD frame.
             anchors.append(
@@ -1936,11 +1935,47 @@ def main():
                     int(round((by + 0.5) * HD - 0.5)),
                 )
             )
-    Image.fromarray(out).save(ASSETS / "kid_spaceman.png")
+    if only:
+        if args.preview:
+            from PIL import ImageDraw
+            hfw, hfh = fw * HD, fh * HD
+            scale, pad = 2, 8
+            cells = []
+            for part in args.only.split(","):
+                name, col_s = part.split(":")
+                cells.append((dirs.index(name), int(col_s), name))
+            pv = Image.new("RGBA", (pad + len(cells) * hfw * scale, pad + hfh * scale + 18), (40, 48, 44, 255))
+            d = ImageDraw.Draw(pv)
+            src_img = Image.fromarray(out)
+            for i, (r, c, name) in enumerate(cells):
+                cell = Image.new("RGBA", (hfw, hfh), (118, 168, 122, 255))
+                cell.alpha_composite(src_img.crop((c * hfw, r * hfh, (c + 1) * hfw, (r + 1) * hfh)))
+                pv.paste(cell.resize((hfw * scale, hfh * scale), Image.NEAREST), (pad + i * hfw * scale, pad))
+                d.text((pad + i * hfw * scale + 4, 2), f"{name}:{c}", fill="white")
+            pv.convert("RGB").save(args.preview)
+            print(f"wrote {args.preview}")
+        print(f"preview only ({len(only)} frames), sheet not written")
+        return
+
+    hfw, hfh = fw * HD, fh * HD
+    lead_px = LEAD_COLS * hfw
+    if lead_px <= 0 or lead_px >= out.shape[1]:
+        raise SystemExit(f"lead split {lead_px} is outside the sheet width {out.shape[1]}")
+    sheet_a = out[:, :lead_px]
+    sheet_b = out[:, lead_px:]
+    for name, sheet in (("kid_spaceman.png", sheet_a), ("kid_spaceman_b.png", sheet_b)):
+        if sheet.shape[1] > 4096 or sheet.shape[0] > 4096:
+            raise SystemExit(f"{name} is {sheet.shape[1]}x{sheet.shape[0]}, over 4096")
+        Image.fromarray(sheet).save(ASSETS / name)
+        print(f"wrote {ASSETS / name} ({sheet.shape[1]}x{sheet.shape[0]})")
     spaceman_meta = dict(meta)
     spaceman_meta["image"] = "kid_spaceman.png"
-    spaceman_meta["frameWidth"] = fw * HD
-    spaceman_meta["frameHeight"] = fh * HD
+    spaceman_meta["columns"] = LEAD_COLS
+    spaceman_meta["logicalColumns"] = cols
+    spaceman_meta["extraImage"] = "kid_spaceman_b.png"
+    spaceman_meta["extraColumns"] = cols - LEAD_COLS
+    spaceman_meta["frameWidth"] = hfw
+    spaceman_meta["frameHeight"] = hfh
     spaceman_meta["baselineY"] = meta["baselineY"] * HD
     spaceman_meta["artHeight"] = 93 * HD
     (ASSETS / "kid_spaceman.json").write_text(json.dumps(spaceman_meta, indent=2) + "\n")
@@ -1951,7 +1986,7 @@ def main():
     lines.append("];")
     lines.append("")
     BOOSTERS_TS.write_text("\n".join(lines))
-    print(f"wrote {ASSETS / 'kid_spaceman.png'} ({out.shape[1]}x{out.shape[0]}), {len(anchors)} booster pairs")
+    print(f"{len(anchors)} booster pairs")
 
     if args.preview:
         from PIL import ImageDraw

@@ -1,10 +1,10 @@
 {
   "image": "kid_spaceman.png",
-  "frameWidth": 320,
-  "frameHeight": 400,
-  "baselineY": 384,
+  "frameWidth": 160,
+  "frameHeight": 200,
+  "baselineY": 192,
   "anchorX": 40,
-  "columns": 30,
+  "columns": 16,
   "directions": [
     "E",
     "SE",
@@ -37,5 +37,8 @@
       "count": 8
     }
   },
-  "artHeight": 372
+  "logicalColumns": 30,
+  "extraImage": "kid_spaceman_b.png",
+  "extraColumns": 14,
+  "artHeight": 186
 }
