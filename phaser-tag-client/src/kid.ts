@@ -90,10 +90,14 @@ export function createKidAnimations(scene: Phaser.Scene) {
   for (const id of SKIN_IDS) createSkinAnimations(scene, SKINS[id]);
 }
 
-const FLAME_W = 9;
-const FLAME_H = 24;
+const FLAME_W = 12;
+const FLAME_H = 22;
 
-/** Downward teardrop flame, root at the top, four flicker frames. Opaque pixels. */
+/**
+ * Chunky jet, root at the top. Full length is 20px of teardrop inside a
+ * 22px frame; placeFlames scales that down to the small and mid lengths.
+ * Width stays about 6px. One translucent pixel of glow sits outside the plume.
+ */
 function createSpacemanFlame(scene: Phaser.Scene) {
   if (scene.textures.exists("spaceman-flame")) return;
   const frames = 4;
@@ -102,24 +106,42 @@ function createSpacemanFlame(scene: Phaser.Scene) {
   const ctx = tex.getContext();
   const core = "#f4fbff";
   const hot = "#8ad8ff";
-  const mid = "#2f8cff";
   const edge = "#163a9a";
-  const lengths = [16, 22, 18, 24];
+  // Flicker the length and which way the tip leans.
+  const lengths = [18, 20, 16, 19];
+  const tips = [0, 1, -1, 0];
   for (let i = 0; i < frames; i++) {
     const ox = i * FLAME_W;
-    const len = lengths[i] ?? FLAME_H;
-    const wobble = i === 2 ? 1 : i === 3 ? -1 : 0;
+    const len = lengths[i] ?? 20;
+    const tip = tips[i] ?? 0;
+    const solid: boolean[][] = [];
+    for (let y = 0; y < FLAME_H; y++) solid.push(new Array(FLAME_W).fill(false));
     for (let y = 0; y < len; y++) {
       const t = y / (len - 1 || 1);
-      // Wide root, pointed tip.
-      const half = Math.max(0, Math.round(2.2 * (1 - t)));
-      const cx = 4 + (y > len * 0.45 ? wobble : 0);
-      for (let x = cx - half; x <= cx + half; x++) {
-        if (x < 0 || x >= FLAME_W) continue;
-        const edgePx = x === cx - half || x === cx + half || y === len - 1;
-        const corePx = half > 0 && Math.abs(x - cx) <= (y < len * 0.35 ? 1 : 0) && y < len - 3;
-        ctx.fillStyle = corePx ? (y < 3 ? core : hot) : edgePx ? edge : mid;
+      // 6px at the nozzle (two-pixel core), then a taper to one pixel.
+      const width = t < 0.42 ? 6 : t < 0.62 ? 4 : t < 0.78 ? 3 : t < 0.9 ? 2 : 1;
+      const lean = y > len * 0.55 ? tip : 0;
+      const left = 5 - Math.ceil((width - 2) / 2) + lean;
+      const right = left + width - 1;
+      for (let x = left; x <= right; x++) {
+        if (x < 1 || x >= FLAME_W - 1) continue;
+        solid[y][x] = true;
+        const dist = Math.min(Math.abs(x - (5 + lean)), Math.abs(x - (6 + lean)));
+        const edgePx = x === left || x === right || y === len - 1;
+        ctx.fillStyle = edgePx ? edge : dist === 0 ? (y < len * 0.5 ? core : hot) : hot;
         ctx.fillRect(ox + x, y, 1, 1);
+      }
+    }
+    ctx.fillStyle = "rgba(70, 160, 255, 0.45)";
+    for (let y = 0; y < len; y++) {
+      for (let x = 0; x < FLAME_W; x++) {
+        if (solid[y][x]) continue;
+        const touch =
+          (y > 0 && solid[y - 1][x]) ||
+          (y + 1 < FLAME_H && solid[y + 1][x]) ||
+          (x > 0 && solid[y][x - 1]) ||
+          (x + 1 < FLAME_W && solid[y][x + 1]);
+        if (touch) ctx.fillRect(ox + x, y, 1, 1);
       }
     }
   }
@@ -537,37 +559,48 @@ export class KidAvatar {
     const scale = this.sprite.scaleX;
     const facingDir = directionFromAngle(this.tagFacing ?? this.facing);
     const [baseX, baseY] = flameVector(facingDir);
-    // Facing the camera, the exhaust is behind the suit. Side and back
-    // views draw it in front so it can leave the boosters.
-    // Facing the camera, the jets are behind the suit so only the tip
-    // below the boots shows. Side and back draw in front of the pack.
-    const behind = facingDir === "S" || facingDir === "SE" || facingDir === "SW";
+    // Front and back sit behind the suit, so the body hides the part of the
+    // jet that would cross it. Side views draw in front, beside the pack.
+    const behind =
+      facingDir === "S" ||
+      facingDir === "SE" ||
+      facingDir === "SW" ||
+      facingDir === "N" ||
+      facingDir === "NE" ||
+      facingDir === "NW";
+    // On the back the nozzles are over the legs. Park each jet at the side
+    // of the pack and aim it slightly outward, so it shows beside the calves.
+    const flank = facingDir === "N" || facingDir === "NE" || facingDir === "NW";
     const intensity = this.flame;
     const time = this.scene.time.now;
-    // Keep the root on the nozzle. Length, not a sideways kick, is the ramp.
-    const kick = (0.4 + 0.8 * intensity) * Math.abs(scale);
+    // Root stays on the nozzle. Length is the ramp (6px, ~12px, 20px).
+    const kick = 0.35 * Math.abs(scale);
     const points: readonly (readonly [number, number])[] = [
       [anchors[0], anchors[1]],
       [anchors[2], anchors[3]],
     ];
+    const midX = (anchors[0] + anchors[2]) / 2;
     points.forEach(([bx, by], i) => {
       const flame = flames[i];
       if (!flame) return;
-      const spread = i === 0 ? -0.08 : 0.08;
-      const sx = baseX - baseY * spread;
-      const sy = baseY + baseX * spread;
+      const sign = bx <= midX ? -1 : 1;
+      const flankPx = flank ? sign * 14 : 0;
+      const spread = flank ? sign * 0.38 : i === 0 ? -0.08 : 0.08;
+      const sx = baseX + (flank ? spread : -baseY * spread);
+      const sy = baseY + (flank ? 0 : baseX * spread);
       const len = Math.hypot(sx, sy) || 1;
       const dx = sx / len;
       const dy = sy / len;
       flame.setPosition(
-        this.sprite.x + (bx - sheet.frameWidth / 2) * scale + dx * kick,
+        this.sprite.x + (bx + flankPx - sheet.frameWidth / 2) * scale + dx * kick,
         this.sprite.y + (by - sheet.baselineY) * scale + dy * kick,
       );
       flame.setRotation(Math.atan2(dy, dx) - Math.PI / 2);
-      const wobble = 0.92 + 0.08 * Math.sin(time / 70 + i * 1.7);
-      const width = (0.42 + 0.14 * intensity) * wobble;
-      const length = (0.28 + 2.05 * intensity) * wobble;
-      flame.setScale(Math.abs(scale) * width, Math.abs(scale) * length);
+      const wobble = 0.94 + 0.06 * Math.sin(time / 80 + i * 1.7);
+      // Texture is 20px of plume at full. Don't shrink the width: the
+      // teardrop is already 6px across at the nozzle.
+      const lengthPx = 6 + 14 * intensity;
+      flame.setScale(Math.abs(scale) * wobble, Math.abs(scale) * (lengthPx / 20) * wobble);
       flame.setAlpha(1);
       flame.setBlendMode(Phaser.BlendModes.NORMAL);
       flame.setFrame((Math.floor(time / 70) + i) % 4);
