@@ -470,6 +470,10 @@ export class SettingsPanel {
                   <span class="howto-keys"><kbd class="key key-wide">Alt</kbd><span class="howto-plus">+</span><kbd class="key">S</kbd><span class="howto-or" data-i18n="howto.or"></span><kbd class="key" aria-hidden="true">&#9660;</kbd></span>
                   <span class="howto-what" data-i18n="howto.zoomOut"></span>
                 </li>
+                <li class="howto-row">
+                  <span class="howto-keys"><kbd class="key key-wide">Alt</kbd><span class="howto-plus">+</span><kbd class="key key-wheel" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="7.5" y="2.5" width="9" height="19" rx="4.5"/><path d="M12 2.8v5.2"/><path d="M10.3 6.4 12 8.3l1.7-1.9"/></svg></kbd></span>
+                  <span class="howto-what" data-i18n="howto.wheel"></span>
+                </li>
               </ul>
               <ul class="howto-list" data-howto="mobile">
                 <li class="howto-row">
@@ -782,7 +786,7 @@ export class SettingsPanel {
   }
 
   /**
-   * The camera (pinch, zoom keys, or a resize clamp) landed on `level`.
+   * The camera (pinch, wheel, zoom keys, or a resize clamp) landed on `level`.
    * Saves it and moves the slider without treating it as a new user edit
    * that would call back into the camera.
    */

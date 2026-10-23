@@ -75,6 +75,7 @@ export const hiIN: Messages = {
   "howto.holdRun": "दौड़ने के लिए दबाए रखो",
   "howto.zoomIn": "ज़ूम इन",
   "howto.zoomOut": "ज़ूम आउट",
+  "howto.wheel": "माउस व्हील से ज़ूम",
   "howto.pinch": "दो उंगलियों से ज़ूम करो",
   "howto.tapWalk": "ज़मीन पर टैप करके चलो",
   "howto.doubleRun": "दो बार टैप करके दौड़ो",
@@ -95,7 +96,7 @@ export const hiIN: Messages = {
   "settings.view.out": "दूर",
   "settings.view.in": "पास",
   "settings.view.help": "बीच (0) सामान्य ज़ूम है। दूर करने पर नक्शा ज़्यादा दिखता है, पास करने पर सब बड़ा दिखता है।",
-  "settings.view.input": "Alt + ↑ या W से ज़ूम इन। Alt + ↓ या S से ज़ूम आउट। दो उंगलियों से पिंच करो।",
+  "settings.view.input": "Alt + ↑ या W से ज़ूम इन। Alt + ↓ या S से ज़ूम आउट। Alt + माउस व्हील से ज़ूम इन और आउट। दो उंगलियों से पिंच करो।",
 
   "mood.happy": "खुश",
   "mood.happy.blurb": "उछलता चिपट्यून",

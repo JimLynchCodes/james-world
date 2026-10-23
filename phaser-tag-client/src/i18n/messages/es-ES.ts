@@ -49,6 +49,8 @@ export const esES: Partial<Messages> = {
   "howto.helpMobile": "Arrastra por el suelo para dirigir. ¡Combinadlo como queráis! Genial en el móvil y la tableta.",
   "howto.helpTouch": "Si está lejos, andas hacia él.",
   "howto.helpKeyboard": "Pilla a alguien cerca para que la lleve.",
+  "howto.wheel": "Rueda del ratón para hacer zoom",
+  "settings.view.input": "Alt + ↑ o W acerca. Alt + ↓ o S aleja. Alt + la rueda del ratón acerca y aleja. Pellizca con dos dedos.",
 
   "settings.skins.help": "El mismo héroe, otro rollo.",
   "skin.james.note": "James de toda la vida",

@@ -75,6 +75,7 @@ export const zhCN: Messages = {
   "howto.holdRun": "按住就能跑",
   "howto.zoomIn": "拉近",
   "howto.zoomOut": "拉远",
+  "howto.wheel": "鼠标滚轮缩放",
   "howto.pinch": "双指捏合缩放",
   "howto.tapWalk": "点地面走路",
   "howto.doubleRun": "双击地面奔跑",
@@ -95,7 +96,7 @@ export const zhCN: Messages = {
   "settings.view.out": "拉远",
   "settings.view.in": "拉近",
   "settings.view.help": "中间（0）是正常缩放。拉远能看到更多地图，拉近看得更清楚。",
-  "settings.view.input": "Alt + ↑ 或 W 拉近。Alt + ↓ 或 S 拉远。双指捏合缩放。",
+  "settings.view.input": "Alt + ↑ 或 W 拉近。Alt + ↓ 或 S 拉远。Alt + 鼠标滚轮拉近或拉远。双指捏合缩放。",
 
   "mood.happy": "欢快",
   "mood.happy.blurb": "蹦跳的芯片音乐",

@@ -40,7 +40,7 @@ export const esAR: Partial<Messages> = {
   "howto.tapPlayer": "Tocá a un jugador para manchar",
   "howto.helpMobile": "Arrastrá en el piso para manejar. ¡Mezclá todo! Ideal para el celular y la tablet.",
   "howto.helpTouch": "Si está lejos, caminás hacia él.",
-  "settings.view.input": "Alt + ↑ o W acerca. Alt + ↓ o S aleja. Pellizcá con dos dedos.",
+  "settings.view.input": "Alt + ↑ o W acerca. Alt + ↓ o S aleja. Alt + la rueda del mouse acerca y aleja. Pellizcá con dos dedos.",
   "howto.helpKeyboard": "Tocá a alguien cerca para que quede la mancha.",
 
   "settings.skins.help": "El mismo héroe, otro estilo.",

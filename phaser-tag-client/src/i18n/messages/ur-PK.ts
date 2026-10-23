@@ -75,6 +75,7 @@ export const urPK: Messages = {
   "howto.holdRun": "دوڑنے کے لیے دبائے رکھو",
   "howto.zoomIn": "زوم ان",
   "howto.zoomOut": "زوم آؤٹ",
+  "howto.wheel": "ماؤس وہیل سے زوم",
   "howto.pinch": "دو انگلیوں سے زوم کرو",
   "howto.tapWalk": "زمین پر ٹیپ کر کے چلو",
   "howto.doubleRun": "دو بار ٹیپ کر کے دوڑو",
@@ -95,7 +96,7 @@ export const urPK: Messages = {
   "settings.view.out": "دور",
   "settings.view.in": "قریب",
   "settings.view.help": "درمیان (0) عام زوم ہے۔ دور کرنے سے نقشہ زیادہ دکھتا ہے، قریب کرنے سے سب بڑا دکھتا ہے۔",
-  "settings.view.input": "Alt + ↑ یا W سے زوم ان۔ Alt + ↓ یا S سے زوم آؤٹ۔ دو انگلیوں سے زوم کرو۔",
+  "settings.view.input": "Alt + ↑ یا W سے زوم ان۔ Alt + ↓ یا S سے زوم آؤٹ۔ Alt + ماؤس وہیل سے زوم ان اور آؤٹ۔ دو انگلیوں سے زوم کرو۔",
 
   "mood.happy": "خوش",
   "mood.happy.blurb": "اچھلتا چپ ٹیون",

@@ -28,7 +28,15 @@ import {
 import { TitleScreen } from "./title";
 import { initI18n, onLocaleChange, t, tPlayers } from "./i18n";
 import { LanguagePicker } from "./languagePicker";
-import { ZOOM_KEY_STEP, clampLevel, clampZoom, levelFromZoom, zoomFromLevel } from "./zoom";
+import {
+  ZOOM_KEY_STEP,
+  clampLevel,
+  clampZoom,
+  levelFromZoom,
+  takeWheelLevels,
+  zoomFromLevel,
+  zoomLevelsFromWheel,
+} from "./zoom";
 
 initI18n();
 
@@ -145,8 +153,9 @@ class GameScene extends Phaser.Scene {
   /** Mobile mode with the joystick and Tag / Run buttons hidden. */
   private hideButtons = false;
   /**
-   * Camera zoom slider level. 0 is the normal view. Pinch, zoom keys, and
-   * the View tab all write this; the camera applies a world-bounds clamp.
+   * Camera zoom slider level. 0 is the normal view. Pinch, zoom keys, the
+   * mouse wheel, and the View tab all write this; the camera applies a
+   * world-bounds clamp.
    */
   private zoomLevel = 0;
   private onZoomLevel: ((level: number) => void) | null = null;
@@ -154,6 +163,8 @@ class GameScene extends Phaser.Scene {
   private altHeld = false;
   /** How long a zoom chord has been held, for the repeat after the first tap. */
   private zoomHoldMs = 0;
+  /** Fractional slider levels from Alt + wheel that have not made a whole step yet. */
+  private wheelRemainder = 0;
   /** Two-finger pinch: taps from those fingers must not walk or tag. */
   private pinchLock = false;
   private pinch: { dist: number; zoom: number } | null = null;
@@ -216,6 +227,7 @@ class GameScene extends Phaser.Scene {
     this.syncZoom();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.onResize);
     this.installPinch();
+    this.installWheel();
 
     // One listener for arrows and WASD. Capture phase runs before Phaser's
     // bubble listener, which drops the event when keyCode is 0 or when
@@ -288,11 +300,13 @@ class GameScene extends Phaser.Scene {
         this.input.keyboard?.resetKeys();
         this.held.clear();
         this.altHeld = false;
+        this.wheelRemainder = 0;
       }
     };
     const onBlur = () => {
       this.held.clear();
       this.altHeld = false;
+      this.wheelRemainder = 0;
     };
     document.addEventListener("visibilitychange", releaseKeys);
     window.addEventListener("blur", onBlur);
@@ -304,6 +318,7 @@ class GameScene extends Phaser.Scene {
       window.removeEventListener("keyup", this.onDomKey, true);
       this.scale.off(Phaser.Scale.Events.RESIZE, this.onResize);
       this.removePinch();
+      this.removeWheel();
       this.socket.close();
     });
   }
@@ -319,13 +334,19 @@ class GameScene extends Phaser.Scene {
    */
   private readonly onDomKey = (event: KeyboardEvent) => {
     const phase: "down" | "up" = event.type === "keydown" ? "down" : "up";
-    if (isAltEvent(event)) this.altHeld = phase === "down";
+    if (isAltEvent(event)) {
+      this.altHeld = phase === "down";
+      if (!this.altHeld) this.wheelRemainder = 0;
+    }
     if (this.uiOpen) {
       // Settings owns the keyboard. Drop movement keys as they release so
       // closing the modal can't leave a stuck walk.
       if (phase === "up") {
         this.held = applyPhysicalKey(this.held, event, "up");
-        if (isAltEvent(event)) this.altHeld = false;
+        if (isAltEvent(event)) {
+          this.altHeld = false;
+          this.wheelRemainder = 0;
+        }
       }
       return;
     }
@@ -1039,6 +1060,7 @@ class GameScene extends Phaser.Scene {
     this.held.clear();
     this.altHeld = false;
     this.zoomHoldMs = 0;
+    this.wheelRemainder = 0;
     this.tapDragging = false;
     this.pendingTag = null;
     const keyboard = this.input?.keyboard;
@@ -1177,7 +1199,7 @@ class GameScene extends Phaser.Scene {
 
   // --- Camera zoom ------------------------------------------------------------
 
-  /** Settings, pinch, and zoom keys all meet here. Returns the level actually shown. */
+  /** Settings, pinch, wheel, and zoom keys all meet here. Returns the level actually shown. */
   setZoomLevel(level: number): number {
     const cam = this.cameras?.main;
     if (!cam || !(cam.width > 0) || !(cam.height > 0)) {
@@ -1215,6 +1237,40 @@ class GameScene extends Phaser.Scene {
     const step = Math.max(1, Math.round(delta * 0.055));
     this.requestZoom(this.zoomLevel + this.zoomKeyDir() * step);
   }
+
+  private installWheel() {
+    // passive: false is required. On window, browsers otherwise treat wheel
+    // as passive and ignore preventDefault, so Alt + wheel would still
+    // scroll the page or trigger a browser zoom.
+    window.addEventListener("wheel", this.onWheel, { capture: true, passive: false });
+  }
+
+  private removeWheel() {
+    window.removeEventListener("wheel", this.onWheel, { capture: true });
+  }
+
+  /**
+   * Alt + wheel up zooms in, Alt + wheel down zooms out, on the same
+   * slider the keys and the View tab use. A wheel without Alt is left
+   * alone (the page, and the browser, keep their own behavior).
+   */
+  private readonly onWheel = (event: WheelEvent) => {
+    if (!event.altKey) return;
+    event.preventDefault();
+    if (this.uiOpen || this.inSecret) {
+      this.wheelRemainder = 0;
+      return;
+    }
+    const delta = zoomLevelsFromWheel(event.deltaY, event.deltaMode);
+    const taken = takeWheelLevels(this.wheelRemainder, delta);
+    this.wheelRemainder = taken.remainder;
+    if (taken.levels === 0) return;
+    const before = this.zoomLevel;
+    this.requestZoom(before + taken.levels);
+    // The slider end or the map filling the window ate part of the step.
+    // Drop the leftover so the next nudge the other way is not stuck paying it back.
+    if (this.zoomLevel !== before + taken.levels) this.wheelRemainder = 0;
+  };
 
   private installPinch() {
     window.addEventListener("touchstart", this.onTouchStart, { capture: true, passive: false });
