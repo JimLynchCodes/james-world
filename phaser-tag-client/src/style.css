@@ -1053,6 +1053,16 @@ html[dir="rtl"] .settings-title {
 .k-right { grid-area: 2 / 3; }
 .key-wide { min-width: 70px; }
 .key-space { min-width: 132px; }
+.key-wheel { min-width: var(--k); padding: 0; }
+.key-wheel svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .chip, .chip-stick {
   box-sizing: border-box;
   display: inline-flex;

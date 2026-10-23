@@ -75,6 +75,7 @@ export const jaJP: Messages = {
   "howto.holdRun": "長押しで走る",
   "howto.zoomIn": "ズームイン",
   "howto.zoomOut": "ズームアウト",
+  "howto.wheel": "マウスホイールでズーム",
   "howto.pinch": "2本指でピンチしてズーム",
   "howto.tapWalk": "地面をタップして歩く",
   "howto.doubleRun": "ダブルタップで走る",
@@ -95,7 +96,7 @@ export const jaJP: Messages = {
   "settings.view.out": "引く",
   "settings.view.in": "寄る",
   "settings.view.help": "真ん中（0）が通常のズーム。引くと地図が広く見え、寄ると近くなります。",
-  "settings.view.input": "Alt + ↑ か W でズームイン。Alt + ↓ か S でズームアウト。2本指でピンチ。",
+  "settings.view.input": "Alt + ↑ か W でズームイン。Alt + ↓ か S でズームアウト。Alt + マウスホイールでもズーム。2本指でピンチ。",
 
   "mood.happy": "ハッピー",
   "mood.happy.blurb": "弾むチップチューン",

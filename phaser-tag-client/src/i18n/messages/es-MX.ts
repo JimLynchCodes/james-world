@@ -78,6 +78,7 @@ export const esMX: Messages = {
   "howto.holdRun": "Mantén para correr",
   "howto.zoomIn": "Acercar",
   "howto.zoomOut": "Alejar",
+  "howto.wheel": "Rueda del mouse para hacer zoom",
   "howto.pinch": "Pellizca para hacer zoom",
   "howto.tapWalk": "Toca el suelo para caminar",
   "howto.doubleRun": "Doble toque para correr",
@@ -98,7 +99,7 @@ export const esMX: Messages = {
   "settings.view.out": "Alejar",
   "settings.view.in": "Acercar",
   "settings.view.help": "El centro (0) es el zoom normal. Alejar muestra más del mapa; acercar te pone más cerca.",
-  "settings.view.input": "Alt + ↑ o W acerca. Alt + ↓ o S aleja. Pellizca con dos dedos.",
+  "settings.view.input": "Alt + ↑ o W acerca. Alt + ↓ o S aleja. Alt + la rueda del mouse acerca y aleja. Pellizca con dos dedos.",
 
   "mood.happy": "Feliz",
   "mood.happy.blurb": "Chiptune con brinco",

@@ -73,6 +73,7 @@ export const enUS = {
   "howto.holdRun": "Hold to run",
   "howto.zoomIn": "Zoom in",
   "howto.zoomOut": "Zoom out",
+  "howto.wheel": "Mouse wheel to zoom",
   "howto.pinch": "Pinch to zoom",
   "howto.tapWalk": "Tap the ground to walk",
   "howto.doubleRun": "Double-tap to run",
@@ -93,7 +94,7 @@ export const enUS = {
   "settings.view.out": "Out",
   "settings.view.in": "In",
   "settings.view.help": "The middle (0) is the normal zoom. Out shows more of the map; in brings you closer.",
-  "settings.view.input": "Alt + ↑ or W zooms in. Alt + ↓ or S zooms out. Pinch with two fingers.",
+  "settings.view.input": "Alt + ↑ or W zooms in. Alt + ↓ or S zooms out. Alt + mouse wheel zooms in and out. Pinch with two fingers.",
 
   "mood.happy": "Happy",
   "mood.happy.blurb": "Bouncy chiptune",

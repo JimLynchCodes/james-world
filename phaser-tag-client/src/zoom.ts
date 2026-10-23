@@ -11,6 +11,50 @@ export const ZOOM_LEVEL_MAX = 100;
 /** One tap of Alt + an up/down zoom key. Holding the keys keeps going. */
 export const ZOOM_KEY_STEP = 6;
 
+/**
+ * Alt + mouse wheel, in the same slider steps as the keys.
+ * Pixel deltas (trackpads, and a typical desktop notch of ~100px) add up:
+ * 100px moves the slider by one key step. A single event is capped at a
+ * few notches so one wild trackpad flick can't slam the zoom to the end.
+ * Line mode (Firefox's mouse wheel) treats one line as one notch.
+ */
+export const ZOOM_WHEEL_PX_PER_NOTCH = 100;
+const ZOOM_WHEEL_MAX_NOTCHES = 3;
+
+/**
+ * Slider levels for one wheel event, before leftover accumulation.
+ * Positive zooms in (wheel up, negative deltaY). Not a whole number for
+ * a trackpad's small pixel ticks — the caller keeps the fraction.
+ */
+export function zoomLevelsFromWheel(deltaY: number, deltaMode = 0): number {
+  if (!Number.isFinite(deltaY) || deltaY === 0) return 0;
+  // 0 pixels, 1 lines, 2 pages. Page mode is rare; treat it as the cap.
+  const pixels =
+    deltaMode === 1 ? deltaY * ZOOM_WHEEL_PX_PER_NOTCH
+    : deltaMode === 2 ? Math.sign(deltaY) * ZOOM_WHEEL_MAX_NOTCHES * ZOOM_WHEEL_PX_PER_NOTCH
+    : deltaY;
+  const notches = Math.min(ZOOM_WHEEL_MAX_NOTCHES, Math.abs(pixels) / ZOOM_WHEEL_PX_PER_NOTCH);
+  const sign = pixels > 0 ? -1 : 1;
+  return sign * notches * ZOOM_KEY_STEP;
+}
+
+/**
+ * Turn a running fraction of slider levels into whole steps.
+ * The leftover stays so trackpad ticks smaller than one level still add up,
+ * and reversing direction spends that fraction before stepping back.
+ */
+export function takeWheelLevels(
+  remainder: number,
+  delta: number
+): { levels: number; remainder: number } {
+  const carry = Number.isFinite(remainder) ? remainder : 0;
+  if (!Number.isFinite(delta) || delta === 0) return { levels: 0, remainder: carry };
+  const sum = carry + delta;
+  // trunc(-0.4) is -0, and -0 === 0, but strict checks and JSON keep the sign.
+  const levels = Math.trunc(sum) || 0;
+  return { levels, remainder: sum - levels };
+}
+
 export function clampLevel(level: number): number {
   if (!Number.isFinite(level)) return 0;
   return Math.round(Math.min(ZOOM_LEVEL_MAX, Math.max(ZOOM_LEVEL_MIN, level)));
