@@ -330,8 +330,8 @@ skin carries its own frame size and feet line. Animation keys are
   whoosh plus a short muted horn, an open fifth (`pharaohSwing`), both on
   the SFX bus. Re-run:
   `python3 tools/make_pharaoh_skin.py [--preview /tmp/pharaoh.png]`.
-- `spaceman`: `public/assets/kid_spaceman.png` (80x100 frames, feet on y = 96;
-  same size as James). Generated from `kid.png` by `tools/make_spaceman_skin.py`.
+- `spaceman`: `public/assets/kid_spaceman.png` (320x400 frames, feet on y = 384;
+  drawn at 1/4 scale so he matches James, with linear filtering). Generated from `kid.png` by `tools/make_spaceman_skin.py`.
   White suit with grey shading, a rounded helmet (James's face and hair show
   through the visor on front and side views; back views are the helmet),
   a chest panel, red and blue accent stripes, chunky gloves and boots, and

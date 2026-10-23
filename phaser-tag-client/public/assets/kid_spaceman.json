@@ -1,8 +1,8 @@
 {
   "image": "kid_spaceman.png",
-  "frameWidth": 80,
-  "frameHeight": 100,
-  "baselineY": 96,
+  "frameWidth": 320,
+  "frameHeight": 400,
+  "baselineY": 384,
   "anchorX": 40,
   "columns": 30,
   "directions": [
@@ -36,5 +36,6 @@
       "start": 22,
       "count": 8
     }
-  }
+  },
+  "artHeight": 372
 }

@@ -26,8 +26,9 @@ export { directionFromAngle } from "./tagging";
  * Pharaoh James (`kid_pharaoh.png`, from tools/make_pharaoh_skin.py) has
  * padded frames (nemes crown on top, cape flared at the sides).
  * Spaceman James (`kid_spaceman.png`, from tools/make_spaceman_skin.py)
- * keeps James's frame. Walk and run add a cosmetic low-gravity hop, and
- * holding run lights the boosters (see `syncSpaceman`).
+ * is drawn at 4× and shown at 1/4 scale with linear filtering, so the
+ * helmet curve stays smooth. Walk and run add a cosmetic low-gravity hop,
+ * and holding run lights the boosters (see `syncSpaceman`).
  * Animation keys are `<texture>-<anim>-<dir>`, e.g. `kid_banana-walk-SE`.
  */
 const FRAME_W = 80;
@@ -166,6 +167,21 @@ const FLAME_FWD: Record<Direction, [number, number]> = {
  * Ease-in/out bound with a float at the top. `hang` (0..1) lengthens the
  * time spent near the apex; the ends stay soft so he doesn't pop off the ground.
  */
+/**
+ * 0..1 phase through one bound, moving continuously while a frame is held.
+ * `getProgress()` sits still until the next sprite frame, so a hop built
+ * from it pops. The accumulator is how far the current frame has played.
+ */
+function stridePhase(anims: Phaser.Animations.AnimationState): number {
+  const frame = anims.currentFrame;
+  const total = Math.max(1, anims.getTotalFrames());
+  if (!frame || total <= 1) return 0;
+  const index = Math.round(frame.progress * (total - 1));
+  const span = anims.nextTick > 0 ? anims.nextTick : 1;
+  const into = Math.min(1, Math.max(0, anims.accumulator / span));
+  return (((index + into) / total) * 2) % 1;
+}
+
 function moonArc(phase: number, hang: number): number {
   const lobe = Math.sin(Math.PI * phase);
   const eased = lobe * lobe * (3 - 2 * lobe);
@@ -187,10 +203,15 @@ function flameVector(dir: Direction): [number, number] {
 }
 
 function createSkinAnimations(scene: Phaser.Scene, sheet: SkinSheet) {
-  // Nearest sampling. Linear filtering blends the suit with the grass
+  // Nearest sampling. Linear filtering blends a 1× suit with the grass
   // wherever the scale isn't an integer, which reads as a see-through body.
+  // A hi-res sheet (pixelScale > 1) is minified on screen, so linear
+  // sampling smooths the curves without opening the suit.
   if (scene.textures.exists(sheet.texture)) {
-    scene.textures.get(sheet.texture).setFilter(Phaser.Textures.FilterMode.NEAREST);
+    const smooth = (sheet.pixelScale ?? 1) > 1;
+    scene.textures.get(sheet.texture).setFilter(
+      smooth ? Phaser.Textures.FilterMode.LINEAR : Phaser.Textures.FilterMode.NEAREST,
+    );
   }
   const animKey = (name: AnimName, dir: KidDirection) => `${sheet.texture}-${name}-${dir}`;
   KID_DIRECTIONS.forEach((dir, row) => {
@@ -205,8 +226,12 @@ function createSkinAnimations(scene: Phaser.Scene, sheet: SkinSheet) {
       if (!scene.anims.exists(config.key!)) scene.anims.create(config);
     };
 
-    add({ key: animKey("walk", dir), frames: range("walk"), frameRate: WALK_FPS, repeat: -1 });
-    add({ key: animKey("run", dir), frames: range("run"), frameRate: RUN_FPS, repeat: -1 });
+    // Spaceman's stride is the same poses, held longer, so the moon hop
+    // has time to float. Other skins keep the shared rates.
+    const walkFps = sheet.id === "spaceman" ? 6 : WALK_FPS;
+    const runFps = sheet.id === "spaceman" ? 8 : RUN_FPS;
+    add({ key: animKey("walk", dir), frames: range("walk"), frameRate: walkFps, repeat: -1 });
+    add({ key: animKey("run", dir), frames: range("run"), frameRate: runFps, repeat: -1 });
     add({ key: animKey("breathe", dir), frames: range("breathe"), frameRate: 3, repeat: -1 });
     add({ key: animKey("idle", dir), frames: range("idle"), frameRate: 4, repeat: -1 });
 
@@ -284,6 +309,10 @@ export class KidAvatar {
   private skin: Skin = DEFAULT_SKIN;
   /** Cosmetic low-gravity hop (world px). Never written into x/y. */
   private hop = 0;
+  /** Previous frame's hop, so the landing can compress the knees once. */
+  private prevHop = 0;
+  /** 1 = full height. Dips on landing and eases back. */
+  private squash = 1;
   /** 0..1 booster flame, ramped while `running` is held. */
   private flame = 0;
   private flames: Phaser.GameObjects.Sprite[] | null = null;
@@ -323,7 +352,7 @@ export class KidAvatar {
     const sheet = SKINS[this.skin];
     this.sprite = scene.add.sprite(x, y + this.feetOffset, sheet.texture, 2 * COLUMNS + ANIM.breathe.start);
     this.sprite.setOrigin(0.5, sheet.baselineY / sheet.frameHeight);
-    this.sprite.setScale(KID_SCALE);
+    this.sprite.setScale(this.drawScale);
     this.sprite.setBlendMode(Phaser.BlendModes.NORMAL);
     this.sprite.setAlpha(1);
 
@@ -368,6 +397,9 @@ export class KidAvatar {
     const sheet = SKINS[skin];
     this.sprite.setTexture(sheet.texture, this.sprite.frame.name);
     this.sprite.setOrigin(0.5, sheet.baselineY / sheet.frameHeight);
+    this.squash = 1;
+    this.prevHop = 0;
+    this.sprite.setScale(this.drawScale);
     const [, name, dir] = current?.split("-") ?? [];
     if (name && dir && (DIRECTIONS as readonly string[]).includes(dir)) {
       this.sprite.anims.play(animKey(name as AnimName, dir as KidDirection, skin));
@@ -380,9 +412,15 @@ export class KidAvatar {
     return this.skin;
   }
 
+  /** On-screen scale. Hi-res sheets divide by pixelScale so the kid stays the same size. */
+  private get drawScale(): number {
+    return KID_SCALE / (SKINS[this.skin].pixelScale ?? 1);
+  }
+
   /** Height of the art above the feet in world px (hair top or banana stem). */
   private get artHeight(): number {
-    return SKINS[this.skin].artHeight * KID_SCALE;
+    const sheet = SKINS[this.skin];
+    return (sheet.artHeight / (sheet.pixelScale ?? 1)) * KID_SCALE;
   }
 
   /** Label stack contents: name, plus the YOU / IT lines when they apply. */
@@ -525,15 +563,27 @@ export class KidAvatar {
   private syncSpaceman(dt: number) {
     const airborne = this.skin === "spaceman" && this.moving && !this.tagging;
     if (airborne) {
-      const progress = this.sprite.anims.getProgress();
       // Two bounds per walk/run cycle, so the hop matches the feet.
-      const phase = (progress * 2) % 1;
+      // Progress is smoothed inside each frame: getProgress() only
+      // changes when the frame changes, which made the hop step.
+      const phase = stridePhase(this.sprite.anims);
       const running = this.running;
-      this.hop = (running ? 20 : 9) * moonArc(phase, running ? 0.62 : 0.38);
+      this.hop = (running ? 20 : 10) * moonArc(phase, running ? 0.78 : 0.6);
     } else {
       this.hop *= Math.exp(-dt / 90);
       if (this.hop < 0.05) this.hop = 0;
     }
+    // Soft landing: a brief knee compress as the hop comes back to the ground.
+    if (airborne && this.prevHop > 2.2 && this.hop < this.prevHop && this.hop < 2.2) {
+      this.squash = 0.94;
+    }
+    this.squash += (1 - this.squash) * (1 - Math.exp(-dt / 150));
+    if (this.squash > 0.995) this.squash = 1;
+    if (this.skin === "spaceman") {
+      const draw = this.drawScale;
+      this.sprite.setScale(draw, draw * this.squash);
+    }
+    this.prevHop = this.hop;
     if (this.skin === "spaceman" && this.running) this.flame = Math.min(1, this.flame + dt / 1500);
     else this.flame = Math.max(0, this.flame - dt / 480);
     // The ring stays under the feet and reads smaller when he's higher.
@@ -556,6 +606,9 @@ export class KidAvatar {
       return;
     }
     const sheet = SKINS.spaceman;
+    const pixelScale = sheet.pixelScale ?? 1;
+    // scaleX stays at the unsquashed draw scale, so a knee compress
+    // doesn't slide the jets off the nozzles.
     const scale = this.sprite.scaleX;
     const facingDir = directionFromAngle(this.tagFacing ?? this.facing);
     const [baseX, baseY] = flameVector(facingDir);
@@ -574,7 +627,9 @@ export class KidAvatar {
     const intensity = this.flame;
     const time = this.scene.time.now;
     // Root stays on the nozzle. Length is the ramp (6px, ~12px, 20px).
-    const kick = 0.35 * Math.abs(scale);
+    // Kick and the flame's own scale stay in James-sized world pixels.
+    // The hi-res suit is drawn smaller, and the jets must not shrink with it.
+    const kick = 0.35 * KID_SCALE;
     const points: readonly (readonly [number, number])[] = [
       [anchors[0], anchors[1]],
       [anchors[2], anchors[3]],
@@ -584,7 +639,7 @@ export class KidAvatar {
       const flame = flames[i];
       if (!flame) return;
       const sign = bx <= midX ? -1 : 1;
-      const flankPx = flank ? sign * 14 : 0;
+      const flankPx = flank ? sign * 14 * pixelScale : 0;
       const spread = flank ? sign * 0.38 : i === 0 ? -0.08 : 0.08;
       const sx = baseX + (flank ? spread : -baseY * spread);
       const sy = baseY + (flank ? 0 : baseX * spread);
@@ -600,7 +655,7 @@ export class KidAvatar {
       // Texture is 20px of plume at full. Don't shrink the width: the
       // teardrop is already 6px across at the nozzle.
       const lengthPx = 6 + 14 * intensity;
-      flame.setScale(Math.abs(scale) * wobble, Math.abs(scale) * (lengthPx / 20) * wobble);
+      flame.setScale(KID_SCALE * wobble, KID_SCALE * (lengthPx / 20) * wobble);
       flame.setAlpha(1);
       flame.setBlendMode(Phaser.BlendModes.NORMAL);
       flame.setFrame((Math.floor(time / 70) + i) % 4);

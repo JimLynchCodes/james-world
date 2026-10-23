@@ -33,6 +33,11 @@ export interface SkinSheet {
   baselineY: number;
   /** Height of the art above the feet (top of hair / costume), frame px. */
   artHeight: number;
+  /**
+   * Sheets drawn finer than the James pixels. The game shows them at
+   * 1/pixelScale so the character stays the same size, with linear filtering.
+   */
+  pixelScale?: number;
 }
 
 const BASE = import.meta.env.BASE_URL;
@@ -119,12 +124,12 @@ export const SKINS: Record<Skin, SkinSheet> = {
     note: "One small step...",
     texture: "kid_spaceman",
     url: `${BASE}assets/kid_spaceman.png`,
-    // same frames and feet line as James; the helmet rim sits a couple of
-    // pixels above the hair
-    frameWidth: 80,
-    frameHeight: 100,
-    baselineY: 96,
-    artHeight: 93,
+    // 4× James's sheet so the helmet and suit can curve. Drawn at 1/4 scale.
+    frameWidth: 320,
+    frameHeight: 400,
+    baselineY: 384,
+    artHeight: 372,
+    pixelScale: 4,
   },
 };
 
