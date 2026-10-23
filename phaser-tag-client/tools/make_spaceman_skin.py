@@ -10,9 +10,10 @@ Every frame starts from that exact base frame (same direction, animation and
 frame index). The suit is painted over the body; nothing opaque in the base
 frame is erased. Every direction wears the same smooth oval helmet for the
 whole animation: a white shell with one shadow side, a neck ring, and — on
-front and side views — a flat blue-glass visor with James's face still
-readable. Back views are that dome, with a short antenna and a small
-highlight. The backpack and its two dark booster cones sit on his back:
+front and side views — a light-blue glass visor. James's own face shows
+through that glass (hair, brows, eyes, nose, mouth, and the side ear),
+reduced to a few flat colors so the dither does not speckle. Back views are
+that dome, with a short antenna and a small highlight. The backpack and its two dark booster cones sit on his back:
 visible when he faces away, on the rear side in profile, and behind the body
 (a shoulder peek at most) when he faces the camera.
 
@@ -57,20 +58,27 @@ YELLOW = (240, 196, 48)
 METAL = (72, 80, 96)
 # Glass is only used inside the visor (L_KEEP), so it stays out of the suit palette.
 GLASS = (168, 216, 232)
-# Flat visor tones. Also L_KEEP only: the face is a few solid colors, not dither.
-EYE = (228, 242, 250)
-SKIN_GLASS = (214, 183, 156)
-BROW = (46, 56, 72)
+# James's face, before the glass mix. L_KEEP only, so the suit palette stays flat.
+# Dark features stay dark; the skin takes more of the blue glass.
+FACE_HAIR = (86, 48, 30)
+FACE_BROW = (32, 16, 14)
+FACE_PUPIL = (12, 8, 10)
+FACE_EYE = (248, 246, 242)
+FACE_LIGHT = (240, 190, 148)
+FACE_MID = (212, 150, 108)
+FACE_SHADE = (132, 70, 46)
+FACE_MOUTH = (118, 44, 38)
 PALETTE = {OUTLINE, HI, MID, LO, RIM, GLINT, PANEL, RED, BLUE, YELLOW, METAL}
 
 # Visor ellipse as fractions of the locked helmet: (cx shift, cy shift, rx, ry).
-# Side views push the glass onto the facing half so the shell wraps the back.
+# High enough that the hairline and brows sit in the glass. Side views push
+# the glass onto the facing half so the shell wraps the back of the head.
 VISOR_SHAPE = {
-    "S": (0.00, 0.24, 0.64, 0.50),
-    "SE": (0.18, 0.22, 0.56, 0.48),
-    "SW": (-0.18, 0.22, 0.56, 0.48),
-    "E": (0.36, 0.16, 0.48, 0.56),
-    "W": (-0.36, 0.16, 0.48, 0.56),
+    "S": (0.00, 0.00, 0.68, 0.64),
+    "SE": (0.12, 0.00, 0.62, 0.62),
+    "SW": (-0.12, 0.00, 0.62, 0.62),
+    "E": (0.32, 0.02, 0.64, 0.68),
+    "W": (-0.32, 0.02, 0.64, 0.68),
 }
 
 # One helmet per direction, measured on the idle frame and reused everywhere.
@@ -705,7 +713,11 @@ def lock_helmets(src: np.ndarray, meta: dict) -> None:
                         found = (key, (dx, dy0 + float(drop), rx, ry2))
             if found is not None:
                 chosen = found[1]
-        HELM[direction] = chosen
+        # About 10% smaller than the padded oval, so the head reads as a
+        # chunky helmet rather than a bobblehead. The crown clearance above
+        # was measured on the larger oval; the scale keeps it inside the frame.
+        dx, dy, rx, ry = chosen
+        HELM[direction] = (dx, dy, rx * 0.90, ry * 0.90)
 
 
 def _helmet_place(direction: str, g, head: np.ndarray, yy: np.ndarray):
@@ -719,86 +731,178 @@ def _helmet_place(direction: str, g, head: np.ndarray, yy: np.ndarray):
     return cx, cy, rx, ry
 
 
-def _flat_visor(out, lab, base, visor: np.ndarray) -> None:
-    """Flat teal glass. The face is one skin tone, eye white, and the brows.
+def _count8(mask: np.ndarray) -> np.ndarray:
+    """How many of the 8 neighbours are set. The pixel itself is not counted."""
+    c = np.zeros(mask.shape, dtype=np.int16)
+    m = mask.astype(np.int16)
+    c[1:, 1:] += m[:-1, :-1]
+    c[1:, :] += m[:-1, :]
+    c[1:, :-1] += m[:-1, 1:]
+    c[:, 1:] += m[:, :-1]
+    c[:, :-1] += m[:, 1:]
+    c[:-1, 1:] += m[1:, :-1]
+    c[:-1, :] += m[1:, :]
+    c[:-1, :-1] += m[1:, 1:]
+    return c
 
-    Hair and dither inside the oval become the glass, so the visor stays a
-    solid pane instead of a speckled copy of the hair.
+
+def _glass_mix(color: tuple[int, int, int], keep: int, parts: int) -> tuple[int, int, int]:
+    """`keep` parts of the face color and the rest light-blue glass."""
+    return tuple((color[i] * keep + GLASS[i] * (parts - keep)) // parts for i in range(3))
+
+
+def _mode_skin(labels: np.ndarray) -> np.ndarray:
+    """Collapse skin dither to the local majority. Features are painted later."""
+    out = labels.copy()
+    votes = []
+    for cls in (5, 6, 7):
+        m = labels == cls
+        votes.append(_count8(m) + m.astype(np.int16))
+    stack = np.stack(votes, axis=0)
+    winner = np.argmax(stack, axis=0)
+    best = stack.max(axis=0)
+    skin = (labels >= 5) & (labels <= 7)
+    mapped = np.array([5, 6, 7], dtype=np.uint8)[winner]
+    take = skin & (best >= 4)
+    out[take] = mapped[take]
+    return out
+
+
+def _paint_face(out, lab, base, inner: np.ndarray, direction: str) -> None:
+    """James's face in a handful of flat colors, with a blue glass cast.
+
+    Labels come from the original pixel, not a median of the dither, so hair
+    stays hair and the eyes keep their pupils. A 3x3 majority then knocks out
+    the speckle inside the skin.
     """
-    have = visor & (base[..., 3] > 40)
+    have = inner & (base[..., 3] > 40)
+    paint(out, lab, inner, GLASS, L_KEEP)
+    if not have.any():
+        return
     r = base[..., 0].astype(np.int16)
     gch = base[..., 1].astype(np.int16)
     b = base[..., 2].astype(np.int16)
     lum = r + gch + b
+    span = np.maximum(np.maximum(r, gch), b) - np.minimum(np.minimum(r, gch), b)
     lo = np.minimum(np.minimum(r, gch), b)
-    span = np.maximum(np.maximum(r, gch), b) - lo
-    eye = have & (lum >= 690) & (span <= 32) & (lo >= 200)
-    eye |= have & (lum >= 640) & (b + 8 >= gch) & (b + 8 >= r) & (lo >= 175)
-    # Warm face, including the darker dither, so the skin is one solid tone.
-    # Near-black hair stays out of that mask and becomes the flat glass.
-    skin0 = have & ~eye & (lum >= 90) & (((r > gch) & (r > b) & (r > 130)) | (lum >= 170))
-    closed = erode(dilate(skin0, 1), 1) & have & ~eye
-    skin = fill_holes(closed | eye) & have & ~eye
-    skin = dilate(skin, 1) & have & ~eye & (lum >= 70)
-    brow = have & ~eye & (lum < 160) & dilate(eye, 3)
-    skin &= ~brow
-    # A dark dither pixel with skin on three sides is a hole, not the pane.
-    glass_px = have & ~skin & ~eye & ~brow
-    for _ in range(3):
-        neigh = np.zeros(visor.shape, dtype=np.int16)
-        face_px = skin | eye
-        neigh[1:] += face_px[:-1]
-        neigh[:-1] += face_px[1:]
-        neigh[:, 1:] += face_px[:, :-1]
-        neigh[:, :-1] += face_px[:, 1:]
-        speck = glass_px & (neigh >= 3) & (lum >= 40)
-        if not speck.any():
-            break
-        skin |= speck
-        glass_px &= ~speck
-    # A short run of glass inside the face is dither, not the pane.
-    for comp in components8(glass_px):
-        if int(comp.sum()) <= 6 and (dilate4(comp, 1) & (skin | eye)).any():
-            skin |= comp
-            glass_px &= ~comp
-    paint(out, lab, visor, GLASS, L_KEEP)
-    paint(out, lab, skin, SKIN_GLASS, L_KEEP)
-    paint(out, lab, eye, EYE, L_KEEP)
-    paint(out, lab, brow, BROW, L_KEEP)
+    warm = (r + 6 >= gch) & (r + 6 >= b) & ((r - b) >= 14)
+    yy = np.arange(have.shape[0])[:, None]
+    xx = np.arange(have.shape[1])[None, :]
+
+    # Eyes sit in the middle of the opening. Crown highlights are not eyes.
+    ys_have = np.nonzero(have)[0]
+    band_lo = int(np.quantile(ys_have, 0.28))
+    band_hi = int(np.quantile(ys_have, 0.78))
+    eye_band = have & (yy >= band_lo) & (yy <= band_hi)
+    eye = eye_band & (lum >= 620) & (span <= 52) & (lo >= 160) & ~((r > b + 28) & (r > 185))
+    eye |= eye_band & (lum >= 575) & (b + 16 >= r) & (b + 16 >= gch) & (span <= 60) & (lo >= 145)
+    kept = np.zeros_like(eye)
+    for comp in components8(eye):
+        if int(comp.sum()) >= 2:
+            kept |= comp
+    eye = kept
+    eye |= dilate4(eye, 1) & have & (lum >= 490) & (span <= 75) & (r < b + 45)
+
+    neutral = have & (lum < 105) & (span < 50) & (r < 95)
+    opaque = base[..., 3] > 40
+    sil = have & ~erode(opaque, 1)
+
+    ey_y, ey_x = np.nonzero(eye)
+    if len(ey_y):
+        eye_top = int(ey_y.min())
+        eye_bot = int(ey_y.max())
+        eye_x0 = int(ey_x.min())
+        eye_x1 = int(ey_x.max())
+        eye_cx = (eye_x0 + eye_x1) / 2.0
+    else:
+        ys, xs = np.nonzero(have)
+        eye_top = int(np.quantile(ys, 0.42))
+        eye_bot = eye_top + 3
+        eye_x0, eye_x1 = int(xs.min()), int(xs.max())
+        eye_cx = (eye_x0 + eye_x1) / 2.0
+
+    pupil = neutral & ~sil & dilate4(eye, 2) & (yy >= eye_top - 1) & (yy <= eye_bot + 2)
+    brow_band = (yy >= eye_top - 7) & (yy <= eye_top - 1) & (xx >= eye_x0 - 6) & (xx <= eye_x1 + 6)
+    brow = have & ~pupil & ~eye & brow_band & (lum < 210) & (r < 170)
+
+    hair = have & warm & (r < 152) & (lum < 430) & (yy <= eye_top - 8) & ~brow & ~eye & ~pupil
+    if direction == "E":
+        hair |= have & warm & (r < 158) & (lum < 440) & (xx < eye_cx - 3) & ~eye & ~pupil & ~brow
+    elif direction == "W":
+        hair |= have & warm & (r < 158) & (lum < 440) & (xx > eye_cx + 3) & ~eye & ~pupil & ~brow
+    hair |= have & (lum < 130) & (yy < eye_top - 8) & ~eye & ~pupil
+    hair |= have & ~eye & ~pupil & ~brow & (_count8(hair) >= 5) & (yy <= eye_top)
+
+    # Profile contour: the facing silhouette is the nose, the lips and the ear.
+    line = np.zeros_like(have)
+    if direction in SIDE:
+        line = sil & (lum < 200) & ~eye & ~pupil
+
+    skin = have & ~hair & ~brow & ~pupil & ~eye & ~line
+    labels = np.zeros(have.shape, dtype=np.uint8)
+    labels[skin & (lum >= 555)] = 5
+    labels[skin & (lum < 555) & (lum >= 400)] = 6
+    labels[skin & (lum < 400)] = 7
+    labels = _mode_skin(labels)
+    # A short dark stroke under the nose. Kept out of the majority filter
+    # so the mouth does not dissolve into the chin.
+    mouth = have & warm & (lum < 270) & (lum > 70) & (yy >= eye_bot + 3) & (yy <= eye_bot + 9)
+    mouth &= (xx >= eye_cx - 8) & (xx <= eye_cx + 8) & ~eye & ~pupil & ~hair
+    mouth_keep = np.zeros_like(mouth)
+    for comp in components8(mouth):
+        if int(comp.sum()) >= 2:
+            mouth_keep |= comp
+    labels[hair] = 1
+    labels[brow] = 2
+    labels[line] = 2
+    labels[pupil] = 3
+    labels[eye & (labels != 3)] = 4
+    labels[mouth_keep] = 8
+    # The nose is the darker column between the eyes and the mouth.
+    nose = have & warm & (lum < 500) & (yy > eye_bot) & (yy < eye_bot + 6)
+    nose &= (xx >= eye_cx - 2) & (xx <= eye_cx + 1) & ~eye & ~pupil & ~hair & ~mouth_keep
+    labels[nose & (labels >= 5)] = 7
+
+    colors = {
+        1: _glass_mix(FACE_HAIR, 7, 8),
+        2: _glass_mix(FACE_BROW, 7, 8),
+        3: _glass_mix(FACE_PUPIL, 7, 8),
+        4: _glass_mix(FACE_EYE, 5, 6),
+        5: _glass_mix(FACE_LIGHT, 3, 4),
+        6: _glass_mix(FACE_MID, 3, 4),
+        7: _glass_mix(FACE_SHADE, 4, 5),
+        8: _glass_mix(FACE_MOUTH, 7, 8),
+    }
+    for cls, color in colors.items():
+        paint(out, lab, labels == cls, color, L_KEEP)
 
 
-def _visor_glare(visor: np.ndarray, base, direction: str) -> np.ndarray:
-    """Two short white slashes in the upper corner of the glass."""
-    m = np.zeros_like(visor)
-    h, w = visor.shape
-    ys, xs = np.nonzero(visor)
+def _visor_glare(safe: np.ndarray, direction: str) -> np.ndarray:
+    """One crisp white slash in the upper corner of the glass, off the eyes."""
+    m = np.zeros_like(safe)
+    h, w = safe.shape
+    ys, xs = np.nonzero(safe)
     if len(ys) == 0:
         return m
     y_top = int(ys.min())
-    # The upper corner of this pane, inset so the slash is on glass.
+    row_y = min(h - 1, y_top + 1)
+    row = np.nonzero(safe[row_y])[0]
+    if len(row) == 0:
+        row_y = y_top
+        row = np.nonzero(safe[row_y])[0]
+    if len(row) == 0:
+        return m
     if direction == "W":
-        row = np.nonzero(visor[min(h - 1, y_top + 1)])[0]
-        if len(row) == 0:
-            return m
-        x0 = int(row.max()) - 3
+        x0 = int(row.max()) - 2
+        step = -1
     else:
-        row = np.nonzero(visor[min(h - 1, y_top + 1)])[0]
-        if len(row) == 0:
-            return m
-        x0 = int(row.min()) + 3
-    y0 = y_top + 1
-    step = -1 if direction == "W" else 1
-
-    def put(x: int, y: int) -> None:
-        if not (0 <= y < h and 0 <= x < w and visor[y, x]):
-            return
-        p = base[y, x]
-        if int(p[3]) > 40 and int(p[0]) + int(p[1]) + int(p[2]) > 700:
-            return
-        m[y, x] = True
-
+        x0 = int(row.min()) + 2
+        step = 1
+    # A shallow slash so it stays on the glass instead of crossing an eye.
     for i in range(4):
-        put(x0 + step * i, y0 + i)
+        x, y = x0 + step * i, row_y + (i // 2)
+        if 0 <= y < h and 0 <= x < w and safe[y, x]:
+            m[y, x] = True
     return m
 
 
@@ -807,7 +911,12 @@ def paint_helmet(out, lab, base, head, direction, g, h, w, yy, xx) -> None:
     if not head.any():
         return
     cx, cy, rx, ry = _helmet_place(direction, g, head, yy)
-    dome = _ellipse(h, w, cx, cy, rx, ry, yy, xx) & (yy <= g.neck) & (yy >= 0)
+    oval = _ellipse(h, w, cx, cy, rx, ry, yy, xx) & (yy <= g.neck) & (yy >= 0)
+    # Hair the tighter oval just misses stays shell, and only where it already
+    # touches the oval, so the outline stays one curve instead of a white tuft.
+    dome = oval | (
+        head & ~oval & dilate(oval, 2) & (yy <= g.neck - 6) & (np.abs(xx - cx) <= rx + 2)
+    )
 
     visor = np.zeros_like(head)
     fcx = fcy = frx = fry = 0.0
@@ -816,7 +925,7 @@ def paint_helmet(out, lab, base, head, direction, g, h, w, yy, xx) -> None:
         fcx, fcy = cx + fx * rx, cy + fy * ry
         frx, fry = max(4.0, sx * rx), max(4.0, sy * ry)
         # Stay above the neck ring so the collar is shell, not glass.
-        visor = _ellipse(h, w, fcx, fcy, frx, fry, yy, xx) & dome & (yy <= g.neck - 2)
+        visor = _ellipse(h, w, fcx, fcy, frx, fry, yy, xx) & oval & (yy <= g.neck - 2)
 
     shell = dome & ~visor
     paint(out, lab, shell, HI, L_HELM)
@@ -825,11 +934,33 @@ def paint_helmet(out, lab, base, head, direction, g, h, w, yy, xx) -> None:
     paint(out, lab, shell & (shade > 0.12), MID, L_HELM)
 
     if visor.any():
-        _flat_visor(out, lab, base, visor)
-        rim = _ellipse(h, w, fcx, fcy, frx + 1.05, fry + 1.05, yy, xx)
+        inner = _ellipse(h, w, fcx, fcy, max(3.0, frx - 2.15), max(3.0, fry - 2.15), yy, xx)
+        inner &= visor
+        ring = visor & ~inner
+        # The side ear is the facing bulge. A glass ring there would erase it,
+        # so that slice stays face and the ring wraps the other side.
+        if direction == "E":
+            ring &= xx < fcx + frx * 0.20
+        elif direction == "W":
+            ring &= xx > fcx - frx * 0.20
+        _paint_face(out, lab, base, visor & ~ring, direction)
+        paint(out, lab, ring, GLASS, L_KEEP)
+        # The facing profile line sits on the glass edge too, so the ear reads.
+        if direction in SIDE:
+            opaque = base[..., 3] > 40
+            edge = visor & opaque & ~erode(opaque, 1)
+            r = base[..., 0].astype(np.int16)
+            gch = base[..., 1].astype(np.int16)
+            b = base[..., 2].astype(np.int16)
+            lum = r + gch + b
+            paint(out, lab, edge & (lum < 200), _glass_mix(FACE_BROW, 7, 8), L_KEEP)
+        rim = _ellipse(h, w, fcx, fcy, frx + 1.15, fry + 1.15, yy, xx)
         rim &= dome & ~visor & (yy <= g.neck - 2)
         paint(out, lab, rim, RIM, L_HELM)
-        paint(out, lab, _visor_glare(visor, base, direction), GLINT, L_HELM)
+        rgb = out[..., :3]
+        eyeish = (rgb[..., 0] > 210) & (rgb[..., 1] > 220) & (rgb[..., 2] > 210)
+        safe = (visor | rim) & ~eyeish
+        paint(out, lab, _visor_glare(safe, direction), GLINT, L_KEEP)
 
     # Neck ring: the two bottom rows of the dome, then a dark seam on the suit.
     ring = dome & (yy >= g.neck - 1) & (yy <= g.neck) & (lab != L_KEEP)
