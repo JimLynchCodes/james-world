@@ -28,8 +28,8 @@ export { directionFromAngle } from "./tagging";
  * Spaceman James (`kid_spaceman.png` plus `kid_spaceman_b.png`, from
  * tools/make_spaceman_skin.py) is drawn at 2× and shown at 1/2 scale with
  * linear filtering. The sheet is split so each texture stays under 4096px.
- * Walk and run add a cosmetic low-gravity hop, and holding run lights the
- * boosters (see `syncSpaceman`).
+ * Walk and run are slow (3 fps and 4 fps) and add a tall cosmetic
+ * low-gravity hop. Holding run lights the boosters (see `syncSpaceman`).
  * Animation keys are `<texture>-<anim>-<dir>`, e.g. `kid_banana-walk-SE`.
  */
 const FRAME_W = 80;
@@ -188,10 +188,6 @@ const FLAME_FWD: Record<Direction, [number, number]> = {
 };
 
 /**
- * Ease-in/out bound with a float at the top. `hang` (0..1) lengthens the
- * time spent near the apex; the ends stay soft so he doesn't pop off the ground.
- */
-/**
  * 0..1 phase through one bound, moving continuously while a frame is held.
  * `getProgress()` sits still until the next sprite frame, so a hop built
  * from it pops. The accumulator is how far the current frame has played.
@@ -206,12 +202,24 @@ function stridePhase(anims: Phaser.Animations.AnimationState): number {
   return (((index + into) / total) * 2) % 1;
 }
 
+/**
+ * Ease-in/out bound with a long hang at the top. `hang` (0..1) lengthens
+ * the time spent near the apex. The rise is the short half and the descent
+ * is the long half, so the hop settles instead of dropping.
+ */
 function moonArc(phase: number, hang: number): number {
-  const lobe = Math.sin(Math.PI * phase);
+  // Rise through the first part of the bound and take the rest to come
+  // down, so the descent is the long, gentle half of a low-gravity hop.
+  const t = phase < 0.36 ? (phase / 0.36) * 0.5 : 0.5 + ((phase - 0.36) / 0.64) * 0.5;
+  const lobe = Math.sin(Math.PI * t);
   const eased = lobe * lobe * (3 - 2 * lobe);
   const lifted = 1 - (1 - eased) * (1 - eased);
   return eased * (1 - hang) + lifted * hang;
 }
+
+/** World-pixel height of the cosmetic hop. The feet still cross the ground at the normal speed. */
+const MOON_WALK_HOP = 28;
+const MOON_RUN_HOP = 46;
 
 /**
  * Exhaust leaves the nozzles downward, with a smaller backward component.
@@ -250,8 +258,10 @@ function createSkinAnimations(scene: Phaser.Scene, sheet: SkinSheet) {
 
     // Spaceman's stride is the same poses, held longer, so the moon hop
     // has time to float. Other skins keep the shared rates.
-    const walkFps = sheet.id === "spaceman" ? 6 : WALK_FPS;
-    const runFps = sheet.id === "spaceman" ? 8 : RUN_FPS;
+    // A full 8-frame cycle at 3 fps is about 2.7s, so each bound (half a
+    // cycle) lasts ~1.3s. Run is a little quicker and still a slow float.
+    const walkFps = sheet.id === "spaceman" ? 3 : WALK_FPS;
+    const runFps = sheet.id === "spaceman" ? 4 : RUN_FPS;
     add({ key: animKey("walk", dir), frames: range("walk"), frameRate: walkFps, repeat: -1 });
     add({ key: animKey("run", dir), frames: range("run"), frameRate: runFps, repeat: -1 });
     add({ key: animKey("breathe", dir), frames: range("breathe"), frameRate: 3, repeat: -1 });
@@ -595,16 +605,16 @@ export class KidAvatar {
       // changes when the frame changes, which made the hop step.
       const phase = stridePhase(this.sprite.anims);
       const running = this.running;
-      this.hop = (running ? 20 : 10) * moonArc(phase, running ? 0.78 : 0.6);
+      this.hop = (running ? MOON_RUN_HOP : MOON_WALK_HOP) * moonArc(phase, running ? 0.84 : 0.74);
     } else {
-      this.hop *= Math.exp(-dt / 90);
+      this.hop *= Math.exp(-dt / 120);
       if (this.hop < 0.05) this.hop = 0;
     }
     // Soft landing: a brief knee compress as the hop comes back to the ground.
-    if (airborne && this.prevHop > 2.2 && this.hop < this.prevHop && this.hop < 2.2) {
-      this.squash = 0.94;
+    if (airborne && this.prevHop > 6 && this.hop < this.prevHop && this.hop < 6) {
+      this.squash = 0.93;
     }
-    this.squash += (1 - this.squash) * (1 - Math.exp(-dt / 150));
+    this.squash += (1 - this.squash) * (1 - Math.exp(-dt / 200));
     if (this.squash > 0.995) this.squash = 1;
     if (this.skin === "spaceman") {
       const draw = this.drawScale;
@@ -614,7 +624,7 @@ export class KidAvatar {
     if (this.skin === "spaceman" && this.running) this.flame = Math.min(1, this.flame + dt / 1500);
     else this.flame = Math.max(0, this.flame - dt / 480);
     // The ring stays under the feet and reads smaller when he's higher.
-    this.shadow.setScale(this.skin === "spaceman" ? 1 - 0.22 * (this.hop / 20) : 1);
+    this.shadow.setScale(this.skin === "spaceman" ? 1 - 0.3 * (this.hop / MOON_RUN_HOP) : 1);
   }
 
   /** Blue exhaust from the backpack nozzles. Hidden when the flame has faded. */

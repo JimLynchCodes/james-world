@@ -1726,7 +1726,9 @@ def render_hd(base: np.ndarray, painted: np.ndarray, lab: np.ndarray, direction:
             glass = _shade(glass_light, _mix(GLASS, HI, 0.28), GLASS, _mix(GLASS, RIM, 0.35))
             img[visor, :3] = glass[visor]
             _paint_rgb(img, glass_ring, RIM)
-            _paint_clean_face(img, inner, direction, fcx, fcy, frx, fry, H, W, dome)
+            _composite_james_face(
+                img, base, inner, direction, fcx, fcy, frx, fry, H, W, dome, cx, rx,
+            )
         else:
             # Short rounded antenna and a small crown highlight.
             rows = np.nonzero(dome.any(axis=1))[0]
@@ -1781,87 +1783,54 @@ def render_hd(base: np.ndarray, painted: np.ndarray, lab: np.ndarray, direction:
     return img
 
 
-def _paint_clean_face(img, inner, direction, fcx, fcy, frx, fry, H, W, dome) -> None:
-    """Hair, brows, eyes, a small nose, a mouth, and a profile ear.
+def _composite_james_face(img, base, inner, direction, fcx, fcy, frx, fry, H, W, dome, cx, rx) -> None:
+    """James's own head, upscaled into the visor.
 
-    Drawn in the visor, not fitted to the 1× color masks. A tall shade
-    column from that mask became a giant nose, and a vertical hair cut
-    filled half the side visor.
+    The pixels come from this frame of the base kid sheet (the same face
+    the other skins start from): hair, brows, eyes, beard, and the profile
+    ear. Lanczos plus a light blur knocks the dither down without redrawing
+    the features. A little blue glass sits on top.
     """
-    if direction in BACK or int(inner.sum()) < 8:
+    if direction in BACK or int(np.count_nonzero(inner)) < 8:
         return
-    yy, xx = np.mgrid[0:H, 0:W]
-    u = (xx - fcx) / max(float(frx), 1.0)
-    v = (yy - fcy) / max(float(fry), 1.0)
-    skin_light = np.clip(0.9 - u * 0.10 - v * 0.36, 0.0, 1.0)
-    skin = _shade(
-        skin_light,
-        _mix(FACE_LIGHT, GLASS, 0.05),
-        _mix(FACE_MID, GLASS, 0.04),
-        _mix(FACE_SHADE, GLASS, 0.04),
+    rgb = base[..., :3].copy()
+    opaque = base[..., 3] > 40
+    # Color the empty margin so the resize does not pull black into the cheek.
+    for _ in range(3):
+        blur = np.asarray(Image.fromarray(rgb).filter(ImageFilter.GaussianBlur(1.15)))
+        rgb = rgb.copy()
+        rgb[~opaque] = blur[~opaque]
+        opaque = dilate(opaque, 1)
+    up = np.asarray(Image.fromarray(rgb).resize((W, H), Image.Resampling.LANCZOS)).astype(np.float32)
+    soft = np.asarray(Image.fromarray(np.clip(up, 0, 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(0.55)))
+    up = up * 0.62 + soft.astype(np.float32) * 0.38
+    a_up = np.asarray(
+        Image.fromarray(base[..., 3]).resize((W, H), Image.Resampling.LANCZOS)
     )
-    img[inner, :3] = skin[inner]
+    glass = np.array(GLASS, np.float32)
+    tint = 0.14
+    mixed = np.clip(up * (1.0 - tint) + glass * tint, 0, 255)
+    show = inner & (a_up > 110)
+    img[show, :3] = mixed[show].astype(np.uint8)
 
-    def disc(cu: float, cv: float, ru: float, rv: float, min_rx: float = 0.8, min_ry: float = 0.7) -> np.ndarray:
-        return _ell_cov(
-            xx, yy,
-            fcx + cu * frx, fcy + cv * fry,
-            max(min_rx, ru * frx), max(min_ry, rv * fry),
-        )
-
-    def on_glass(cov: np.ndarray) -> np.ndarray:
-        return np.where(inner, cov, 0.0).astype(np.float32)
-
-    def eye(cu: float, cv: float, scale: float = 1.0) -> None:
-        _blend(img, on_glass(disc(cu, cv, 0.155 * scale, 0.112 * scale, 3.0, 2.2)), FACE_EYE)
-        _blend(img, on_glass(disc(cu + 0.012 * scale, cv + 0.018 * scale, 0.062 * scale, 0.068 * scale, 1.7, 1.7)), FACE_PUPIL)
-        _blend(img, on_glass(disc(cu - 0.04 * scale, cv - 0.028 * scale, 0.028 * scale, 0.022 * scale, 0.7, 0.6)), GLINT)
-        _blend(img, on_glass(disc(cu, cv - 0.175, 0.19 * scale, 0.045, 2.4, 1.35)), FACE_BROW)
-
+    # Profile ear: the light skin bulge on the back of the head, outside the
+    # glass, so the helmet does not swallow it.
     if direction in ("E", "W"):
         sign = 1.0 if direction == "E" else -1.0
-        # Back of the head, curved into the cheek. Not a vertical half.
-        _blend(img, on_glass(disc(-sign * 0.55, -0.02, 0.46, 0.78)), FACE_HAIR)
-        _blend(img, on_glass(disc(-sign * 0.06, -0.60, 0.70, 0.38)), FACE_HAIR)
-        eye(sign * 0.30, 0.04, 1.05)
-        _blend(img, on_glass(disc(sign * 0.58, 0.20, 0.065, 0.12, 1.45, 2.1)), FACE_SHADE)
-        _blend(img, on_glass(disc(sign * 0.42, 0.44, 0.12, 0.05, 2.4, 1.25)), FACE_MOUTH)
-        # Ear on the back of the shell so the profile reads, attached to the helmet.
-        ear_cx = fcx - sign * frx * 1.02
-        ear_cy = fcy + fry * 0.05
-        ear_rx = max(3.6, frx * 0.20)
-        ear_ry = max(4.8, fry * 0.28)
-        ear = _ell_cov(xx, yy, ear_cx, ear_cy, ear_rx, ear_ry)
-        ear = np.where(dilate(dome, 2), ear, 0.0).astype(np.float32)
-        bowl = _ell_cov(
-            xx, yy,
-            ear_cx + sign * ear_rx * 0.06, ear_cy + ear_ry * 0.02,
-            ear_rx * 0.42, ear_ry * 0.46,
-        )
-        img[..., 3] = np.maximum(img[..., 3], np.clip(ear * 255.0, 0, 255).astype(np.uint8))
-        _blend(img, ear, _mix(FACE_LIGHT, FACE_MID, 0.35))
-        _blend(img, np.clip(ear * bowl, 0, 1), FACE_SHADE)
-        rim = np.clip(ear - _ell_cov(xx, yy, ear_cx, ear_cy, ear_rx * 0.72, ear_ry * 0.72), 0, 1)
-        _blend(img, rim, OUTLINE)
-    elif direction in ("SE", "SW"):
-        sign = 1.0 if direction == "SE" else -1.0
-        _blend(img, on_glass(disc(0.0, -0.58, 0.90, 0.40)), FACE_HAIR)
-        _blend(img, on_glass(disc(-sign * 0.52, -0.12, 0.34, 0.50)), FACE_HAIR)
-        eye(-sign * 0.02, 0.02, 0.78)
-        eye(sign * 0.34, 0.03, 1.02)
-        _blend(img, on_glass(disc(sign * 0.20, 0.26, 0.06, 0.11, 1.4, 2.0)), FACE_SHADE)
-        _blend(img, on_glass(disc(sign * 0.16, 0.50, 0.16, 0.05, 2.6, 1.25)), FACE_MOUTH)
-    else:
-        _blend(img, on_glass(disc(0.0, -0.58, 0.88, 0.40)), FACE_HAIR)
-        _blend(img, on_glass(disc(-0.78, -0.02, 0.22, 0.34)), FACE_HAIR)
-        _blend(img, on_glass(disc(0.78, -0.02, 0.22, 0.34)), FACE_HAIR)
-        eye(-0.32, 0.03, 1.0)
-        eye(0.32, 0.03, 1.0)
-        _blend(img, on_glass(disc(0.0, 0.26, 0.055, 0.11, 1.35, 2.0)), FACE_SHADE)
-        _blend(img, on_glass(disc(0.0, 0.50, 0.18, 0.05, 3.0, 1.3)), FACE_MOUTH)
+        yy, xx = np.mgrid[0:H, 0:W]
+        back = (cx - xx) * sign > rx * 0.02
+        band = (yy > fcy - fry * 0.08) & (yy < fcy + fry * 0.78)
+        rch, gch, bch = up[..., 0], up[..., 1], up[..., 2]
+        skin = (rch > 165) & (rch > bch + 18) & (gch > 90) & (a_up > 140)
+        ear = skin & back & band & dilate(dome, 2) & ~show
+        if ear.any():
+            img[ear, 3] = 255
+            img[ear, :3] = mixed[ear].astype(np.uint8)
+            rim = ear & ~erode(ear, 1)
+            _paint_rgb(img, rim, OUTLINE)
 
     streak = _visor_streak(inner, direction, H, W)
-    _blend(img, np.where(streak, np.float32(0.92), np.float32(0)), GLINT)
+    _blend(img, np.where(streak, np.float32(0.65), np.float32(0)), GLINT)
 
 
 def _visor_streak(visor: np.ndarray, direction: str, H: int, W: int) -> np.ndarray:

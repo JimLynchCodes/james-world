@@ -1546,6 +1546,7 @@ html[dir="rtl"] .settings-title {
   image-rendering: auto;
   background-size: calc(var(--fw) * var(--draw) * 16px) calc(var(--fh) * var(--draw) * 8px);
 }
+.skin-card[data-skin="spaceman"].picked .skin-preview { animation-duration: 2.6s; }
 .skin-stage {
   position: relative;
   display: block;

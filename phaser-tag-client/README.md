@@ -337,8 +337,9 @@ skin carries its own frame size and feet line. Animation keys are
   White suit with grey shading, a rounded helmet (James's face and hair show
   through the visor on front and side views; back views are the helmet),
   a chest panel, red and blue accent stripes, chunky gloves and boots, and
-  a backpack with two boosters. Walk and run add a cosmetic low-gravity hop
-  (the shadow stays on the ground). Holding run ramps blue booster flames
+  a backpack with two boosters. Walk and run play slowly (3 fps and 4 fps)
+  and add a tall cosmetic low-gravity hop (the shadow stays on the ground).
+  Holding run ramps blue booster flames
   over about a second and a half; that uses the existing `running` flag, so
   other players see it too. Footsteps are a soft radio beep (`spacemanStep`);
   the tag is a suit whoosh plus a short radio chirp (`spacemanSwing`). Re-run:
