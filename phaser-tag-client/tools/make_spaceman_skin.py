@@ -253,7 +253,7 @@ def row_bounds(mask: np.ndarray, y0: int, y1: int):
     return int(xs.min()), int(xs.max())
 
 
-def suit_frame(base: np.ndarray, direction: str) -> tuple[np.ndarray, np.ndarray, list[tuple[int, int]]]:
+def suit_frame(base: np.ndarray, direction: str, col: int = -1) -> tuple[np.ndarray, np.ndarray, list[tuple[int, int]]]:
     """Return (rgba, labels, [(x, y), (x, y)] nozzle centres)."""
     h, w = base.shape[:2]
     g = Geometry(base)
@@ -309,7 +309,15 @@ def suit_frame(base: np.ndarray, direction: str) -> tuple[np.ndarray, np.ndarray
     # White sleeves, a red band, a grey fold, and a glove at the tip.
     # Wide side-view blobs that sit on the belly stay suit-white; the
     # facing edge of them is the sleeve. See paint_sleeves.
-    paint_sleeves(out, lab, arms & a & (yy > head_cut), a, direction, g, yy, xx)
+    # A side-view stand (idle and the breathe that plays as idle) paints
+    # one near arm later, so the back blob is not a second sleeve.
+    standing_side = direction in SIDE and (0 <= col <= 3 or 12 <= col <= 15)
+    if standing_side:
+        # Both detected arms become suit. The near arm is drawn afterwards;
+        # the back blob must not stay skin-colored or read as a second sleeve.
+        paint(out, lab, arms & a & (yy > head_cut), HI, L_SUIT)
+    else:
+        paint_sleeves(out, lab, arms & a & (yy > head_cut), a, direction, g, yy, xx)
 
     # Chunky boots, one per foot. Grow a pixel away from the other foot and
     # one pixel down. Never bridge the gap, or the two boots become a sled.
@@ -376,10 +384,13 @@ def suit_frame(base: np.ndarray, direction: str) -> tuple[np.ndarray, np.ndarray
     paint_panel(out, lab, g, direction, a, arms, yy, xx)
     # Side views: the sleeve continues up over the existing shoulder so it
     # isn't a patch at the hip. Painted after the panel so the buttons stay.
-    if direction in SIDE:
+    if direction in SIDE and not standing_side:
         paint_side_sleeve(out, lab, arms & a, a, direction, g, yy, xx)
 
     paint_helmet(out, lab, closed, head & a, direction, g, h, w, yy, xx)
+    # After the helmet, so the sleeve meets the shell instead of hiding under it.
+    if standing_side:
+        paint_standing_arm(out, lab, a, direction, g, yy, xx)
 
     # Backpack layer, then composite so it can never show through the body
     # on front / side views. On back views it is the surface we see.
@@ -590,6 +601,63 @@ def paint_sleeves(out, lab, arm_px, body_a, direction, g, yy, xx) -> None:
         paint(out, lab, bridge, HI, L_SUIT)
         paint(out, lab, bridge & (yy >= start + 1) & (yy <= start + 2), RED, L_SUIT)
         paint(out, lab, bridge & dilate4(body_a & ~arm_px & ~bridge, 1) & (xx == x_lo if x_lo < g.hip_cx else xx == x_lo + 3), OUTLINE, L_LINE)
+
+
+def paint_standing_arm(out, lab, body_a, direction, g, yy, xx) -> None:
+    """One near arm on a side-view stand.
+
+    Hangs from the shoulder on the chest side: upper arm, a thicker elbow,
+    forearm, and a glove at the hip. The far side stays torso, so nothing
+    grows out of the backpack.
+    """
+    h, w = body_a.shape
+    start = int(g.neck) + 1
+    end = min(h - 1, int(g.hem) - 1)
+    span = end - start
+    if span < 8:
+        return
+    facing_right = direction == "E"
+    arm = np.zeros((h, w), dtype=bool)
+    for y in range(start, end + 1):
+        xs = np.nonzero(body_a[y])[0]
+        if len(xs) < 8:
+            continue
+        t = (y - start) / span
+        # Puffy sleeve: narrower at the shoulder and the wrist, wider at the elbow.
+        if t < 0.46:
+            thick = 5 + 3 * (t / 0.46)
+        else:
+            thick = 8 - 2 * ((t - 0.46) / 0.54)
+        thick = int(round(thick))
+        if facing_right:
+            edge = int(xs.max())
+            x0, x1 = edge - thick + 1, edge
+        else:
+            edge = int(xs.min())
+            x0, x1 = edge, edge + thick - 1
+        x0 = max(0, x0)
+        x1 = min(w - 1, x1)
+        arm[y, x0 : x1 + 1] = True
+    arm &= body_a & (yy > g.neck)
+    arm &= ~np.isin(lab, (L_BOOT, L_HELM, L_KEEP, L_PACK, L_BOOST))
+    if int(arm.sum()) < 16:
+        return
+    paint(out, lab, arm, HI, L_SUIT)
+    paint(out, lab, arm & (yy >= start + 1) & (yy <= start + 2), RED, L_SUIT)
+    elbow = start + int(round(span * 0.46))
+    paint(out, lab, arm & (yy >= elbow) & (yy <= elbow + 1), MID, L_SUIT)
+    glove = arm & (yy >= end - 4)
+    paint(out, lab, glove, LO, L_GLOVE)
+    # Seam against the chest. The outer edge is the body outline.
+    seam = np.zeros_like(arm)
+    if facing_right:
+        seam[:, :-1] = arm[:, :-1] & ~arm[:, 1:]
+    else:
+        seam[:, 1:] = arm[:, 1:] & ~arm[:, :-1]
+    seam &= ~glove & (yy > start)
+    paint(out, lab, seam, OUTLINE, L_LINE)
+    solid = alpha_mask(out)
+    paint(out, lab, arm & ~erode(solid, 1), OUTLINE, L_LINE)
 
 
 def paint_side_sleeve(out, lab, arm_px, body_a, direction, g, yy, xx) -> None:
@@ -1854,6 +1922,34 @@ def _visor_streak(visor: np.ndarray, direction: str, H: int, W: int) -> np.ndarr
     return m
 
 
+def _metal_tips(hd: np.ndarray) -> tuple[tuple[int, int], tuple[int, int]] | None:
+    """Bottom-center of each backpack nozzle, in HD pixels.
+
+    The flame root sits on this pixel, so the jet comes out of the metal
+    instead of floating beside the legs.
+    """
+    metal = (
+        (hd[..., 0] == METAL[0])
+        & (hd[..., 1] == METAL[1])
+        & (hd[..., 2] == METAL[2])
+        & (hd[..., 3] > 200)
+    )
+    comps = [c for c in components8(metal) if int(c.sum()) >= 8]
+    if len(comps) < 2:
+        return None
+    comps.sort(key=lambda c: int(c.sum()), reverse=True)
+    tips: list[tuple[int, int]] = []
+    for comp in comps[:2]:
+        ys, xs = np.nonzero(comp)
+        bot = int(ys.max())
+        cols = xs[ys == bot]
+        tips.append((int(round(float(np.median(cols)))), bot))
+    tips.sort(key=lambda p: p[0])
+    if abs(tips[0][0] - tips[1][0]) < 6:
+        return None
+    return tips[0], tips[1]
+
+
 def _frame_notes(hd: np.ndarray, direction: str, where: str) -> None:
     solid = hd[..., 3] >= 128
     parts = sum(1 for _ in components8(solid))
@@ -1888,7 +1984,7 @@ def main():
             if only and (direction, c) not in only:
                 continue
             fr = src[r * fh : (r + 1) * fh, c * fw : (c + 1) * fw]
-            painted, _lab, nozzles = suit_frame(fr, direction)
+            painted, _lab, nozzles = suit_frame(fr, direction, c)
             check_frame(fr, painted, _lab, direction, f"{direction} col {c}")
             hd = render_hd(fr, painted, _lab, direction)
             y0, x0 = r * fh * HD, c * fw * HD
@@ -1896,14 +1992,18 @@ def main():
             _frame_notes(hd, direction, f"{direction} col {c}")
             (ax, ay), (bx, by) = nozzles
             # Center of the 1× nozzle pixel, in the HD frame.
-            anchors.append(
-                (
-                    int(round((ax + 0.5) * HD - 0.5)),
-                    int(round((ay + 0.5) * HD - 0.5)),
-                    int(round((bx + 0.5) * HD - 0.5)),
-                    int(round((by + 0.5) * HD - 0.5)),
-                )
+            anchor = (
+                int(round((ax + 0.5) * HD - 0.5)),
+                int(round((ay + 0.5) * HD - 0.5)),
+                int(round((bx + 0.5) * HD - 0.5)),
+                int(round((by + 0.5) * HD - 0.5)),
             )
+            if direction in BACK:
+                tips = _metal_tips(hd)
+                if tips is not None:
+                    (lx, ly), (rx, ry) = tips
+                    anchor = (lx, ly, rx, ry)
+            anchors.append(anchor)
     if only:
         if args.preview:
             from PIL import ImageDraw

@@ -642,24 +642,16 @@ export class KidAvatar {
       return;
     }
     const sheet = SKINS.spaceman;
-    const pixelScale = sheet.pixelScale ?? 1;
-    // scaleX stays at the unsquashed draw scale, so a knee compress
-    // doesn't slide the jets off the nozzles.
+    // scaleX stays at the unsquashed draw scale. Back views also follow
+    // scaleY, so a knee compress moves the jets with the nozzles.
     const scale = this.sprite.scaleX;
     const facingDir = directionFromAngle(this.tagFacing ?? this.facing);
     const [baseX, baseY] = flameVector(facingDir);
-    // Front and back sit behind the suit, so the body hides the part of the
-    // jet that would cross it. Side views draw in front, beside the pack.
-    const behind =
-      facingDir === "S" ||
-      facingDir === "SE" ||
-      facingDir === "SW" ||
-      facingDir === "N" ||
-      facingDir === "NE" ||
-      facingDir === "NW";
-    // On the back the nozzles are over the legs. Park each jet at the side
-    // of the pack and aim it slightly outward, so it shows beside the calves.
-    const flank = facingDir === "N" || facingDir === "NE" || facingDir === "NW";
+    // South hides the jet behind the suit. East, west, and the front
+    // diagonals keep the placement that already reads. North and the back
+    // diagonals draw in front: the pack is the near side.
+    const behind = facingDir === "S" || facingDir === "SE" || facingDir === "SW";
+    const back = facingDir === "N" || facingDir === "NE" || facingDir === "NW";
     const intensity = this.flame;
     const time = this.scene.time.now;
     // Root stays on the nozzle. Length is the ramp (6px, ~12px, 20px).
@@ -675,16 +667,19 @@ export class KidAvatar {
       const flame = flames[i];
       if (!flame) return;
       const sign = bx <= midX ? -1 : 1;
-      const flankPx = flank ? sign * 14 * pixelScale : 0;
-      const spread = flank ? sign * 0.38 : i === 0 ? -0.08 : 0.08;
-      const sx = baseX + (flank ? spread : -baseY * spread);
-      const sy = baseY + (flank ? 0 : baseX * spread);
+      // Back: straight down out of the nozzle. NE and NW already lean a
+      // little away from the facing (see flameVector); open the pair so
+      // the two plumes don't merge. The root is the nozzle pixel.
+      const spread = back ? sign * 0.1 : i === 0 ? -0.08 : 0.08;
+      const sx = baseX + (back ? spread : -baseY * spread);
+      const sy = baseY + (back ? 0 : baseX * spread);
       const len = Math.hypot(sx, sy) || 1;
       const dx = sx / len;
       const dy = sy / len;
+      const scaleY = back ? this.sprite.scaleY : scale;
       flame.setPosition(
-        this.sprite.x + (bx + flankPx - sheet.frameWidth / 2) * scale + dx * kick,
-        this.sprite.y + (by - sheet.baselineY) * scale + dy * kick,
+        this.sprite.x + (bx - sheet.frameWidth / 2) * scale + dx * kick,
+        this.sprite.y + (by - sheet.baselineY) * scaleY + dy * kick,
       );
       flame.setRotation(Math.atan2(dy, dx) - Math.PI / 2);
       const wobble = 0.94 + 0.06 * Math.sin(time / 80 + i * 1.7);
