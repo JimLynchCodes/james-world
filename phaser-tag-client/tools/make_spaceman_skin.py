@@ -8,12 +8,13 @@ Output: public/assets/kid_spaceman.png + kid_spaceman.json
 Same frame size, columns, rows, animation ranges and feet line as kid.png.
 Every frame starts from that exact base frame (same direction, animation and
 frame index). The suit is painted over the body; nothing opaque in the base
-frame is erased. Front and side views wear a smooth oval helmet a little larger
-than the head, with James's face showing through a light-blue visor. Back
-views are that same dome, shaded, with a short antenna. The backpack and its
-two dark booster cones sit on his back: visible when he faces away, on the
-rear side in profile, and behind the body (a shoulder peek at most) when he
-faces the camera.
+frame is erased. Every direction wears the same smooth oval helmet for the
+whole animation: a white shell with one shadow side, a neck ring, and — on
+front and side views — a flat blue-glass visor with James's face still
+readable. Back views are that dome, with a short antenna and a small
+highlight. The backpack and its two dark booster cones sit on his back:
+visible when he faces away, on the rear side in profile, and behind the body
+(a shoulder peek at most) when he faces the camera.
 
 Requires: Python 3 + Pillow + numpy.  Usage:
     python3 tools/make_spaceman_skin.py [--preview /tmp/spaceman_preview.png]
@@ -55,8 +56,25 @@ YELLOW = (240, 196, 48)
 # Dark metal for the booster cones. Not the black outline, so the nozzle reads.
 METAL = (72, 80, 96)
 # Glass is only used inside the visor (L_KEEP), so it stays out of the suit palette.
-GLASS = (150, 206, 236)
+GLASS = (168, 216, 232)
+# Flat visor tones. Also L_KEEP only: the face is a few solid colors, not dither.
+EYE = (228, 242, 250)
+SKIN_GLASS = (214, 183, 156)
+BROW = (46, 56, 72)
 PALETTE = {OUTLINE, HI, MID, LO, RIM, GLINT, PANEL, RED, BLUE, YELLOW, METAL}
+
+# Visor ellipse as fractions of the locked helmet: (cx shift, cy shift, rx, ry).
+# Side views push the glass onto the facing half so the shell wraps the back.
+VISOR_SHAPE = {
+    "S": (0.00, 0.24, 0.64, 0.50),
+    "SE": (0.18, 0.22, 0.56, 0.48),
+    "SW": (-0.18, 0.22, 0.56, 0.48),
+    "E": (0.36, 0.16, 0.48, 0.56),
+    "W": (-0.36, 0.16, 0.48, 0.56),
+}
+
+# One helmet per direction, measured on the idle frame and reused everywhere.
+HELM: dict[str, tuple[float, float, float, float]] = {}
 
 FRONT = {"SE", "S", "SW"}
 SIDE = {"E": -1, "W": 1}  # screen-x of the back
@@ -600,124 +618,273 @@ def paint_side_sleeve(out, lab, arm_px, body_a, direction, g, yy, xx) -> None:
     paint(out, lab, col & ~erode(solid, 1), OUTLINE, L_LINE)
 
 
+def frame_head(base: np.ndarray):
+    """The head mask suit_frame uses, so the locked oval matches the paint."""
+    h, w = base.shape[:2]
+    g = Geometry(base)
+    closed = close_streaks(base, g.neck + 1)
+    a = alpha_mask(closed)
+    yy, xx = np.mgrid[0:h, 0:w]
+    face = (yy <= g.neck + 1) & skin_mask(closed)
+    arms, _hands = arms_and_hands(closed, g, face)
+    head = a & (yy <= g.neck - 1) & ~arms
+    return g, head, yy, xx
+
+
+def crown_center(head: np.ndarray, yy: np.ndarray) -> float:
+    """Horizontal center of the hair crown. The raised tag arm sits lower."""
+    ys = np.nonzero(head.any(axis=1))[0]
+    top = int(ys.min())
+    xs = np.nonzero((head & (yy <= top + 12)).any(axis=0))[0]
+    return (float(xs.min()) + float(xs.max())) / 2.0
+
+
+def _helmet_fit(frames, dx: float, dy: float, rx: float, ry: float) -> tuple[int, float]:
+    """Missed hair pixels, and how high the crown sits on the tallest pose.
+
+    The jaw is left out: a tag arm meets the chin there.
+    """
+    missed = 0
+    top = 99.0
+    for g, head, yy, xx in frames:
+        if not head.any():
+            continue
+        cx = crown_center(head, yy) + dx
+        cy = float(g.neck) + dy
+        top = min(top, cy - ry)
+        core = head & (np.abs(xx - cx) <= 18) & (yy <= g.neck - 8)
+        if not core.any():
+            continue
+        ys, xs = np.nonzero(core)
+        missed += int((((ys - cy) / ry) ** 2 + ((xs - cx) / rx) ** 2 > 1.0).sum())
+    return missed, top
+
+
+def lock_helmets(src: np.ndarray, meta: dict) -> None:
+    """One oval per direction, shared by every animation frame.
+
+    Radii come from the idle hair, then shrink or sit lower just enough that
+    the crown stays a curve inside the frame on the tallest pose. A tag swing
+    cannot inflate it.
+    """
+    fw, fh = meta["frameWidth"], meta["frameHeight"]
+    cols = meta["columns"]
+    HELM.clear()
+    for r, direction in enumerate(meta["directions"]):
+        frames = []
+        for c in range(cols):
+            fr = src[r * fh : (r + 1) * fh, c * fw : (c + 1) * fw]
+            g, head, yy, xx = frame_head(fr)
+            frames.append((g, head, yy, xx))
+        g0, head0, yy0, _xx0 = frames[0]
+        if not head0.any():
+            continue
+        ys, xs = np.nonzero(head0)
+        cx, cy, rx, ry = _cover(ys, xs, q=1.0)
+        dx = cx - crown_center(head0, yy0)
+        dy0 = cy - float(g0.neck)
+        rx += 2.0
+        ry += 1.6
+        chosen = (dx, dy0, rx, ry)
+        _missed, top = _helmet_fit(frames, dx, dy0, rx, ry)
+        # A clipped crown is a flat cut. Keep this width and sit the oval
+        # lower, or a little shorter, until the tallest pose rounds off.
+        if top < 1.5:
+            found = None
+            for drop in np.arange(0.0, 3.01, 0.5):
+                for shrink in np.arange(0.0, 4.01, 0.4):
+                    ry2 = ry - float(shrink)
+                    if ry2 < 22.0:
+                        continue
+                    m, tp = _helmet_fit(frames, dx, dy0 + float(drop), rx, ry2)
+                    if tp < 1.5 or m > 0:
+                        continue
+                    # Prefer the tallest oval that still clears the frame.
+                    key = (-ry2, float(drop))
+                    if found is None or key < found[0]:
+                        found = (key, (dx, dy0 + float(drop), rx, ry2))
+            if found is not None:
+                chosen = found[1]
+        HELM[direction] = chosen
+
+
+def _helmet_place(direction: str, g, head: np.ndarray, yy: np.ndarray):
+    if direction not in HELM and head.any():
+        ys, xs = np.nonzero(head)
+        cx, cy, rx, ry = _cover(ys, xs, q=1.0)
+        HELM[direction] = (cx - crown_center(head, yy), cy - g.neck, rx + 2.0, ry + 1.6)
+    dx, dy, rx, ry = HELM[direction]
+    cx = crown_center(head, yy) + dx
+    cy = float(g.neck) + dy
+    return cx, cy, rx, ry
+
+
+def _flat_visor(out, lab, base, visor: np.ndarray) -> None:
+    """Flat teal glass. The face is one skin tone, eye white, and the brows.
+
+    Hair and dither inside the oval become the glass, so the visor stays a
+    solid pane instead of a speckled copy of the hair.
+    """
+    have = visor & (base[..., 3] > 40)
+    r = base[..., 0].astype(np.int16)
+    gch = base[..., 1].astype(np.int16)
+    b = base[..., 2].astype(np.int16)
+    lum = r + gch + b
+    lo = np.minimum(np.minimum(r, gch), b)
+    span = np.maximum(np.maximum(r, gch), b) - lo
+    eye = have & (lum >= 690) & (span <= 32) & (lo >= 200)
+    eye |= have & (lum >= 640) & (b + 8 >= gch) & (b + 8 >= r) & (lo >= 175)
+    # Warm face, including the darker dither, so the skin is one solid tone.
+    # Near-black hair stays out of that mask and becomes the flat glass.
+    skin0 = have & ~eye & (lum >= 90) & (((r > gch) & (r > b) & (r > 130)) | (lum >= 170))
+    closed = erode(dilate(skin0, 1), 1) & have & ~eye
+    skin = fill_holes(closed | eye) & have & ~eye
+    skin = dilate(skin, 1) & have & ~eye & (lum >= 70)
+    brow = have & ~eye & (lum < 160) & dilate(eye, 3)
+    skin &= ~brow
+    # A dark dither pixel with skin on three sides is a hole, not the pane.
+    glass_px = have & ~skin & ~eye & ~brow
+    for _ in range(3):
+        neigh = np.zeros(visor.shape, dtype=np.int16)
+        face_px = skin | eye
+        neigh[1:] += face_px[:-1]
+        neigh[:-1] += face_px[1:]
+        neigh[:, 1:] += face_px[:, :-1]
+        neigh[:, :-1] += face_px[:, 1:]
+        speck = glass_px & (neigh >= 3) & (lum >= 40)
+        if not speck.any():
+            break
+        skin |= speck
+        glass_px &= ~speck
+    # A short run of glass inside the face is dither, not the pane.
+    for comp in components8(glass_px):
+        if int(comp.sum()) <= 6 and (dilate4(comp, 1) & (skin | eye)).any():
+            skin |= comp
+            glass_px &= ~comp
+    paint(out, lab, visor, GLASS, L_KEEP)
+    paint(out, lab, skin, SKIN_GLASS, L_KEEP)
+    paint(out, lab, eye, EYE, L_KEEP)
+    paint(out, lab, brow, BROW, L_KEEP)
+
+
+def _visor_glare(visor: np.ndarray, base, direction: str) -> np.ndarray:
+    """Two short white slashes in the upper corner of the glass."""
+    m = np.zeros_like(visor)
+    h, w = visor.shape
+    ys, xs = np.nonzero(visor)
+    if len(ys) == 0:
+        return m
+    y_top = int(ys.min())
+    # The upper corner of this pane, inset so the slash is on glass.
+    if direction == "W":
+        row = np.nonzero(visor[min(h - 1, y_top + 1)])[0]
+        if len(row) == 0:
+            return m
+        x0 = int(row.max()) - 3
+    else:
+        row = np.nonzero(visor[min(h - 1, y_top + 1)])[0]
+        if len(row) == 0:
+            return m
+        x0 = int(row.min()) + 3
+    y0 = y_top + 1
+    step = -1 if direction == "W" else 1
+
+    def put(x: int, y: int) -> None:
+        if not (0 <= y < h and 0 <= x < w and visor[y, x]):
+            return
+        p = base[y, x]
+        if int(p[3]) > 40 and int(p[0]) + int(p[1]) + int(p[2]) > 700:
+            return
+        m[y, x] = True
+
+    for i in range(4):
+        put(x0 + step * i, y0 + i)
+    return m
+
+
 def paint_helmet(out, lab, base, head, direction, g, h, w, yy, xx) -> None:
-    """Smooth oval dome. The visor is a clean oval; the back of the head is the dome."""
+    """One smooth oval per facing. Radii never change with the frame."""
     if not head.any():
         return
-    show_face = direction not in BACK
-    ys, xs = np.nonzero(head)
-    cx, cy, rx, ry = _cover(ys, xs, q=1.0)
-    # A little larger than the hair, and still an ellipse.
-    rx += 1.15
-    ry += 1.05
-    def dome_of(rx, ry):
-        m = _ellipse(h, w, cx, cy, rx, ry, yy, xx)
-        return m & (yy <= g.neck + 1) & (yy >= 0)
-    dome = dome_of(rx, ry)
-    for _ in range(5):
-        if not (head & ~dome).any():
-            break
-        rx += 0.55
-        ry += 0.35
-        dome = dome_of(rx, ry)
-    # Last resort so the alpha check cannot fail. Prefer the ellipse.
-    if (head & ~dome).any():
-        dome = dome | head
+    cx, cy, rx, ry = _helmet_place(direction, g, head, yy)
+    dome = _ellipse(h, w, cx, cy, rx, ry, yy, xx) & (yy <= g.neck) & (yy >= 0)
 
     visor = np.zeros_like(head)
-    if show_face:
-        face = skin_mask(base) & alpha_mask(base) & (yy <= g.neck + 1)
-        brow = int(ys.min()) + max(4, int((int(ys.max()) - int(ys.min())) * 0.30))
-        main = np.zeros_like(head)
-        for comp in components8(face & (yy >= brow)):
-            if int(comp.sum()) >= 20:
-                main |= comp
-        if not main.any():
-            main = face
-        if main.any():
-            fys, fxs = np.nonzero(main)
-            fcx, fcy, frx, fry = _cover(fys, fxs, q=0.92)
-            frx = max(4.5, frx + 0.8)
-            fry = max(4.5, fry + 0.8)
-            if direction == "E":
-                fcx = max(fcx, cx + rx * 0.08)
-            elif direction == "W":
-                fcx = min(fcx, cx - rx * 0.08)
-            # Two pixels of shell stay outside the glass so the rim is not the outline.
-            interior = erode(dome, 2)
-            target = face if int(face.sum()) >= 40 else main
-            visor = _ellipse(h, w, fcx, fcy, frx, fry, yy, xx) & interior
-            visor &= yy <= int(max(fys.max(), g.neck))
-            for _ in range(10):
-                covered = int((target & visor).sum())
-                need = 0.62 * float(target.sum()) if target.any() else 0
-                if covered >= max(need, 1) and int(visor.sum()) >= 40:
-                    break
-                frx *= 1.07
-                fry *= 1.06
-                visor = _ellipse(h, w, fcx, fcy, frx, fry, yy, xx) & interior
-                visor &= yy <= g.neck + 1
+    fcx = fcy = frx = fry = 0.0
+    if direction not in BACK:
+        fx, fy, sx, sy = VISOR_SHAPE[direction]
+        fcx, fcy = cx + fx * rx, cy + fy * ry
+        frx, fry = max(4.0, sx * rx), max(4.0, sy * ry)
+        # Stay above the neck ring so the collar is shell, not glass.
+        visor = _ellipse(h, w, fcx, fcy, frx, fry, yy, xx) & dome & (yy <= g.neck - 2)
 
     shell = dome & ~visor
     paint(out, lab, shell, HI, L_HELM)
-    mid, lo = shell_bands(shell, yy, xx)
-    paint(out, lab, mid, MID, L_HELM)
-    paint(out, lab, lo, LO, L_HELM)
+    # One shadow, lower right. The same half-plane in every frame of this facing.
+    shade = (xx - cx) / rx * 0.65 + (yy - cy) / ry * 0.85
+    paint(out, lab, shell & (shade > 0.12), MID, L_HELM)
 
     if visor.any():
-        have = visor & (base[..., 3] > 40)
-        empty = visor & ~have
-        out[have] = base[have]
-        glass_tint(out, have)
-        paint(out, lab, empty, GLASS, L_KEEP)
-        lab[have] = L_KEEP
-        frame = (lab == L_HELM) & dilate4(visor, 1)
-        paint(out, lab, frame, RIM, L_HELM)
-        paint(out, lab, visor_glint(frame if frame.any() else visor, direction), GLINT, L_HELM)
+        _flat_visor(out, lab, base, visor)
+        rim = _ellipse(h, w, fcx, fcy, frx + 1.05, fry + 1.05, yy, xx)
+        rim &= dome & ~visor & (yy <= g.neck - 2)
+        paint(out, lab, rim, RIM, L_HELM)
+        paint(out, lab, _visor_glare(visor, base, direction), GLINT, L_HELM)
 
+    # Neck ring: the two bottom rows of the dome, then a dark seam on the suit.
+    ring = dome & (yy >= g.neck - 1) & (yy <= g.neck) & (lab != L_KEEP)
+    paint(out, lab, ring, LO, L_HELM)
     solid = alpha_mask(out)
-    edge = ((lab == L_HELM) | (lab == L_EAR)) & ~erode(solid, 1)
+    edge = (lab == L_HELM) & ~erode(solid, 1)
     paint(out, lab, edge, OUTLINE, L_HELM)
-
-    dys, dxs = np.nonzero(dome)
-    x0, x1 = int(dxs.min()), int(dxs.max())
-    collar = (yy >= g.neck) & (yy <= g.neck + 1)
-    collar &= (xx >= x0 + 2) & (xx <= x1 - 2) & alpha_mask(out) & (lab != L_KEEP)
-    paint(out, lab, collar, LO, L_HELM)
-    paint(out, lab, collar & (yy == int(g.neck) + 1), OUTLINE, L_LINE)
+    xs = np.nonzero(ring.any(axis=0))[0]
+    if len(xs):
+        seam = (yy == int(g.neck) + 1) & (xx >= int(xs.min())) & (xx <= int(xs.max()))
+        seam &= (out[..., 3] > 40) & (lab != L_KEEP) & (lab != L_GLOVE) & (lab != L_BOOT)
+        paint(out, lab, seam, OUTLINE, L_LINE)
 
     if direction in BACK and dome.any():
-        top = int(np.nonzero(dome.any(axis=1))[0].min())
-        row = np.nonzero(dome[top])[0]
-        if len(row) == 0 and top + 1 < h:
-            top += 1
-            row = np.nonzero(dome[min(h - 1, top)])[0]
-        if len(row):
-            ax = int(round(float(row.mean())))
-            # Short antenna. Both pixels sit on the crown; no vent dash.
-            for dy in range(0, 4):
-                y = top - dy
-                if y < 0:
-                    break
-                for x in (ax - 0, ax + 1):
-                    if not 0 <= x < w:
-                        continue
-                    if dy == 0:
-                        continue
-                    if out[y, x, 3] == 0:
-                        paint(out, lab, _at(dome, y, x), OUTLINE, L_HELM)
-
-    ears = ear_cups((lab == L_HELM) & erode(alpha_mask(out), 2), alpha_mask(out), direction, h, w)
-    if ears.any():
-        paint(out, lab, ears, LO, L_EAR)
-        for comp in components8(ears):
-            eys, exs = np.nonzero(comp)
-            if len(eys) < 3:
+        rows = np.nonzero(dome.any(axis=1))[0]
+        top = int(rows.min())
+        crow = np.nonzero(dome[top])[0]
+        ax = int(round(float(crow.mean())))
+        for dy in range(0, 3):
+            y = top - dy
+            if y < 0:
                 continue
-            paint(out, lab, _at(comp, int(eys.min()), int(exs.min())), HI, L_EAR)
+            for x in (ax, ax + 1):
+                if 0 <= x < w:
+                    paint(out, lab, _at(dome, y, x), OUTLINE, L_HELM)
+        # A two-pixel slash on the upper-left crown, inset so it is not speckle.
+        inset = erode(dome, 2) & (lab == L_HELM)
+        x = int(round(cx - 0.20 * rx))
+        y = int(round(cy - 0.60 * ry))
+        spot = None
+        for oy in range(-2, 3):
+            for ox in range(-2, 3):
+                y1, x1 = y + oy, x + ox
+                y2, x2 = y1 + 1, x1 + 1
+                if (
+                    0 <= y1 < h - 1 and 0 <= x1 < w - 1
+                    and inset[y1, x1] and inset[y2, x2]
+                ):
+                    spot = (y1, x1, y2, x2)
+                    break
+            if spot is not None:
+                break
+        if spot is not None:
+            y1, x1, y2, x2 = spot
+            paint(out, lab, _at(dome, y1, x1), GLINT, L_HELM)
+            paint(out, lab, _at(dome, y2, x2), GLINT, L_HELM)
+
+    # A tag arm can stick out of the locked oval. It stays a sleeve, not a lump
+    # on the shell, and it stays opaque so the base mask still holds.
+    extra = head & ~dome
+    if extra.any():
+        paint(out, lab, extra, HI, L_SUIT)
         solid = alpha_mask(out)
-        edge = ((lab == L_HELM) | (lab == L_EAR)) & ~erode(solid, 1)
-        paint(out, lab, edge, OUTLINE, L_HELM)
+        paint(out, lab, extra & ~erode(solid, 1), OUTLINE, L_LINE)
+        paint(out, lab, extra & dilate4(lab == L_HELM, 1), OUTLINE, L_LINE)
 
 
 def widest_stripe(comp: np.ndarray) -> np.ndarray:
@@ -1187,6 +1354,7 @@ def main():
     fw, fh, cols = meta["frameWidth"], meta["frameHeight"], meta["columns"]
     dirs = meta["directions"]
     src = np.asarray(Image.open(ASSETS / meta["image"]).convert("RGBA"))
+    lock_helmets(src, meta)
     out = np.zeros_like(src)
     anchors: list[tuple[int, int, int, int]] = []
     for r, direction in enumerate(dirs):
