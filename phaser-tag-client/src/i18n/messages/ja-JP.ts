@@ -122,6 +122,8 @@ export const jaJP: Messages = {
   "skin.pirate.note": "あーる、お前が鬼だ！",
   "skin.pharaoh": "ファラオのジェームズ",
   "skin.pharaoh.note": "エジプト歩き！",
+  "skin.spaceman": "宇宙飛行士ジェームズ",
+  "skin.spaceman.note": "小さな一歩…",
 
   "settings.credits.heading": "クレジット",
   "credits.bio":

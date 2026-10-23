@@ -122,6 +122,8 @@ export const hiIN: Messages = {
   "skin.pirate.note": "अरे, तुम पकड़े गए!",
   "skin.pharaoh": "फ़िरौन James",
   "skin.pharaoh.note": "मिस्र वाली चाल!",
+  "skin.spaceman": "अंतरिक्षयात्री James",
+  "skin.spaceman.note": "एक छोटा कदम…",
 
   "settings.credits.heading": "श्रेय",
   "credits.bio":

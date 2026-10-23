@@ -1498,7 +1498,7 @@ html[dir="rtl"] .settings-title {
   --gap: 16px;
   display: flex;
   flex-wrap: wrap;
-  /* a short last row (six skins) sits centred */
+  /* a short last row (seven skins) sits centred */
   justify-content: center;
   gap: var(--gap);
   margin-bottom: 14px;
@@ -1538,6 +1538,15 @@ html[dir="rtl"] .settings-title {
   transform: rotate(-1.5deg);
 }
 .skin-card:focus-visible { outline: 3px dashed var(--tangerine); outline-offset: 3px; }
+/* Spaceman frames are 2× James, and the card uses the first sheet
+   (16 columns: idle, walk, breathe). Sample the curves smoothly.
+   Other skins stay pixelated. */
+.skin-card[data-skin="spaceman"] { --draw: calc(var(--s) / 2); }
+.skin-card[data-skin="spaceman"] .skin-preview {
+  image-rendering: auto;
+  background-size: calc(var(--fw) * var(--draw) * 16px) calc(var(--fh) * var(--draw) * 8px);
+}
+.skin-card[data-skin="spaceman"].picked .skin-preview { animation-duration: 2.6s; }
 .skin-stage {
   position: relative;
   display: block;
@@ -1637,7 +1646,7 @@ html[dir="rtl"] .settings-title {
   .skin-note { align-self: center; font-size: 11px; text-align: center; }
   .skin-card[data-skin="pharaoh"] { --draw: 0.8; }
 }
-/* Short laptop screens: a tighter 3-up so all six skins fit unscrolled. */
+/* Short laptop screens: a tighter 3-up so the skins fit with little scrolling. */
 @media (max-height: 700px) {
   @container pane (min-width: 670px) {
     .skin-card { --s: .9; gap: 2px; padding: 8px 10px 10px; }

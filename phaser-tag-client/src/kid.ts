@@ -1,7 +1,8 @@
 import Phaser from "phaser";
 import { getLocale, t } from "./i18n";
 import { DEFAULT_SKIN, SKINS, SKIN_IDS, type Skin, type SkinSheet } from "./skins";
-import { DIRECTIONS, nextAvatarAnim, type Direction } from "./tagging";
+import { SPACEMAN_BOOSTERS } from "./spacemanBoosters";
+import { DIRECTIONS, directionFromAngle, nextAvatarAnim, type Direction } from "./tagging";
 
 export { directionFromAngle } from "./tagging";
 
@@ -24,6 +25,11 @@ export { directionFromAngle } from "./tagging";
  * frames (tricorn hat on top, cutlass at the sides).
  * Pharaoh James (`kid_pharaoh.png`, from tools/make_pharaoh_skin.py) has
  * padded frames (nemes crown on top, cape flared at the sides).
+ * Spaceman James (`kid_spaceman.png` plus `kid_spaceman_b.png`, from
+ * tools/make_spaceman_skin.py) is drawn at 2× and shown at 1/2 scale with
+ * linear filtering. The sheet is split so each texture stays under 4096px.
+ * Walk and run are slow (3 fps and 4 fps) and add a tall cosmetic
+ * low-gravity hop. Holding run lights the boosters (see `syncSpaceman`).
  * Animation keys are `<texture>-<anim>-<dir>`, e.g. `kid_banana-walk-SE`.
  */
 const FRAME_W = 80;
@@ -64,11 +70,34 @@ const RUN_FPS = 15;
 export function preloadKid(scene: Phaser.Scene) {
   for (const id of SKIN_IDS) {
     const sheet = SKINS[id];
-    scene.load.spritesheet(sheet.texture, sheet.url, {
-      frameWidth: sheet.frameWidth,
-      frameHeight: sheet.frameHeight,
-    });
+    const frame = { frameWidth: sheet.frameWidth, frameHeight: sheet.frameHeight };
+    scene.load.spritesheet(sheet.texture, sheet.url, frame);
+    if (sheet.extra) scene.load.spritesheet(sheet.extra.texture, sheet.extra.url, frame);
   }
+}
+
+/**
+ * One cell of the 30-column layout. Spaceman keeps tag and run on a second
+ * texture so neither image is wider than 4096px.
+ */
+function frameRef(sheet: SkinSheet, row: number, col: number): { key: string; frame: number } {
+  const lead = sheet.columns ?? COLUMNS;
+  const extra = sheet.extra;
+  if (!extra || col < extra.columnStart) return { key: sheet.texture, frame: row * lead + col };
+  return { key: extra.texture, frame: row * extra.columns + (col - extra.columnStart) };
+}
+
+/** Global 0..239 index for the booster anchor table, from whichever texture is showing. */
+function boosterIndexOf(sprite: Phaser.GameObjects.Sprite): number {
+  const local = Number(sprite.frame.name);
+  const sheet = SKINS.spaceman;
+  if (sheet.extra && sprite.texture.key === sheet.extra.texture) {
+    const row = Math.floor(local / sheet.extra.columns);
+    const col = sheet.extra.columnStart + (local % sheet.extra.columns);
+    return row * COLUMNS + col;
+  }
+  const lead = sheet.columns ?? COLUMNS;
+  return Math.floor(local / lead) * COLUMNS + (local % lead);
 }
 
 function animKey(name: AnimName, dir: KidDirection, skin: Skin = DEFAULT_SKIN) {
@@ -82,25 +111,159 @@ function animOf(key: string | undefined): string | undefined {
 
 /** Register all kid animations for every skin once per game (idempotent). */
 export function createKidAnimations(scene: Phaser.Scene) {
+  createSpacemanFlame(scene);
   for (const id of SKIN_IDS) createSkinAnimations(scene, SKINS[id]);
 }
 
+const FLAME_W = 12;
+const FLAME_H = 22;
+
+/**
+ * Chunky jet, root at the top. Full length is 20px of teardrop inside a
+ * 22px frame; placeFlames scales that down to the small and mid lengths.
+ * Width stays about 6px. One translucent pixel of glow sits outside the plume.
+ */
+function createSpacemanFlame(scene: Phaser.Scene) {
+  if (scene.textures.exists("spaceman-flame")) return;
+  const frames = 4;
+  const tex = scene.textures.createCanvas("spaceman-flame", FLAME_W * frames, FLAME_H);
+  if (!tex) return;
+  const ctx = tex.getContext();
+  const core = "#f4fbff";
+  const hot = "#8ad8ff";
+  const edge = "#163a9a";
+  // Flicker the length and which way the tip leans.
+  const lengths = [18, 20, 16, 19];
+  const tips = [0, 1, -1, 0];
+  for (let i = 0; i < frames; i++) {
+    const ox = i * FLAME_W;
+    const len = lengths[i] ?? 20;
+    const tip = tips[i] ?? 0;
+    const solid: boolean[][] = [];
+    for (let y = 0; y < FLAME_H; y++) solid.push(new Array(FLAME_W).fill(false));
+    for (let y = 0; y < len; y++) {
+      const t = y / (len - 1 || 1);
+      // 6px at the nozzle (two-pixel core), then a taper to one pixel.
+      const width = t < 0.42 ? 6 : t < 0.62 ? 4 : t < 0.78 ? 3 : t < 0.9 ? 2 : 1;
+      const lean = y > len * 0.55 ? tip : 0;
+      const left = 5 - Math.ceil((width - 2) / 2) + lean;
+      const right = left + width - 1;
+      for (let x = left; x <= right; x++) {
+        if (x < 1 || x >= FLAME_W - 1) continue;
+        solid[y][x] = true;
+        const dist = Math.min(Math.abs(x - (5 + lean)), Math.abs(x - (6 + lean)));
+        const edgePx = x === left || x === right || y === len - 1;
+        ctx.fillStyle = edgePx ? edge : dist === 0 ? (y < len * 0.5 ? core : hot) : hot;
+        ctx.fillRect(ox + x, y, 1, 1);
+      }
+    }
+    ctx.fillStyle = "rgba(70, 160, 255, 0.45)";
+    for (let y = 0; y < len; y++) {
+      for (let x = 0; x < FLAME_W; x++) {
+        if (solid[y][x]) continue;
+        const touch =
+          (y > 0 && solid[y - 1][x]) ||
+          (y + 1 < FLAME_H && solid[y + 1][x]) ||
+          (x > 0 && solid[y][x - 1]) ||
+          (x + 1 < FLAME_W && solid[y][x + 1]);
+        if (touch) ctx.fillRect(ox + x, y, 1, 1);
+      }
+    }
+  }
+  tex.refresh();
+  for (let i = 0; i < frames; i++) tex.add(i, 0, i * FLAME_W, 0, FLAME_W, FLAME_H);
+  tex.setFilter(Phaser.Textures.FilterMode.NEAREST);
+}
+
+/** Screen-space forward vector for a facing (y grows downward). */
+const FLAME_FWD: Record<Direction, [number, number]> = {
+  E: [1, 0],
+  SE: [0.7071, 0.7071],
+  S: [0, 1],
+  SW: [-0.7071, 0.7071],
+  W: [-1, 0],
+  NW: [-0.7071, -0.7071],
+  N: [0, -1],
+  NE: [0.7071, -0.7071],
+};
+
+/**
+ * 0..1 phase through one bound, moving continuously while a frame is held.
+ * `getProgress()` sits still until the next sprite frame, so a hop built
+ * from it pops. The accumulator is how far the current frame has played.
+ */
+function stridePhase(anims: Phaser.Animations.AnimationState): number {
+  const frame = anims.currentFrame;
+  const total = Math.max(1, anims.getTotalFrames());
+  if (!frame || total <= 1) return 0;
+  const index = Math.round(frame.progress * (total - 1));
+  const span = anims.nextTick > 0 ? anims.nextTick : 1;
+  const into = Math.min(1, Math.max(0, anims.accumulator / span));
+  return (((index + into) / total) * 2) % 1;
+}
+
+/**
+ * Ease-in/out bound with a long hang at the top. `hang` (0..1) lengthens
+ * the time spent near the apex. The rise is the short half and the descent
+ * is the long half, so the hop settles instead of dropping.
+ */
+function moonArc(phase: number, hang: number): number {
+  // Rise through the first part of the bound and take the rest to come
+  // down, so the descent is the long, gentle half of a low-gravity hop.
+  const t = phase < 0.36 ? (phase / 0.36) * 0.5 : 0.5 + ((phase - 0.36) / 0.64) * 0.5;
+  const lobe = Math.sin(Math.PI * t);
+  const eased = lobe * lobe * (3 - 2 * lobe);
+  const lifted = 1 - (1 - eased) * (1 - eased);
+  return eased * (1 - hang) + lifted * hang;
+}
+
+/** World-pixel height of the cosmetic hop. The feet still cross the ground at the normal speed. */
+const MOON_WALK_HOP = 28;
+const MOON_RUN_HOP = 46;
+
+/**
+ * Exhaust leaves the nozzles downward, with a smaller backward component.
+ * Facing the camera this is straight down (a glow under the boots). Side
+ * views angle back, away from the chest.
+ */
+function flameVector(dir: Direction): [number, number] {
+  const [fx, fy] = FLAME_FWD[dir];
+  const x = -fx * 0.22;
+  const y = 1 + -fy * 0.22;
+  const len = Math.hypot(x, y) || 1;
+  return [x / len, y / len];
+}
+
 function createSkinAnimations(scene: Phaser.Scene, sheet: SkinSheet) {
+  // Nearest sampling. Linear filtering blends a 1× suit with the grass
+  // wherever the scale isn't an integer, which reads as a see-through body.
+  // A hi-res sheet (pixelScale > 1) is minified on screen, so linear
+  // sampling smooths the curves without opening the suit.
+  const smooth = (sheet.pixelScale ?? 1) > 1;
+  const filter = smooth ? Phaser.Textures.FilterMode.LINEAR : Phaser.Textures.FilterMode.NEAREST;
+  for (const key of [sheet.texture, sheet.extra?.texture]) {
+    if (key && scene.textures.exists(key)) scene.textures.get(key).setFilter(filter);
+  }
   const animKey = (name: AnimName, dir: KidDirection) => `${sheet.texture}-${name}-${dir}`;
   KID_DIRECTIONS.forEach((dir, row) => {
-    const frame = (i: number) => row * COLUMNS + i;
     const range = (name: AnimName) =>
-      Array.from({ length: ANIM[name].count }, (_, i) => ({
-        key: sheet.texture,
-        frame: frame(ANIM[name].start + i),
-      }));
+      Array.from({ length: ANIM[name].count }, (_, i) => {
+        const cell = frameRef(sheet, row, ANIM[name].start + i);
+        return { key: cell.key, frame: cell.frame };
+      });
 
     const add = (config: Phaser.Types.Animations.Animation) => {
       if (!scene.anims.exists(config.key!)) scene.anims.create(config);
     };
 
-    add({ key: animKey("walk", dir), frames: range("walk"), frameRate: WALK_FPS, repeat: -1 });
-    add({ key: animKey("run", dir), frames: range("run"), frameRate: RUN_FPS, repeat: -1 });
+    // Spaceman's stride is the same poses, held longer, so the moon hop
+    // has time to float. Other skins keep the shared rates.
+    // A full 8-frame cycle at 3 fps is about 2.7s, so each bound (half a
+    // cycle) lasts ~1.3s. Run is a little quicker and still a slow float.
+    const walkFps = sheet.id === "spaceman" ? 3 : WALK_FPS;
+    const runFps = sheet.id === "spaceman" ? 4 : RUN_FPS;
+    add({ key: animKey("walk", dir), frames: range("walk"), frameRate: walkFps, repeat: -1 });
+    add({ key: animKey("run", dir), frames: range("run"), frameRate: runFps, repeat: -1 });
     add({ key: animKey("breathe", dir), frames: range("breathe"), frameRate: 3, repeat: -1 });
     add({ key: animKey("idle", dir), frames: range("idle"), frameRate: 4, repeat: -1 });
 
@@ -176,6 +339,15 @@ export class KidAvatar {
   private lungeTween: Phaser.Tweens.Tween | null = null;
   private readonly feetOffset: number;
   private skin: Skin = DEFAULT_SKIN;
+  /** Cosmetic low-gravity hop (world px). Never written into x/y. */
+  private hop = 0;
+  /** Previous frame's hop, so the landing can compress the knees once. */
+  private prevHop = 0;
+  /** 1 = full height. Dips on landing and eases back. */
+  private squash = 1;
+  /** 0..1 booster flame, ramped while `running` is held. */
+  private flame = 0;
+  private flames: Phaser.GameObjects.Sprite[] | null = null;
   /**
    * Name labels stay about the same size on screen when the camera zooms.
    * 1 at the normal zoom; larger in world space when zoomed out.
@@ -210,9 +382,12 @@ export class KidAvatar {
     this.shadow.setDepth(1);
 
     const sheet = SKINS[this.skin];
-    this.sprite = scene.add.sprite(x, y + this.feetOffset, sheet.texture, 2 * COLUMNS + ANIM.breathe.start);
+    const breathe = frameRef(sheet, 2, ANIM.breathe.start);
+    this.sprite = scene.add.sprite(x, y + this.feetOffset, breathe.key, breathe.frame);
     this.sprite.setOrigin(0.5, sheet.baselineY / sheet.frameHeight);
-    this.sprite.setScale(KID_SCALE);
+    this.sprite.setScale(this.drawScale);
+    this.sprite.setBlendMode(Phaser.BlendModes.NORMAL);
+    this.sprite.setAlpha(1);
 
     const label = (line: LabelLine) =>
       scene.add.text(x, y, LABEL_LOOK[line].text, LABEL_LOOK[line].style).setOrigin(0.5, 1);
@@ -253,8 +428,15 @@ export class KidAvatar {
     const progress = this.sprite.anims.isPlaying ? this.sprite.anims.getProgress() : 0;
     this.skin = skin;
     const sheet = SKINS[skin];
-    this.sprite.setTexture(sheet.texture, this.sprite.frame.name);
+    const breathe = frameRef(sheet, 2, ANIM.breathe.start);
+    const frameNo = Number(this.sprite.frame.name);
+    const leadFrames = (sheet.columns ?? COLUMNS) * KID_DIRECTIONS.length;
+    const frame = Number.isFinite(frameNo) && frameNo >= 0 && frameNo < leadFrames ? frameNo : breathe.frame;
+    this.sprite.setTexture(breathe.key, frame);
     this.sprite.setOrigin(0.5, sheet.baselineY / sheet.frameHeight);
+    this.squash = 1;
+    this.prevHop = 0;
+    this.sprite.setScale(this.drawScale);
     const [, name, dir] = current?.split("-") ?? [];
     if (name && dir && (DIRECTIONS as readonly string[]).includes(dir)) {
       this.sprite.anims.play(animKey(name as AnimName, dir as KidDirection, skin));
@@ -267,9 +449,15 @@ export class KidAvatar {
     return this.skin;
   }
 
+  /** On-screen scale. Hi-res sheets divide by pixelScale so the kid stays the same size. */
+  private get drawScale(): number {
+    return KID_SCALE / (SKINS[this.skin].pixelScale ?? 1);
+  }
+
   /** Height of the art above the feet in world px (hair top or banana stem). */
   private get artHeight(): number {
-    return SKINS[this.skin].artHeight * KID_SCALE;
+    const sheet = SKINS[this.skin];
+    return (sheet.artHeight / (sheet.pixelScale ?? 1)) * KID_SCALE;
   }
 
   /** Label stack contents: name, plus the YOU / IT lines when they apply. */
@@ -302,7 +490,7 @@ export class KidAvatar {
       left = Math.min(left, this.x - half);
       right = Math.max(right, this.x + half);
     }
-    const top = Math.min(this.labelTop, feetY - this.artHeight);
+    const top = Math.min(this.labelTop, feetY - this.hop - this.artHeight);
     const bottom = feetY + this.shadow.height / 2;
     return new Phaser.Geom.Rectangle(left, top, right - left, bottom - top);
   }
@@ -404,6 +592,125 @@ export class KidAvatar {
     }
   }
 
+  /**
+   * Low-gravity hop locked to the stride, and a booster flame that ramps
+   * while run is held. Both are sprite offsets: x/y, the hitbox and the
+   * shadow's position stay on the ground.
+   */
+  private syncSpaceman(dt: number) {
+    const airborne = this.skin === "spaceman" && this.moving && !this.tagging;
+    if (airborne) {
+      // Two bounds per walk/run cycle, so the hop matches the feet.
+      // Progress is smoothed inside each frame: getProgress() only
+      // changes when the frame changes, which made the hop step.
+      const phase = stridePhase(this.sprite.anims);
+      const running = this.running;
+      this.hop = (running ? MOON_RUN_HOP : MOON_WALK_HOP) * moonArc(phase, running ? 0.84 : 0.74);
+    } else {
+      this.hop *= Math.exp(-dt / 120);
+      if (this.hop < 0.05) this.hop = 0;
+    }
+    // Soft landing: a brief knee compress as the hop comes back to the ground.
+    if (airborne && this.prevHop > 6 && this.hop < this.prevHop && this.hop < 6) {
+      this.squash = 0.93;
+    }
+    this.squash += (1 - this.squash) * (1 - Math.exp(-dt / 200));
+    if (this.squash > 0.995) this.squash = 1;
+    if (this.skin === "spaceman") {
+      const draw = this.drawScale;
+      this.sprite.setScale(draw, draw * this.squash);
+    }
+    this.prevHop = this.hop;
+    if (this.skin === "spaceman" && this.running) this.flame = Math.min(1, this.flame + dt / 1500);
+    else this.flame = Math.max(0, this.flame - dt / 480);
+    // The ring stays under the feet and reads smaller when he's higher.
+    this.shadow.setScale(this.skin === "spaceman" ? 1 - 0.3 * (this.hop / MOON_RUN_HOP) : 1);
+  }
+
+  /** Blue exhaust from the backpack nozzles. Hidden when the flame has faded. */
+  private placeFlames() {
+    const show = this.skin === "spaceman" && this.flame > 0.02 && this.sprite.visible;
+    if (!show) {
+      this.flames?.forEach((flame) => flame.setVisible(false));
+      return;
+    }
+    const flames = this.ensureFlames();
+    if (!flames) return;
+    const anchors = SPACEMAN_BOOSTERS[boosterIndexOf(this.sprite)];
+    if (!anchors) {
+      flames.forEach((flame) => flame.setVisible(false));
+      return;
+    }
+    const sheet = SKINS.spaceman;
+    // scaleX stays at the unsquashed draw scale. Back views also follow
+    // scaleY, so a knee compress moves the jets with the nozzles.
+    const scale = this.sprite.scaleX;
+    const facingDir = directionFromAngle(this.tagFacing ?? this.facing);
+    const [baseX, baseY] = flameVector(facingDir);
+    // South hides the jet behind the suit. East, west, and the front
+    // diagonals keep the placement that already reads. North and the back
+    // diagonals draw in front: the pack is the near side.
+    const behind = facingDir === "S" || facingDir === "SE" || facingDir === "SW";
+    const back = facingDir === "N" || facingDir === "NE" || facingDir === "NW";
+    const intensity = this.flame;
+    const time = this.scene.time.now;
+    // Root stays on the nozzle. Length is the ramp (6px, ~12px, 20px).
+    // Kick and the flame's own scale stay in James-sized world pixels.
+    // The hi-res suit is drawn smaller, and the jets must not shrink with it.
+    const kick = 0.35 * KID_SCALE;
+    const points: readonly (readonly [number, number])[] = [
+      [anchors[0], anchors[1]],
+      [anchors[2], anchors[3]],
+    ];
+    const midX = (anchors[0] + anchors[2]) / 2;
+    points.forEach(([bx, by], i) => {
+      const flame = flames[i];
+      if (!flame) return;
+      const sign = bx <= midX ? -1 : 1;
+      // Back: straight down out of the nozzle. NE and NW already lean a
+      // little away from the facing (see flameVector); open the pair so
+      // the two plumes don't merge. The root is the nozzle pixel.
+      const spread = back ? sign * 0.1 : i === 0 ? -0.08 : 0.08;
+      const sx = baseX + (back ? spread : -baseY * spread);
+      const sy = baseY + (back ? 0 : baseX * spread);
+      const len = Math.hypot(sx, sy) || 1;
+      const dx = sx / len;
+      const dy = sy / len;
+      const scaleY = back ? this.sprite.scaleY : scale;
+      flame.setPosition(
+        this.sprite.x + (bx - sheet.frameWidth / 2) * scale + dx * kick,
+        this.sprite.y + (by - sheet.baselineY) * scaleY + dy * kick,
+      );
+      flame.setRotation(Math.atan2(dy, dx) - Math.PI / 2);
+      const wobble = 0.94 + 0.06 * Math.sin(time / 80 + i * 1.7);
+      // Texture is 20px of plume at full. Don't shrink the width: the
+      // teardrop is already 6px across at the nozzle.
+      const lengthPx = 6 + 14 * intensity;
+      flame.setScale(KID_SCALE * wobble, KID_SCALE * (lengthPx / 20) * wobble);
+      flame.setAlpha(1);
+      flame.setBlendMode(Phaser.BlendModes.NORMAL);
+      flame.setFrame((Math.floor(time / 70) + i) % 4);
+      flame.setDepth(this.sprite.depth + (behind ? -0.02 : 0.03));
+      flame.setVisible(true);
+    });
+  }
+
+  private ensureFlames(): Phaser.GameObjects.Sprite[] | null {
+    if (this.flames) return this.flames;
+    if (!this.scene.textures.exists("spaceman-flame")) return null;
+    const make = () => {
+      const flame = this.scene.add.sprite(0, 0, "spaceman-flame");
+      // Root at the top, so scaleY grows the flame down out of the nozzle.
+      flame.setOrigin(0.5, 0.04);
+      flame.setBlendMode(Phaser.BlendModes.NORMAL);
+      flame.setAlpha(1);
+      flame.setVisible(false);
+      return flame;
+    };
+    this.flames = [make(), make()];
+    return this.flames;
+  }
+
   /** Call every frame after updating x/y/facing/moving/running. */
   update() {
     const facing = this.tagFacing ?? this.facing;
@@ -438,17 +745,20 @@ export class KidAvatar {
     const ly = Math.sin(facing) * lunge * 0.6;
 
     const feetY = this.y + this.feetOffset;
+    const dt = Math.min(50, this.scene.game.loop.delta);
+    this.syncSpaceman(dt);
     this.shadow.setPosition(this.x, feetY);
-    this.sprite.setPosition(this.x + lx, feetY + ly);
+    this.sprite.setPosition(this.x + lx, feetY + ly - this.hop);
     // Lower on screen = drawn in front.
     // Same depth band as schoolyard props (trees / bushes / fence), so a
     // kid north of a trunk sorts behind it. Labels sit just above the
     // sprite so a translucent canopy can cover them too (still readable).
     const depth = 10 + feetY / 10;
     this.sprite.setDepth(depth);
+    this.placeFlames();
     this.syncLabelScale();
     const s = this.labelScale;
-    let labelY = feetY - this.artHeight - LABEL_GAP * s;
+    let labelY = feetY - this.hop - this.artHeight - LABEL_GAP * s;
     const firstY = labelY;
     let labelDepth = depth + 0.05;
     for (const line of LABEL_LINES) {
@@ -477,13 +787,18 @@ export class KidAvatar {
     this.sprite.setVisible(visible);
     this.shadow.setVisible(visible);
     if (visible) this.update();
-    else for (const line of LABEL_LINES) this.labels[line].setVisible(false);
+    else {
+      for (const line of LABEL_LINES) this.labels[line].setVisible(false);
+      this.flames?.forEach((flame) => flame.setVisible(false));
+    }
   }
 
   destroy() {
     this.lungeTween?.stop();
     this.sprite.destroy();
     this.shadow.destroy();
+    this.flames?.forEach((flame) => flame.destroy());
+    this.flames = null;
     for (const line of LABEL_LINES) this.labels[line].destroy();
   }
 }

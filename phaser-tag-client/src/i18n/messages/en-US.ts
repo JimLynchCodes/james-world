@@ -120,6 +120,8 @@ export const enUS = {
   "skin.pirate.note": "Arrr, You're It!",
   "skin.pharaoh": "Pharaoh James",
   "skin.pharaoh.note": "Walk Like An Egyptian!",
+  "skin.spaceman": "Spaceman James",
+  "skin.spaceman.note": "One small step...",
 
   "settings.credits.heading": "Credits",
   "credits.bio":

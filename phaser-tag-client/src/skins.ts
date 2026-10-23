@@ -10,11 +10,12 @@
  *   tuxedo - public/assets/kid_tuxedo.png  (tools/make_tuxedo_skin.py)
  *   pirate - public/assets/kid_pirate.png  (tools/make_pirate_skin.py)
  *   pharaoh - public/assets/kid_pharaoh.png (tools/make_pharaoh_skin.py)
+ *   spaceman - public/assets/kid_spaceman.png (tools/make_spaceman_skin.py)
  *
  * The id is what goes over the wire (`skin` in Join / SetSkin /
  * PlayerSnapshot); the server falls back to "james" for unknown values.
  */
-export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate" | "pharaoh";
+export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate" | "pharaoh" | "spaceman";
 
 export const DEFAULT_SKIN: Skin = "james";
 
@@ -32,6 +33,23 @@ export interface SkinSheet {
   baselineY: number;
   /** Height of the art above the feet (top of hair / costume), frame px. */
   artHeight: number;
+  /**
+   * Sheets drawn finer than the James pixels. The game shows them at
+   * 1/pixelScale so the character stays the same size, with linear filtering.
+   */
+  pixelScale?: number;
+  /**
+   * How many columns of the shared 30-column layout live in `url`.
+   * Defaults to 30. The rest, when a single image would pass 4096px, are `extra`.
+   */
+  columns?: number;
+  extra?: {
+    texture: string;
+    url: string;
+    columns: number;
+    /** First logical column stored in this second sheet. */
+    columnStart: number;
+  };
 }
 
 const BASE = import.meta.env.BASE_URL;
@@ -111,6 +129,28 @@ export const SKINS: Record<Skin, SkinSheet> = {
     baselineY: 116,
     // striped crown tops out ~106px above the feet
     artHeight: 106,
+  },
+  spaceman: {
+    id: "spaceman",
+    label: "Spaceman James",
+    note: "One small step...",
+    texture: "kid_spaceman",
+    url: `${BASE}assets/kid_spaceman.png`,
+    // 2× James, in two textures so neither side passes 4096px. Drawn at 1/2.
+    // The first sheet is idle, walk and breathe (columns 0–15). Tag and run
+    // are kid_spaceman_b.png.
+    frameWidth: 160,
+    frameHeight: 200,
+    baselineY: 192,
+    artHeight: 186,
+    pixelScale: 2,
+    columns: 16,
+    extra: {
+      texture: "kid_spaceman_b",
+      url: `${BASE}assets/kid_spaceman_b.png`,
+      columns: 14,
+      columnStart: 16,
+    },
   },
 };
 
