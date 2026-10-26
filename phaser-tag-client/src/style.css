@@ -2039,7 +2039,8 @@ body.in-secret .lang-popover {
 }
 
 /* Readable yard signs */
-.sign-modal { width: min(520px, 100%); height: auto; min-height: 0; margin-top: 0; align-self: center; }
+.sign-backdrop { pointer-events: auto; z-index: 60; }
+.sign-modal { pointer-events: auto; width: min(520px, 100%); height: auto; min-height: 0; margin-top: 0; align-self: center; }
 .sign-frame { padding: 26px 24px 20px; background: #fbfaf3; }
 .sign-text {
   margin: 0;

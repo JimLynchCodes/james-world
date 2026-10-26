@@ -34,21 +34,25 @@ export const SIGNS: SignDef[] = [
 ];
 
 /** Feet within this many px of the post can read it. */
-export const SIGN_READ_DISTANCE = 90;
+export const SIGN_READ_DISTANCE = 70;
 
 /** Area kept clear of scattered trees around each sign. */
-export const SIGN_FOOTPRINTS = SIGNS.map(s => ({ x: s.x - 70, y: s.y - 150, w: 140, h: 180 }));
+export const SIGN_FOOTPRINTS = SIGNS.map(s => ({ x: s.x - 40, y: s.y - 60, w: 80, h: 80 }));
 
 const TEX = "yard-sign";
-// Drawn at 2x and shown at half scale for smooth edges.
-const W = 150;
-const H = 170;
+// World size ~46px tall (about 60% of James). Drawn at 4x, shown at 1/4.
+const R = 4;
+const W = 44;
+const H = 50;
+const FOOT = 3;
 
 function signTexture(scene: Phaser.Scene) {
   if (scene.textures.exists(TEX)) return TEX;
-  const tex = scene.textures.createCanvas(TEX, W * 2, H * 2)!;
+  const tex = scene.textures.createCanvas(TEX, W * R, H * R)!;
   const ctx = tex.getContext();
-  ctx.scale(2, 2);
+  ctx.scale(R, R);
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
   const round = (x: number, y: number, w: number, h: number, r: number) => {
     ctx.beginPath();
     ctx.roundRect(x, y, w, h, r);
@@ -56,42 +60,86 @@ function signTexture(scene: Phaser.Scene) {
   // ground shadow
   ctx.fillStyle = "rgba(0,0,0,.22)";
   ctx.beginPath();
-  ctx.ellipse(W / 2, H - 7, 26, 6, 0, 0, Math.PI * 2);
+  ctx.ellipse(W / 2, H - FOOT, 9, 2.5, 0, 0, Math.PI * 2);
   ctx.fill();
   // post
-  ctx.fillStyle = "#8a5a32";
-  ctx.strokeStyle = "#3d2614";
-  ctx.lineWidth = 2.5;
-  round(W / 2 - 7, 70, 14, H - 78, 3);
+  const post = ctx.createLinearGradient(W / 2 - 3, 0, W / 2 + 3, 0);
+  post.addColorStop(0, "#5e3a1e");
+  post.addColorStop(0.45, "#8f5f35");
+  post.addColorStop(1, "#5a361b");
+  ctx.fillStyle = post;
+  ctx.strokeStyle = "#2e1b0c";
+  ctx.lineWidth = 1;
+  round(W / 2 - 3, 18, 6, H - FOOT - 18, 1.2);
   ctx.fill();
   ctx.stroke();
-  ctx.fillStyle = "#a8743f";
-  ctx.fillRect(W / 2 - 4, 74, 3, H - 86);
-  // board
-  ctx.fillStyle = "#3a3a3a";
-  round(8, 12, W - 16, 74, 14);
+  // plank board (two planks)
+  const bx = 3, by = 4, bw = W - 6, bh = 22;
+  const wood = ctx.createLinearGradient(0, by, 0, by + bh);
+  wood.addColorStop(0, "#b57a43");
+  wood.addColorStop(0.5, "#a36a37");
+  wood.addColorStop(1, "#8e5a2d");
+  ctx.fillStyle = wood;
+  round(bx, by, bw, bh, 2.5);
   ctx.fill();
-  ctx.fillStyle = "#fbfaf3";
-  round(6, 8, W - 12, 74, 14);
+  // grain
+  ctx.save();
+  round(bx, by, bw, bh, 2.5);
+  ctx.clip();
+  ctx.strokeStyle = "rgba(70,40,16,.35)";
+  ctx.lineWidth = 0.5;
+  for (const gy of [7, 9.5, 13, 18, 21, 23.5]) {
+    ctx.beginPath();
+    ctx.moveTo(bx, by + gy);
+    ctx.bezierCurveTo(bx + bw * 0.3, by + gy - 0.8, bx + bw * 0.6, by + gy + 0.9, bx + bw, by + gy - 0.3);
+    ctx.stroke();
+  }
+  ctx.fillStyle = "rgba(70,40,16,.4)";
+  ctx.beginPath();
+  ctx.ellipse(bx + bw * 0.78, by + 16, 1.6, 0.8, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = "#2b2b2b";
-  ctx.lineWidth = 3;
+  // seam between planks
+  ctx.strokeStyle = "#4a2c14";
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(bx, by + bh / 2);
+  ctx.lineTo(bx + bw, by + bh / 2);
   ctx.stroke();
-  // yellow panel
-  ctx.fillStyle = "#f7d43c";
-  round(16, 18, W - 32, 54, 8);
-  ctx.fill();
-  ctx.strokeStyle = "#c79b12";
-  ctx.lineWidth = 1.5;
+  ctx.restore();
+  // dark edge
+  ctx.strokeStyle = "#3a2210";
+  ctx.lineWidth = 1.2;
+  round(bx, by, bw, bh, 2.5);
   ctx.stroke();
-  // lettering (decorative lines)
-  ctx.fillStyle = "#1b1b1b";
-  ctx.font = "bold 16px sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("READ ME", W / 2, 34);
-  ctx.fillRect(30, 50, W - 60, 3);
-  ctx.fillRect(40, 59, W - 80, 3);
+  // nails
+  ctx.fillStyle = "#2a2a2a";
+  for (const [nx, ny] of [[bx + 2.6, by + 2.6], [bx + bw - 2.6, by + 2.6], [bx + 2.6, by + bh - 2.6], [bx + bw - 2.6, by + bh - 2.6]]) {
+    ctx.beginPath();
+    ctx.arc(nx, ny, 0.75, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // scribbled "writing"
+  ctx.strokeStyle = "#24140a";
+  ctx.lineWidth = 0.8;
+  const rows: [number, number, number][] = [[8, 9, 35], [8, 15, 30], [11, 21, 33]];
+  for (const [x0, y0, x1] of rows) {
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    let x = x0;
+    let i = 0;
+    while (x < x1) {
+      const step = 1.1 + ((i * 7) % 5) * 0.18;
+      const up = i % 2 === 0 ? -1.5 - ((i * 3) % 4) * 0.25 : 0.9;
+      ctx.quadraticCurveTo(x + step / 2, y0 + up, x + step, y0 + (i % 3 === 0 ? 0.3 : 0));
+      x += step;
+      if (i % 6 === 5 && x < x1 - 3) {
+        x += 1.6; // word gap
+        ctx.moveTo(x, y0);
+      }
+      i++;
+    }
+    ctx.stroke();
+  }
   tex.refresh();
   return TEX;
 }
@@ -102,17 +150,17 @@ export type PlacedSign = SignDef & { prompt: Phaser.GameObjects.Container };
 export function createSigns(scene: Phaser.Scene): PlacedSign[] {
   const key = signTexture(scene);
   return SIGNS.map(def => {
-    scene.add.image(def.x, def.y, key).setOrigin(0.5, (H - 7) / H).setScale(0.5).setDepth(propDepth(def.y));
-    const top = def.y - (H - 7);
+    scene.add.image(def.x, def.y, key).setOrigin(0.5, (H - FOOT) / H).setScale(1 / R).setDepth(propDepth(def.y));
+    const top = def.y - (H - FOOT);
     const bubble = scene.add.graphics();
     const label = scene.add
       .text(0, 0, "", { fontFamily: "sans-serif", fontSize: "26px", fontStyle: "bold", color: "#1b1b1b" })
       .setOrigin(0.5)
       .setScale(0.5)
       .setResolution(2);
-    const prompt = scene.add.container(def.x, top - 18, [bubble, label]).setDepth(100000).setVisible(false);
+    const prompt = scene.add.container(def.x, top - 14, [bubble, label]).setDepth(100000).setVisible(false);
     prompt.setData("bubble", bubble).setData("label", label);
-    scene.tweens.add({ targets: prompt, y: top - 26, duration: 520, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+    scene.tweens.add({ targets: prompt, y: top - 22, duration: 520, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
     return { ...def, prompt };
   });
 }
@@ -157,11 +205,13 @@ export class SignModal {
           <div class="sign-actions"></div>
         </div>
       </div>`;
-    parent.appendChild(this.backdrop);
+    // On <body>, not inside .hud (pointer-events: none), so the X and OK get clicks and taps.
+    void parent;
+    document.body.appendChild(this.backdrop);
     this.body = this.backdrop.querySelector(".sign-text") as HTMLElement;
     this.actions = this.backdrop.querySelector(".sign-actions") as HTMLElement;
     const modal = this.backdrop.querySelector(".sign-modal") as HTMLElement;
-    for (const type of ["keydown", "keyup", "pointerdown", "wheel"]) {
+    for (const type of ["keydown", "keyup", "pointerdown", "pointerup", "touchstart", "touchend", "mousedown", "wheel"]) {
       modal.addEventListener(type, e => e.stopPropagation());
     }
     this.backdrop.addEventListener("click", e => {
