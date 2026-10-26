@@ -344,37 +344,38 @@ def box_blur(x: np.ndarray, r: int) -> np.ndarray:
     return s / (k * k)
 
 
-def onesie(f: np.ndarray, solid: np.ndarray) -> np.ndarray:
-    rgb = f[..., :3].astype(np.float64)
-    lum = rgb @ np.array([0.3, 0.59, 0.11])
-    a = alpha_mask(f)
-    filled_lum = np.where(a, lum, np.nan)
-    m = np.nan_to_num(filled_lum, nan=0)
-    w = box_blur(a.astype(float), 3)
-    local = box_blur(m, 3) / np.maximum(w, 1e-6)
-    out = np.zeros(f.shape, dtype=np.float64)
-    col = np.empty(f.shape[:2] + (3,))
+def _up(mask: np.ndarray, blur: float) -> np.ndarray:
+    """Upsample a binary mask to SS resolution with smooth contours."""
+    from PIL import ImageFilter
+    h, w = mask.shape
+    im = Image.fromarray((mask * 255).astype(np.uint8)).resize((w * SS, h * SS), Image.BILINEAR)
+    im = im.filter(ImageFilter.GaussianBlur(blur * SS))
+    return np.asarray(im).astype(np.float64) / 255.0
+
+
+def onesie(solid: np.ndarray, arms: np.ndarray) -> np.ndarray:
+    """Solid green onesie with smooth anti-aliased outlines (flat fill)."""
+    h, w = solid.shape
+    m = _up(solid, 0.45) > 0.5
+    soft = _up(m[::1, ::1].astype(float), 0) if False else None  # noqa: F841
+    from PIL import ImageFilter
+    mi = Image.fromarray((m * 255).astype(np.uint8))
+    inner = np.asarray(mi.filter(ImageFilter.MinFilter(2 * int(0.8 * SS) + 1))) > 127
+    col = np.empty((h * SS, w * SS, 3))
     col[:] = G_MID
-    rel = np.where(a, lum / np.maximum(local, 1), 1.0)
-    tone = np.ones(f.shape[:2], dtype=np.int32)
-    tone[rel < 0.62] = 0
-    # 3x3 majority filter -> flat shading, no speckle
-    votes = np.stack([box_blur((tone == k).astype(float), 1) for k in range(3)])
-    votes[1] += 0.12
-    tone = votes.argmax(0)
-    col[tone == 0] = G_DARK
-    col[tone == 2] = G_LIGHT
-    # silhouette edge
-    inner = solid.copy()
-    inner[1:] &= solid[:-1]
-    inner[:-1] &= solid[1:]
-    inner[:, 1:] &= solid[:, :-1]
-    inner[:, :-1] &= solid[:, 1:]
-    col[solid & ~inner] = G_LINE
-    out[..., :3] = col / 255.0
-    out[..., 3] = solid.astype(float)
-    out[..., :3] *= out[..., 3:4]
-    return out
+    # soft flat shadow on the lower/back half of each limb region is skipped:
+    # one clean fill + light belly sheen keeps it readable at game size.
+    if arms.any():
+        am = _up(arms, 0.45) > 0.5
+        ai = np.asarray(Image.fromarray((am * 255).astype(np.uint8))
+                        .filter(ImageFilter.MinFilter(2 * int(0.35 * SS) + 1))) > 127
+        col[am & ~ai & inner] = G_DARK
+    col[m & ~inner] = G_LINE
+    rgba = np.zeros((h * SS, w * SS, 4), dtype=np.uint8)
+    rgba[..., :3] = col.astype(np.uint8)
+    rgba[..., 3] = m * 255
+    small = Image.fromarray(rgba).resize((w, h), Image.BOX)
+    return premul(np.asarray(small))
 
 
 # ---------------------------------------------------------------- per frame
@@ -411,12 +412,13 @@ def build(frame: np.ndarray, direction: str, col: int, prof: dict) -> np.ndarray
         face = inside & fill_holes(sk & inside) & solid
 
     hands = np.zeros_like(a)
+    arms = np.zeros_like(a)
     try:
-        _, hands = arms_and_hands(f, g, face)
+        arms, hands = arms_and_hands(f, g, face)
     except Exception:
         pass
 
-    body = onesie(f, solid)
+    body = onesie(solid, arms)
     sway = math.sin(col * 2 * math.pi / 8) * 0.8
 
     # ---- tail
@@ -444,14 +446,14 @@ def build(frame: np.ndarray, direction: str, col: int, prof: dict) -> np.ndarray
     elif direction == "N":
         p0 = (ax, ay - 2)
         p1 = (ax + 4, ay + 10)
-        p2 = (ax + 15 + sway, ground + 1)
-        tail(tcv, p0, p1, p2, 5.5, 0)
+        p2 = (ax + 24 + sway, ground)
+        tail(tcv, p0, p1, p2, 6.0, 0)
     else:  # NE / NW: tail trails behind, toward the viewer
         b = -fc
         p0 = (ax, ay - 2)
-        p1 = (ax + b * 9, ay + 8)
-        p2 = (ax + b * 22 + sway, ground + 1)
-        tail(tcv, p0, p1, p2, 5.5, 0)
+        p1 = (ax + b * 12, ay + 6)
+        p2 = (ax + b * 27 + sway, ground)
+        tail(tcv, p0, p1, p2, 6.0, 0)
     tail_l = tcv.premul()
 
     # ---- back spikes (behind the body, peeking out along the spine)
@@ -472,18 +474,31 @@ def build(frame: np.ndarray, direction: str, col: int, prof: dict) -> np.ndarray
     hb = Canvas(W, H)  # hood shell (under face)
     hf = Canvas(W, H)  # jaws / teeth / eyes (over face)
     if ell is None:
-        # back view: whole head in hood
+        # back view: whole head in hood, snout + eye bumps poke past it
         cx = hcx
-        if direction != "N":
-            # snout nub peeking on the far side
-            hb.ellipse(cx + fc * (hw - 1), top + 12, 7, 5.5, G_MID, G_LINE)
-            hb.ellipse(cx + fc * (hw - 3), top + 6, 3.2, 2.6, G_MID, G_LINE)
+        if direction == "N":
+            hb.ellipse(cx, top - 1.5, 7.5, 5.5, G_MID, G_LINE)
+            hb.ellipse(cx - 1, top - 3.0, 4.5, 2.2, G_LIGHT)
+            for d in (-1, 1):
+                hb.ellipse(cx + d * (hw - 0.5), top + 9, 2.4, 3.2, G_MID, G_LINE)
+        else:
+            hb.poly([(cx + fc * 1, top + 3), (cx + fc * (hw + 4), top - 3.5),
+                     (cx + fc * (hw + 7.5), top - 1.5), (cx + fc * (hw + 7), top + 3.5),
+                     (cx + fc * (hw + 1), top + 12)], G_MID, G_LINE, 0.9)
+            hb.poly([(cx + fc * (hw + 3), top - 2.2), (cx + fc * (hw + 6.5), top - 0.8),
+                     (cx + fc * (hw + 6), top + 0.6), (cx + fc * (hw + 2.5), top - 0.6)], G_LIGHT)
         hb.ellipse(cx, top + 18, hw + 1.5, 19.5, G_MID, G_LINE)
         hb.ellipse(cx - 2, top + 11, hw - 3, 11, G_LIGHT)
+        if direction == "N":
+            for d in (-1, 1):
+                hf.line([(cx + d * (hw - 4.5), top + 5.0), (cx + d * (hw - 0.5), top + 7.0)], G_DARK, 1.6)
+        else:
+            hf.ellipse(cx + fc * (hw - 1.5), top + 3.5, 3.2, 3.2, G_MID, G_LINE)
+            hf.line([(cx + fc * (hw - 5), top + 2.0), (cx + fc * (hw + 0.5), top + 0.5)], G_DARK, 1.6)
         sx = cx - fc * 2.5
         for i, y in enumerate((top + 2, top + 9, top + 16, top + 23, top + 30)):
-            s = 4.6 - i * 0.3
-            spike(hf, sx - fc * i * 0.6, y + 2, 0, -1, s, s * 0.6)
+            sz = 4.6 - i * 0.3
+            spike(hf, sx - fc * i * 0.6, y + 2, 0, -1, sz, sz * 0.6)
         for y in np.arange(neck + 5, hem - 1, 6.0):
             spike(hf, sx - fc * 4, y, 0, -1, 4.0, 2.4)
     else:
@@ -493,64 +508,64 @@ def build(frame: np.ndarray, direction: str, col: int, prof: dict) -> np.ndarray
             s = fc * 1.5
             hb.ellipse(hcx, top + 19, hw + 1.5, 20.5, G_MID, G_LINE)
             hb.ellipse(hcx - 3, top + 9, hw - 4, 8, G_LIGHT)
-            # pink mouth lining around the face opening
-            hb.ellipse(ex, ey + 0.5, rx + 2.3, ry + 2.0, PINK, PINK_DARK, 0.7)
+            hb.ellipse(ex, ey + 0.3, rx + 1.1, ry + 1.0, PINK, PINK_DARK, 0.5)
             # lower jaw under the chin
-            hf.ellipse(ex + s * 0.5, chin + 2.2, rx + 1.8, 3.2, G_MID, G_LINE, 0.8)
+            hf.ellipse(ex + s * 0.5, chin + 2.4, rx + 2.5, 3.6, G_MID, G_LINE, 0.8)
+            hf.ellipse(ex + s * 0.5, chin + 3.6, rx, 1.4, G_DARK)
             for i in range(-2, 3):
-                tooth(hf, ex + s * 0.5 + i * rx * 0.38, chin + 0.4, True, 2.8)
-            # upper jaw / snout band over the forehead
+                tooth(hf, ex + s * 0.5 + i * rx * 0.38, chin + 0.2, True, 2.8)
+            # upper jaw + snout over the forehead
             jy = ftop - 1.5
-            hf.ellipse(ex + s, jy, rx + 4.5, 6.2, G_MID, G_LINE, 0.9)
-            hf.ellipse(ex + s - 2, jy - 2.5, rx + 1, 2.6, G_LIGHT)
+            for d in (-1, 1):  # eye bumps (behind the snout)
+                hf.ellipse(ex + s + d * rx * 0.64 + s * 0.6, jy - 6.0, 3.6, 3.4, G_MID, G_LINE, 0.8)
+            hf.ellipse(ex + s, jy, rx + 5, 6.4, G_MID, G_LINE, 0.9)
+            hf.ellipse(ex + s * 1.4, jy - 1.2, rx * 0.62, 4.0, G_LIGHT, G_DARK, 0.5)
             for i in range(-3, 4):
-                tooth(hf, ex + s + i * (rx + 2) * 0.3, jy + 5.2 - abs(i) * 0.6, False, 3.0)
-            # nostrils
+                tooth(hf, ex + s + i * (rx + 2) * 0.3, jy + 5.3 - abs(i) * 0.6, False, 3.0)
             for d in (-1, 1):
-                hf.ellipse(ex + s + d * 2.6, jy + 1.2, 0.8, 0.6, G_LINE)
-            # eyes + brow ridge on top of the snout
+                hf.ellipse(ex + s * 1.6 + d * 2.6, jy - 0.6, 1.2, 0.85, G_LINE)
             for d in (-1, 1):
-                x = ex + s + d * (rx * 0.62) + s * 0.6
+                x = ex + s + d * (rx * 0.64) + s * 0.6
                 y = jy - 6.0
-                r = 2.5 if d * fc >= 0 else 2.1
-                hf.ellipse(x, y, r, r, EYE, G_LINE, 0.7)
+                r = 2.4 if d * fc >= 0 else 2.0
+                hf.ellipse(x, y, r, r, EYE, G_LINE, 0.6)
                 hf.ellipse(x + s * 0.4, y + 0.3, r * 0.45, r * 0.62, PUPIL)
-                hf.line([(x - d * 3.2, y - 2.0), (x + d * 2.6, y - 3.6)], G_DARK, 1.6)
+                hf.line([(x - d * 3.4, y - 2.0), (x + d * 2.8, y - 3.8)], G_DARK, 1.7)
         else:
             # side profile, facing fc
-            hb.ellipse(hcx - fc * 1.5, top + 18, hw + 1.5, 19.5, G_MID, G_LINE)
-            hb.ellipse(hcx - fc * 4, top + 9, hw - 5, 8, G_LIGHT)
             for i, y in enumerate((top + 4, top + 11, top + 18, top + 25)):
                 spike(hb, hcx - fc * (hw + 1.0 + (i == 0) * -2), y, -fc, -0.4 + i * 0.15, 3.0, 1.8)
             hb.ellipse(hcx - fc * 1.5, top + 18, hw + 1.5, 19.5, G_MID, G_LINE)
             hb.ellipse(hcx - fc * 4, top + 9, hw - 5, 8, G_LIGHT)
+            hb.ellipse(ex, ey + 0.3, rx + 0.9, ry + 0.8, PINK, PINK_DARK, 0.5)
             front = ex + fc * rx
-            # mouth lining between the jaws in front of the face
-            hb.poly([(front - fc * 3, ftop + 1), (front + fc * 6.5, ftop + 2.5),
-                     (front + fc * 4.5, chin + 0.5), (front - fc * 3, chin)],
-                    PINK, PINK_DARK, 0.7)
-            hb.ellipse(ex + fc * 1, ey + 0.5, rx + 1.2, ry + 1.2, PINK)
-            # lower jaw
-            hf.poly([(ex - fc * (rx + 1), chin), (front + fc * 5, chin + 0.5),
-                     (front + fc * 5.5, chin + 2.2), (front + fc * 3.5, chin + 4.0),
-                     (ex - fc * (rx + 1), chin + 4.2)], G_MID, G_LINE, 0.8)
+            # lower jaw under the chin, thin pink lining on its rim
+            hf.poly([(front - fc * 3, chin - 1.5), (front + fc * 6, chin - 0.6),
+                     (front + fc * 6, chin + 0.6), (front - fc * 3, chin + 0.4)], PINK, PINK_DARK, 0.4)
             for i in range(3):
-                tooth(hf, front + fc * (0.5 + i * 2.4), chin + 0.6, True, 2.8)
-            # upper jaw + snout
-            jy = ftop + 1.5
-            hf.poly([(hcx - fc * 3, top - 1.5), (ex + fc * rx * 0.6, ftop - 8),
-                     (front + fc * 7.5, ftop - 4), (front + fc * 9, ftop - 1),
-                     (front + fc * 8.5, jy), (ex - fc * rx * 0.5, jy),
-                     (hcx - fc * 4, ftop + 4)], G_MID, G_LINE, 0.9)
-            hf.poly([(ex - fc * 1, ftop - 6.5), (front + fc * 6.5, ftop - 3.2),
-                     (front + fc * 6, ftop - 1.8), (ex - fc * 2, ftop - 3.8)], G_LIGHT)
+                tooth(hf, front + fc * (0.2 + i * 2.3), chin - 0.8, True, 2.6)
+            hf.poly([(ex - fc * (rx + 1), chin - 0.2), (front + fc * 6.5, chin + 0.2),
+                     (front + fc * 6.8, chin + 1.8), (front + fc * 4, chin + 4.0),
+                     (ex - fc * (rx + 1), chin + 4.2)], G_MID, G_LINE, 0.8)
+            # upper jaw / snout projecting forward above the face
+            jy = ftop + 0.8
+            hf.poly([(front - fc * 4, jy - 0.4), (front + fc * 10, jy - 0.4),
+                     (front + fc * 9.5, jy + 1.0), (front - fc * 4, jy + 1.0)], PINK, PINK_DARK, 0.4)
             for i in range(4):
-                tooth(hf, front + fc * (-0.5 + i * 2.5), jy - 0.1, False, 3.0)
-            hf.ellipse(front + fc * 7.2, ftop - 2.6, 0.8, 0.6, G_LINE)
-            x, y = ex - fc * 0.5, ftop - 6.0
-            hf.ellipse(x, y, 2.5, 2.5, EYE, G_LINE, 0.7)
-            hf.ellipse(x + fc * 0.8, y + 0.3, 1.1, 1.6, PUPIL)
-            hf.line([(x - fc * 3, y - 2.6), (x + fc * 3, y - 3.4)], G_DARK, 1.7)
+                tooth(hf, front + fc * (-0.8 + i * 2.6), jy + 0.6, False, 3.0)
+            ex2 = ex - fc * 0.5
+            hf.ellipse(ex2, ftop - 6.5, 3.6, 3.4, G_MID, G_LINE, 0.8)  # eye bump
+            hf.poly([(hcx - fc * 3, top - 1.0), (ex, ftop - 8.5),
+                     (front + fc * 7, ftop - 5.5), (front + fc * 10.5, ftop - 2.5),
+                     (front + fc * 10, jy), (ex - fc * rx * 0.4, jy),
+                     (hcx - fc * 4, ftop + 3)], G_MID, G_LINE, 0.9)
+            hf.poly([(ex + fc * 1, ftop - 6.2), (front + fc * 7, ftop - 3.6),
+                     (front + fc * 6.5, ftop - 2.4), (ex + fc * 0.5, ftop - 4.0)], G_LIGHT)
+            hf.ellipse(front + fc * 8.4, ftop - 3.0, 1.0, 0.7, G_LINE)
+            x, y = ex2, ftop - 6.8
+            hf.ellipse(x, y, 2.4, 2.4, EYE, G_LINE, 0.6)
+            hf.ellipse(x + fc * 0.8, y + 0.3, 1.1, 1.5, PUPIL)
+            hf.line([(x - fc * 3.2, y - 2.4), (x + fc * 3.2, y - 3.6)], G_DARK, 1.7)
     hood_b = hb.premul()
     hood_f = hf.premul()
 
@@ -569,7 +584,7 @@ def build(frame: np.ndarray, direction: str, col: int, prof: dict) -> np.ndarray
             tx, ty = xs[tip] + 0.5, ys[tip] + 0.5
             px, py = -dy, dx
             for k in (-1, 0, 1):
-                claw(ccv, tx + px * k * 1.3 - dx * 0.6, ty + py * k * 1.3 - dy * 0.6, dx, dy, 1.8)
+                claw(ccv, tx + px * k * 1.4 - dx * 0.4, ty + py * k * 1.4 - dy * 0.4, dx, dy, 2.6)
     foot = solid & (yy >= g.bottom - 6)
     for comp in components8(foot):
         if comp.sum() < 6:
