@@ -50,6 +50,7 @@ const STEP_SFX: Record<Skin, Sfx> = {
   pirate: "pirateStep",
   pharaoh: "pharaohStep",
   spaceman: "spacemanStep",
+  wizard: "wizardStep",
 };
 
 /** Tag swing, when a skin has its own. */
@@ -57,6 +58,7 @@ const SWING_SFX: Partial<Record<Skin, Sfx>> = {
   pirate: "pirateSwing",
   pharaoh: "pharaohSwing",
   spaceman: "spacemanSwing",
+  wizard: "wizardSwing",
 };
 
 const WS_URL =

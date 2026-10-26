@@ -50,6 +50,7 @@ export const esAR: Partial<Messages> = {
   "skin.pirate.note": "¡Arrr, la manchás!",
   "skin.pharaoh.note": "¡Caminá como egipcio!",
   "skin.spaceman.note": "Un pasito...",
+  "skin.wizard.note": "¡Abracadabra, la tenés vos!",
 
   "credits.bio":
     "Este juego lo hizo James, un ingeniero de software que vive en Nueva York (también conocido como Jim, Jimbo, Jimothy y Sir Jims-a-lot).",

@@ -127,6 +127,8 @@ export const enUS = {
   "skin.pharaoh.note": "Walk Like An Egyptian!",
   "skin.spaceman": "Spaceman James",
   "skin.spaceman.note": "One small step...",
+  "skin.wizard": "Wizard James",
+  "skin.wizard.note": "Tag-ulus Totalus!",
 
   "settings.credits.heading": "Credits",
   "credits.bio":

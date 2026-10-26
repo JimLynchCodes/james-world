@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// The outfit a player's kid wears. Sent to clients as a lowercase string
-/// ("james", "banana", "trex", "tuxedo", "pirate", "pharaoh", "spaceman"); mirrored by `Skin` in phaser-tag-client/src/protocol.ts.
+/// ("james", "banana", "trex", "tuxedo", "pirate", "pharaoh", "spaceman", "wizard"); mirrored by `Skin` in phaser-tag-client/src/protocol.ts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Skin {
@@ -22,6 +22,8 @@ pub enum Skin {
     Pharaoh,
     /// Spaceman James: white suit, helmet, and a booster pack.
     Spaceman,
+    /// Wizard James: hooded black robe, striped tie, sunglasses and a wand.
+    Wizard,
 }
 
 impl Skin {
@@ -35,6 +37,7 @@ impl Skin {
             "pirate" => Skin::Pirate,
             "pharaoh" => Skin::Pharaoh,
             "spaceman" => Skin::Spaceman,
+            "wizard" => Skin::Wizard,
             _ => Skin::James,
         }
     }
@@ -48,6 +51,7 @@ impl Skin {
             Skin::Pirate => "pirate",
             Skin::Pharaoh => "pharaoh",
             Skin::Spaceman => "spaceman",
+            Skin::Wizard => "wizard",
         }
     }
 }

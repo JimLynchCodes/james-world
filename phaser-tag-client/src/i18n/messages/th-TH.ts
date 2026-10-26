@@ -112,6 +112,8 @@ export const thTH: Messages = {
   "skin.pharaoh.note": "เดินแบบชาวอียิปต์!",
   "skin.spaceman": "James นักบินอวกาศ",
   "skin.spaceman.note": "ก้าวเล็กๆ...",
+  "skin.wizard": "James พ่อมด",
+  "skin.wizard.note": "เพี้ยง! เธอเป็นคนไล่แล้ว!",
   "settings.credits.heading": "เครดิต",
   "credits.bio": "เกมนี้สร้างโดย James วิศวกรซอฟต์แวร์ที่อาศัยอยู่ในนิวยอร์ก (มีชื่อเรียกอื่นๆ อีกเพียบ เช่น Jim, Jimbo, Jimothy และ Sir Jims-a-lot)",
   "credits.linkedinLead": "มาเชื่อมต่อกันบน LinkedIn ได้เลย:",

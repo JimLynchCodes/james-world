@@ -112,6 +112,8 @@ export const frFR: Messages = {
   "skin.pharaoh.note": "Marche comme un Égyptien !",
   "skin.spaceman": "James Astronaute",
   "skin.spaceman.note": "Un petit pas...",
+  "skin.wizard": "James Sorcier",
+  "skin.wizard.note": "Abracadabra, c'est toi le chat !",
   "settings.credits.heading": "Crédits",
   "credits.bio": "Ce jeu a été créé par James, un ingénieur logiciel qui vit à New York (aussi connu sous plein d’autres noms comme Jim, Jimbo, Jimothy et Sir Jims-a-lot).",
   "credits.linkedinLead": "N’hésite pas à me retrouver sur LinkedIn :",
