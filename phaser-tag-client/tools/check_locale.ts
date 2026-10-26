@@ -23,7 +23,7 @@ test("saved choice wins over languages and timezone", () => {
 });
 
 test("an unrecognised saved value is ignored", () => {
-  assert.equal(pick({ saved: "fr-FR", languages: ["en-GB"], timeZone: "Asia/Tokyo" }), "en-GB");
+  assert.equal(pick({ saved: "sw-KE", languages: ["en-GB"], timeZone: "Asia/Tokyo" }), "en-GB");
   assert.equal(pick({ saved: "en", languages: ["es-MX"], timeZone: "Europe/Madrid" }), "es-MX");
   assert.equal(pick({ saved: "", languages: [], timeZone: "UTC" }), "en-US");
 });
@@ -140,9 +140,19 @@ test("Hindi and Urdu follow language, then their timezones", () => {
 });
 
 test("unsupported languages fall through, and nothing at all is en-US", () => {
-  assert.equal(pick({ languages: ["fr-FR", "de", "en-GB"], timeZone: "Europe/Madrid" }), "en-GB");
-  assert.equal(pick({ languages: ["fr", "de"], timeZone: "Australia/Sydney" }), "en-US");
+  assert.equal(pick({ languages: ["sw-KE", "nl", "en-GB"], timeZone: "Europe/Madrid" }), "en-GB");
+  assert.equal(pick({ languages: ["sw", "nl"], timeZone: "Australia/Sydney" }), "en-US");
   assert.equal(pick({ languages: [], timeZone: "Europe/London" }), "en-US");
+});
+
+test("new languages pick their region from the timezone", () => {
+  assert.equal(pick({ languages: ["fr"], timeZone: "America/Toronto" }), "fr-CA");
+  assert.equal(pick({ languages: ["de"], timeZone: "Europe/Vienna" }), "de-AT");
+  assert.equal(pick({ languages: ["pt"], timeZone: "Europe/Lisbon" }), "pt-PT");
+  assert.equal(pick({ languages: ["ar"], timeZone: "Africa/Cairo" }), "ar-EG");
+  assert.equal(pick({ languages: ["ar"], timeZone: "UTC" }), "ar-SA");
+  assert.equal(pick({ languages: ["tl"], timeZone: "UTC" }), "fil-PH");
+  assert.equal(pick({ languages: ["en"], timeZone: "Europe/Paris" }), "en-US");
 });
 
 test("every locale has every message key", () => {

@@ -2,11 +2,11 @@
  * Locale state for the client. `resolveLocale` is pure (see detect.ts);
  * this module is the browser side: localStorage, `<html lang>`, and UI refresh.
  */
-import { isLocale, resolveLocale, type Locale } from "./detect.ts";
+import { isLocale, isRtl, resolveLocale, type Locale } from "./detect.ts";
 import { MESSAGES } from "./catalog.ts";
 import type { MessageKey } from "./messages/en-US.ts";
 
-export { LOCALES, isLocale, resolveLocale, localeFromTimeZone, parseLanguageTag } from "./detect.ts";
+export { LOCALES, isLocale, isRtl, resolveLocale, localeFromTimeZone, parseLanguageTag } from "./detect.ts";
 export type { Locale, LocaleSignals } from "./detect.ts";
 export { LOCALE_ORDER, localeCode, localeOptionLabel } from "./locales.ts";
 export { flagSvg } from "./flags.ts";
@@ -30,7 +30,7 @@ export function t(key: MessageKey, vars?: Record<string, string | number>): stri
   if (vars) {
     for (const [name, value] of Object.entries(vars)) {
       const raw = String(value);
-      const embedded = current === "ur-PK" ? `${LRI}${raw}${PDI}` : raw;
+      const embedded = isRtl(current) ? `${LRI}${raw}${PDI}` : raw;
       text = text.split(`{${name}}`).join(embedded);
     }
   }
@@ -59,7 +59,7 @@ function readSaved(): string | null {
 
 function applyDocument(locale: Locale) {
   document.documentElement.lang = locale;
-  document.documentElement.dir = locale === "ur-PK" ? "rtl" : "ltr";
+  document.documentElement.dir = isRtl(locale) ? "rtl" : "ltr";
   document.title = MESSAGES[locale]["meta.title"];
 }
 

@@ -37,9 +37,33 @@ export const LOCALES = [
   "ja-JP",
   "hi-IN",
   "ur-PK",
+  "pt-BR",
+  "pt-PT",
+  "fr-FR",
+  "fr-CA",
+  "fr-BE",
+  "de-DE",
+  "de-AT",
+  "de-CH",
+  "ru-RU",
+  "ko-KR",
+  "id-ID",
+  "ar-SA",
+  "ar-EG",
+  "tr-TR",
+  "vi-VN",
+  "it-IT",
+  "pl-PL",
+  "fil-PH",
+  "th-TH",
 ] as const;
 
 export type Locale = (typeof LOCALES)[number];
+
+/** Right-to-left scripts: Urdu and Arabic. */
+export function isRtl(locale: string): boolean {
+  return locale === "ur-PK" || locale.startsWith("ar-");
+}
 
 const LOCALE_SET: ReadonlySet<string> = new Set(LOCALES);
 
@@ -55,6 +79,20 @@ const LANGUAGE_DEFAULT: Readonly<Record<string, Locale>> = {
   ja: "ja-JP",
   hi: "hi-IN",
   ur: "ur-PK",
+  pt: "pt-BR",
+  fr: "fr-FR",
+  de: "de-DE",
+  ru: "ru-RU",
+  ko: "ko-KR",
+  id: "id-ID",
+  ar: "ar-SA",
+  tr: "tr-TR",
+  vi: "vi-VN",
+  it: "it-IT",
+  pl: "pl-PL",
+  fil: "fil-PH",
+  tl: "fil-PH",
+  th: "th-TH",
 };
 
 const MEXICO_ZONES: ReadonlySet<string> = new Set([
@@ -124,6 +162,40 @@ const US_ZONES: ReadonlySet<string> = new Set([
   "Pacific/Pago_Pago",
 ]);
 
+/** One zone, one locale. Brussels → fr-BE, Zurich → de-CH; a Dutch or German browser there stays as-is. */
+const OTHER_ZONES: Readonly<Record<string, Locale>> = {
+  "America/Sao_Paulo": "pt-BR",
+  "America/Fortaleza": "pt-BR",
+  "America/Recife": "pt-BR",
+  "America/Bahia": "pt-BR",
+  "America/Manaus": "pt-BR",
+  "America/Belem": "pt-BR",
+  "Europe/Lisbon": "pt-PT",
+  "Atlantic/Madeira": "pt-PT",
+  "Atlantic/Azores": "pt-PT",
+  "Europe/Paris": "fr-FR",
+  "America/Montreal": "fr-CA",
+  "America/Toronto": "fr-CA",
+  "Europe/Brussels": "fr-BE",
+  "Europe/Berlin": "de-DE",
+  "Europe/Vienna": "de-AT",
+  "Europe/Zurich": "de-CH",
+  "Europe/Moscow": "ru-RU",
+  "Asia/Seoul": "ko-KR",
+  "Asia/Jakarta": "id-ID",
+  "Asia/Makassar": "id-ID",
+  "Asia/Jayapura": "id-ID",
+  "Asia/Riyadh": "ar-SA",
+  "Africa/Cairo": "ar-EG",
+  "Europe/Istanbul": "tr-TR",
+  "Asia/Ho_Chi_Minh": "vi-VN",
+  "Asia/Saigon": "vi-VN",
+  "Europe/Rome": "it-IT",
+  "Europe/Warsaw": "pl-PL",
+  "Asia/Manila": "fil-PH",
+  "Asia/Bangkok": "th-TH",
+};
+
 export interface LocaleSignals {
   /** `navigator.languages`, most preferred first. */
   languages: readonly string[];
@@ -182,6 +254,7 @@ export function localeFromTimeZone(timeZone: string): Locale | null {
   if (timeZone === "Asia/Kolkata" || timeZone === "Asia/Calcutta") return "hi-IN";
   if (timeZone === "Asia/Karachi") return "ur-PK";
   if (US_ZONES.has(timeZone)) return "en-US";
+  if (Object.prototype.hasOwnProperty.call(OTHER_ZONES, timeZone)) return OTHER_ZONES[timeZone] ?? null;
   return null;
 }
 
