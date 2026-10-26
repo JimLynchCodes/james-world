@@ -791,7 +791,6 @@ On `SIGTERM` or Ctrl-C, the server shuts down gracefully:
 ssh root@xx.xxx.xx.xxx
 ```
 
-
 2) Go to backend james-world directory within /opt
 
 ```
