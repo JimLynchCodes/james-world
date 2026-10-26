@@ -26,6 +26,7 @@ import {
   type Settings,
 } from "./settings";
 import { TitleScreen } from "./title";
+import { SIGN_READ_DISTANCE, SignModal, createSigns, setPromptText, type PlacedSign, type SignDef } from "./signs";
 import { initI18n, onLocaleChange, t, tPlayers } from "./i18n";
 import { LanguagePicker } from "./languagePicker";
 import {
@@ -204,6 +205,12 @@ class GameScene extends Phaser.Scene {
   private inSecret = false;
   private secretReturn: { x: number; y: number } | null = null;
 
+  private signs: PlacedSign[] = [];
+  /** Sign the local kid is close enough to read, if any. */
+  private nearSign: PlacedSign | null = null;
+  /** Opens the sign popup (wired by the bootstrap). */
+  onReadSign: ((sign: SignDef) => void) | null = null;
+
   private hudStatus!: HTMLElement;
   private hudEnergy!: HTMLElement;
   private hudPlayers!: HTMLElement;
@@ -379,6 +386,7 @@ class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number) {
+    this.updateSigns();
     this.updateZoomHold(delta);
     if (this.inSecret) {
       // The cave scene reads keys / the joystick itself. Drop tag presses
@@ -392,7 +400,7 @@ class GameScene extends Phaser.Scene {
       // and the walk clip this frame cannot replace it.
       if (this.tagQueued) {
         this.tagQueued = false;
-        if (!this.observeSecretTag()) this.tryTagNearest();
+        if (!this.readSignIfNear() && !this.observeSecretTag()) this.tryTagNearest();
       }
 
       this.updateLocalMovement(delta);
@@ -821,6 +829,7 @@ class GameScene extends Phaser.Scene {
   /** Mobile Tag button: same as SPACE. */
   tagPressed() {
     if (!this.playing || this.uiOpen || this.inSecret) return;
+    if (this.readSignIfNear()) return;
     if (!this.observeSecretTag()) this.tryTagNearest();
   }
 
@@ -1385,6 +1394,42 @@ class GameScene extends Phaser.Scene {
     this.updateOcclusion = yard.updateOcclusion;
     this.occluders = yard.occluders;
     this.secretTree = yard.secretTree;
+    this.signs = createSigns(this);
+  }
+
+  /** Show the read prompt over the closest sign in range. */
+  private updateSigns() {
+    let best: PlacedSign | null = null;
+    if (this.playing && this.player && !this.inSecret && !this.uiOpen) {
+      let bestD = SIGN_READ_DISTANCE;
+      for (const s of this.signs) {
+        const d = Phaser.Math.Distance.Between(this.player.x, this.player.feetY, s.x, s.y);
+        if (d < bestD) {
+          bestD = d;
+          best = s;
+        }
+      }
+    }
+    this.nearSign = best;
+    for (const s of this.signs) {
+      const show = s === best;
+      if (show) {
+        setPromptText(
+          s,
+          this.controlMode === "mobile" && !this.hideButtons
+            ? t("sign.prompt.mobile")
+            : t("sign.prompt.keyboard", { key: "Space / T" })
+        );
+      }
+      if (s.prompt.visible !== show) s.prompt.setVisible(show);
+    }
+  }
+
+  /** Tag pressed: read a nearby sign instead of swinging. */
+  private readSignIfNear(): boolean {
+    if (!this.nearSign || !this.onReadSign) return false;
+    this.onReadSign(this.nearSign);
+    return true;
   }
 
   /** Feet + head-top of every on-screen kid, for schoolyard occlusion. */
@@ -1644,7 +1689,8 @@ const applyControls = (s: Readonly<Settings>, key?: keyof Settings) => {
 };
 applyControls(settings);
 
-const chrome: { closeSettings: () => void; settingsOpen: boolean; closePicker: () => void; pickerOpen: boolean } = {
+const chrome: { closeSettings: () => void; settingsOpen: boolean; closePicker: () => void; pickerOpen: boolean; signOpen: boolean } = {
+  signOpen: false,
   closeSettings: () => {},
   settingsOpen: false,
   closePicker: () => {},
@@ -1665,7 +1711,7 @@ const settingsPanel = new SettingsPanel(hud, settings, saved, {
   onOpenChange: open => {
     chrome.settingsOpen = open;
     if (open) chrome.closePicker();
-    scene.setUiOpen(open || chrome.pickerOpen);
+    scene.setUiOpen(open || chrome.pickerOpen || chrome.signOpen);
   },
   onSound: kind => audio.playSfx(kind === "preview" ? "join" : "click"),
 });
@@ -1678,9 +1724,23 @@ const languagePicker = new LanguagePicker(hud, {
   onOpenChange: open => {
     chrome.pickerOpen = open;
     if (open) chrome.closeSettings();
-    scene.setUiOpen(open || chrome.settingsOpen);
+    scene.setUiOpen(open || chrome.settingsOpen || chrome.signOpen);
   },
 });
+const signModal = new SignModal(hud, {
+  label: key => t(key === "ok" ? "sign.ok" : "sign.close"),
+  onSound: () => audio.playSfx("click"),
+  onOpenChange: open => {
+    chrome.signOpen = open;
+    scene.setUiOpen(open || chrome.settingsOpen || chrome.pickerOpen);
+  },
+});
+scene.onReadSign = sign => {
+  chrome.closeSettings();
+  chrome.closePicker();
+  signModal.open(sign);
+};
+
 chrome.closePicker = () => {
   if (languagePicker.isOpen) languagePicker.close();
 };
