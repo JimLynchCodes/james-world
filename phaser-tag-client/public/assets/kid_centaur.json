@@ -4,7 +4,7 @@
   "frameHeight": 144,
   "baselineY": 134,
   "anchorX": 76,
-  "columns": 30,
+  "columns": 16,
   "directions": [
     "E",
     "SE",
@@ -36,5 +36,8 @@
       "start": 22,
       "count": 8
     }
-  }
+  },
+  "logicalColumns": 30,
+  "extraImage": "kid_centaur_b.png",
+  "extraColumns": 14
 }

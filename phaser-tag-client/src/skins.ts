@@ -12,7 +12,7 @@
  *   pharaoh - public/assets/kid_pharaoh.png (tools/make_pharaoh_skin.py)
  *   spaceman - public/assets/kid_spaceman.png (tools/make_spaceman_skin.py)
  *   wizard   - public/assets/kid_wizard.png   (tools/make_wizard_skin.py)
- *   centaur  - public/assets/kid_centaur.png  (tools/make_centaur_skin.py)
+ *   centaur  - public/assets/kid_centaur.png + kid_centaur_b.png  (tools/make_centaur_skin.py)
  *
  * The id is what goes over the wire (`skin` in Join / SetSkin /
  * PlayerSnapshot). The server treats it as an opaque key (1-32 chars of
@@ -181,8 +181,17 @@ export const SKINS: Record<Skin, SkinSheet> = {
     frameWidth: 152,
     frameHeight: 144,
     baselineY: 134,
-    // James's head rides on a horse: hair top ~102px above the hooves
-    artHeight: 102,
+    // James's head rides on a horse: hair top ~108px above the hooves
+    artHeight: 108,
+    // two textures so neither side passes 4096px (mobile WebGL): idle, walk
+    // and breathe here, tag and run in kid_centaur_b.png
+    columns: 16,
+    extra: {
+      texture: "kid_centaur_b",
+      url: `${BASE}assets/kid_centaur_b.png`,
+      columns: 14,
+      columnStart: 16,
+    },
   },
 };
 

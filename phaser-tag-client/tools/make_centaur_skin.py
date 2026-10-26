@@ -62,13 +62,19 @@ HOOF = (34, 26, 22)
 TAIL = (48, 28, 18)
 TAIL_HI = (86, 54, 34)
 LINE = (40, 22, 12)
-SKIN_LINE = (120, 62, 40)
+SKIN_LINE = (110, 56, 36)
 
-BODY_L = 44.0              # chest to rump
+BODY_L = 42.0              # chest to rump
 BODY_R = 11.5
 BODY_Z = 30.0
 HIP_Z = 28.0
-LEG_SIDE = 5.0
+LEG_SIDE = 5.5
+HIND_SIDE = 7.0
+# the horse sits a little behind the anchor (and the rider a little in front)
+# so turning round doesn't throw the rider a whole body length
+CENTER_BACK = 7.0
+LIFT = 6                  # rider's chest is this much taller than the kid's
+LEAD_COLS = 16            # columns 0-15 in kid_centaur.png, 16-29 in kid_centaur_b.png
 WAIST_Z = 37.0
 WAIST_FWD = 16.0
 
@@ -161,6 +167,8 @@ class Horse:
         return (self.f[0] * along + self.s[0] * side, self.f[1] * along + self.s[1] * side)
 
     def scr(self, gx, gy, z):
+        gx -= self.f[0] * CENTER_BACK
+        gy -= self.f[1] * CENTER_BACK
         return ANCHOR_X + gx, BASE_Y + gy * PROJ - z
 
     def pt(self, along, side, z):
@@ -171,38 +179,126 @@ class Horse:
         return self.g(along, side)[1]
 
 
-def barrel_layer(h: Horse, split_depth=None):
-    """The barrel, and (if split_depth is given) the part of it in front of
-    that depth - the full silhouette cut by a mask so there are no inner
-    outlines."""
+
+def barrel_layer(h: Horse, split_depth, withers):
+    """The horse body: a barrel of spheres with a breast in front, shoulders
+    and haunches either side, and a withers mound that the rider's waist
+    sinks into. Returns the full body and the part in front of split_depth
+    (the full silhouette cut by a mask, so there are no inner outlines)."""
     im, d = layer()
-    spheres = []
+    blobs = []          # (along, side, z, r)
     n = 16
     for i in range(n + 1):
         t = i / n
         along = BODY_L / 2 - t * BODY_L
-        # chest and hindquarters a little fuller, belly slimmer
-        r = BODY_R + 1.2 * math.exp(-((t - 0.12) / 0.14) ** 2) + 1.6 * math.exp(-((t - 0.86) / 0.14) ** 2) - 0.4
-        z = BODY_Z + h.bob + 0.8 * math.exp(-((t - 0.1) / 0.15) ** 2) + 1.4 * math.exp(-((t - 0.85) / 0.15) ** 2)
-        spheres.append((along, z, r))
+        r = (10.0 + 2.4 * math.exp(-((t - 0.14) / 0.16) ** 2) + 2.2 * math.exp(-((t - 0.86) / 0.15) ** 2))
+        z = (BODY_Z + h.bob + 1.2 * math.exp(-((t - 0.12) / 0.16) ** 2)
+             + 1.6 * math.exp(-((t - 0.86) / 0.15) ** 2) + 0.8 * (t - 0.5))
+        blobs.append((along, 0.0, z, r))
+    for sd in (-1, 1):
+        blobs.append((BODY_L / 2 + 1.8, sd * 4.0, BODY_Z - 3.5 + h.bob, 8.0))   # breast, two lobes
+    for sd in (-1, 1):
+        blobs.append((BODY_L / 2 - 5.0, sd * 7.0, BODY_Z - 3.0 + h.bob, 8.0))  # shoulders
+        blobs.append((-BODY_L / 2 + 5.0, sd * 7.5, BODY_Z - 1.0 + h.bob, 8.8))  # haunches
+    wx, wy, wrx, wry = withers
     for col, extra, lift in ((LINE, 0.75, 0.0), (COAT_SHADE, 0.0, 0.0), (COAT, -1.6, 1.6)):
-        for along, z, r in spheres:
-            x, y = h.pt(along, 0, z)
+        for along, sd, z, r in blobs:
+            x, y = h.pt(along, sd, z)
             y -= lift
             rr = r + extra
             d.ellipse([S(x - rr), S(y - rr), S(x + rr), S(y + rr)], fill=col)
-    if split_depth is None:
-        return im, None
+        e = extra if extra > 0 else 0.0
+        c2 = COAT if col == COAT_SHADE else col
+        d.ellipse([S(wx - wrx - e), S(wy - wry - e), S(wx + wrx + e), S(wy + wry * 2.5 + e)], fill=c2)
     m = Image.new("L", im.size, 0)
     md = ImageDraw.Draw(m)
-    for along, z, r in spheres:
-        if h.depth(along) >= split_depth - 0.5:
-            x, y = h.pt(along, 0, z)
+    for along, sd, z, r in blobs:
+        if h.depth(along, sd) >= split_depth - 0.5:
+            x, y = h.pt(along, sd, z)
             rr = r + 0.8
             md.ellipse([S(x - rr), S(y - rr), S(x + rr), S(y + rr)], fill=255)
+    md.ellipse([S(wx - wrx - 0.8), S(wy - wry - 0.8), S(wx + wrx + 0.8), S(wy + wry * 2.5 + 0.8)], fill=255)
     front = Image.new("RGBA", im.size, (0, 0, 0, 0))
     front.paste(im, (0, 0), m)
     return im, front
+
+
+def torso_layer(direction, c, y0, y1, skin):
+    """A broad, muscular bare torso (SS RGBA) from the neck (y0) to just
+    below the waist (y1): flat skin, flat shade shapes, a few muscle lines."""
+    shade = tuple(int(v * 0.86) for v in skin)
+    dark = tuple(int(v * 0.7) for v in skin)
+    light = tuple(min(255, int(v * 1.06)) for v in skin)
+    th = max(8.0, y1 - y0)
+    py = y0 + th * 0.42          # bottom of the pecs
+    yb = y1 + 4.0
+    if direction in PROFILE:
+        fc = PROFILE[direction]
+        back = bez((c - fc * 2.6, y0 - 1.0), (c - fc * 6.6, y0 + 1.5), (c - fc * 5.6, y0 + th * 0.45), 8)
+        back += bez((c - fc * 5.6, y0 + th * 0.45), (c - fc * 4.4, y0 + th * 0.8), (c - fc * 4.2, yb), 6)[1:]
+        front = bez((c + fc * 4.4, yb), (c + fc * 4.0, py + 2.0), (c + fc * 5.4, py + 1.0), 6)
+        front += bez((c + fc * 5.4, py + 1.0), (c + fc * 7.6, y0 + 2.5), (c + fc * 2.4, y0 - 0.4), 8)[1:]
+        outline = back + front
+    else:
+        lean = FRONT.get(direction, BACK.get(direction, 0))
+        W = 12.0 if lean == 0 else 10.5
+        c += lean * 0.8
+        wl, wr = (W * (0.9 if lean > 0 else 1.0), W * (0.9 if lean < 0 else 1.0))
+        R = [(c + 3.0, y0 - 1.0), (c + wr - 2.6, y0 + 0.4)]
+        R += bez((c + wr - 2.6, y0 + 0.4), (c + wr + 1.0, y0 + 0.9), (c + wr + 0.2, y0 + 5.0), 7)[1:]
+        R += bez((c + wr + 0.2, y0 + 5.0), (c + wr - 0.6, y0 + th * 0.65), (c + 5.8, yb), 7)[1:]
+        L = [(2 * c - x, y) for x, y in R]
+        L = [(c - (x - c) * wl / wr, y) for x, y in R]
+        outline = R + L[::-1]
+    im, d = layer()
+    P = lambda pts: [(S(x), S(y)) for x, y in pts]
+    d.polygon(P(outline), fill=skin)
+    lw = int(S(0.55))
+    if direction in FRONT:
+        lean = FRONT[direction]
+        cc = c + lean * 0.6
+        # side shade (light from the upper left), under-pec shadows, abs
+        d.polygon(P([(cc + W * 0.62, y0 + 3), (cc + W + 2, y0 + 3), (cc + W + 2, yb), (cc + 4.2, yb), (cc + W * 0.5, py + 2)]), fill=shade)
+        for sg in (-1, 1):
+            pec = bez((cc + sg * (W - 1.8), py - 3.0), (cc + sg * 4.0, py + 1.8), (cc + sg * 0.3, py - 0.2), 8)
+            d.polygon(P(pec + [(cc + sg * 0.3, py + 1.1), (cc + sg * 4.0, py + 2.6), (cc + sg * (W - 2.2), py - 1.4)]), fill=shade)
+            d.line(P(pec), fill=dark, width=lw, joint="curve")
+            # a highlight on the upper pec
+            d.line(P(bez((cc + sg * 2.0, y0 + 2.2), (cc + sg * 4.5, y0 + 1.6), (cc + sg * 6.5, y0 + 2.8), 6)), fill=light, width=lw)
+        d.line(P([(cc, py), (cc, yb - 3.0)]), fill=dark, width=lw)
+        rows = [py + (yb - 3.0 - py) * q for q in (0.33, 0.66)]
+        for yq in rows:
+            for sg in (-1, 1):
+                d.line(P([(cc + sg * 0.6, yq + 0.3), (cc + sg * 3.0, yq - 0.2)]), fill=dark, width=lw)
+        # obliques
+        for sg in (-1, 1):
+            d.line(P(bez((cc + sg * (W - 2.0), py + 1.5), (cc + sg * 4.6, py + 5.0), (cc + sg * 4.4, yb - 1.0), 6)), fill=shade, width=lw)
+    elif direction in BACK:
+        lean = BACK[direction]
+        cc = c + lean * 0.6
+        d.polygon(P([(cc + W * 0.6, y0 + 3), (cc + W + 2, y0 + 3), (cc + W + 2, yb), (cc + 4.2, yb), (cc + W * 0.5, py + 2)]), fill=shade)
+        d.line(P([(cc, y0 + 1.5), (cc, yb - 2.0)]), fill=dark, width=lw)
+        for sg in (-1, 1):
+            blade = bez((cc + sg * 2.0, y0 + 2.5), (cc + sg * 2.6, py + 2.5), (cc + sg * 6.4, py + 0.6), 7)
+            d.line(P(blade), fill=dark, width=lw)
+            d.line(P(bez((cc + sg * 6.6, py + 3.0), (cc + sg * 4.4, py + 5.5), (cc + sg * 3.2, yb - 1.5), 6)), fill=shade, width=lw)
+    else:
+        fc = PROFILE[direction]
+        d.polygon(P([(c - fc * 6, y0 + 3), (c - fc * 2.6, y0 + 3), (c - fc * 2.2, yb), (c - fc * 6, yb)]), fill=shade)
+        pec = bez((c + fc * 1.0, y0 + 2.5), (c + fc * 2.6, py + 1.8), (c + fc * 5.4, py + 1.0), 7)
+        d.polygon(P(pec + [(c + fc * 5.0, py + 2.4), (c + fc * 2.2, py + 2.8)]), fill=shade)
+        d.line(P(pec), fill=dark, width=lw)
+        for q in (0.35, 0.7):
+            yq = py + (yb - 3 - py) * q
+            d.line(P([(c + fc * 3.0, yq), (c + fc * 4.4, yq + 0.2)]), fill=dark, width=lw)
+    m = Image.new("L", im.size, 0)
+    ImageDraw.Draw(m).polygon(P(outline), fill=255)
+    out = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    out.paste(im, (0, 0), m)
+    od = ImageDraw.Draw(out)
+    pts = P(outline)
+    od.line(pts + [pts[0]], fill=SKIN_LINE, width=int(S(0.75)), joint="curve")
+    return out
 
 
 def leg_layer(h: Horse, along, side, swing, lift, hind, run):
@@ -294,6 +390,15 @@ def gait(anim, k, n):
 
 
 # --- per frame ----------------------------------------------------------------------
+def move(m, dx, dy):
+    out = np.zeros_like(m)
+    h, w = m.shape[:2]
+    ys, ye = max(0, dy), min(h, h + dy)
+    xs, xe = max(0, dx), min(w, w + dx)
+    out[ys:ye, xs:xe] = m[ys - dy:ye - dy, xs - dx:xe - dx]
+    return out
+
+
 def centaurify(frame, direction, anim, col, meta):
     a0 = alpha_mask(frame)
     if not a0.any():
@@ -320,8 +425,10 @@ def centaurify(frame, direction, anim, col, meta):
     head &= ~(arms & (yy > g.neck - 4))
     # the t-shirt collar at the bottom of the head box is torso, not head
     r_, g_, b_ = (f[..., i].astype(np.int32) for i in range(3))
-    collar = head & (yy > g.neck - 5) & ~loose_skin(f) & (np.abs(r_ - b_) < 30)
-    head &= ~collar
+    head &= ~((yy > g.neck - 5) & ~loose_skin(f) & (np.abs(r_ - b_) < 30))
+    if direction in FRONT:
+        # facing us nothing but skin reaches the bottom rows of the head box
+        head &= ~((yy > g.neck - 3) & ~loose_skin(f))
     if direction in PROFILE:
         # only the near arm: drop arm blobs on the back side, but never the
         # biggest one (in E/W idle the near arm hangs at the back)
@@ -337,61 +444,52 @@ def centaurify(frame, direction, anim, col, meta):
                     far |= comp
             arms &= ~far
             hands &= ~far
-    body = (a & ~head & ~arms) | collar
-    torso = body & (yy <= waist + 4)
+    body = a & ~head & ~arms
+    # thicker arms: take in the t-shirt sleeve and a pixel or two of the side
+    arms_x = grow(arms, (body & (yy <= waist + 2) & (yy > g.neck + 1)) | arms, 3) | arms
+    if direction in PROFILE:
+        arms_x = grow(arms, (body & (yy <= waist + 2) & (yy > g.neck + 1)) | arms, 1) | arms
     skin_px = f[face][:, :3]
     skin = tuple(int(v) for v in np.median(skin_px, 0)) if len(skin_px) else (236, 182, 140)
-    skin_dark = tuple(int(v * 0.8) for v in skin)
+    tc = (g.head_cx + g.hip_cx) / 2
+
+    # broaden the shoulders: arms move out a little in front/back views; on
+    # run they're pumped up a little so the hands don't sit on the horse
+    moved_arms = np.zeros_like(arms_x)
+    moved_hands = np.zeros_like(hands)
+    hand_px = np.zeros_like(f)
+    out_px = 2 if direction in ("S", "N") else (1 if direction not in PROFILE else 0)
+    up = -LIFT - (2 if run else 0)
+    for comp in components8(arms_x):
+        if comp.sum() < 4:
+            continue
+        ys, xs = np.nonzero(comp)
+        side = 1 if xs.mean() + 0.5 > tc else -1
+        mdx = side * out_px
+        if run and direction in PROFILE:
+            mdx += PROFILE[direction]
+        moved_arms |= move(comp, mdx, up)
+        hm = hands & comp
+        moved_hands |= move(hm, mdx, up)
+        hand_px = np.where(move(hm, mdx, up)[..., None], move(f, mdx, up), hand_px)
 
     sh = lambda m: shift(m, dx, dy)
     F = shift(f, dx, dy)
-    torso_o, arms_o, hands_o, head_o = sh(torso), sh(arms), sh(hands), sh(head)
-    torso_im = class_layer([(torso_o, skin)], SKIN_LINE)
-    # muscle lines, clipped to the torso
-    mus, md = layer()
-    cx = g.hip_cx + dx
-    y0, y1 = g.neck + 1 + dy, waist + dy
-    th = max(6.0, y1 - y0)
-    lw = int(S(0.5))
-    L = lambda pts: md.line([(S(x), S(y)) for x, y in pts], fill=skin_dark, width=lw, joint="curve")
-    if direction in FRONT:
-        c = cx + FRONT[direction] * 1.5
-        py = y0 + th * 0.42
-        L(bez((c - 5.2, py - 1.5), (c - 3.0, py + 1.0), (c - 0.4, py - 0.3)))
-        L(bez((c + 5.2, py - 1.5), (c + 3.0, py + 1.0), (c + 0.4, py - 0.3)))
-        L([(c, py + 0.3), (c, y1 - 1.0)])
-        for q in (0.68, 0.86):
-            yq = y0 + th * q
-            L([(c - 2.4, yq), (c - 0.6, yq + 0.3)])
-            L([(c + 0.6, yq + 0.3), (c + 2.4, yq)])
-    elif direction in BACK:
-        c = cx + BACK[direction] * 1.0
-        L([(c, y0 + 1.5), (c, y1 - 0.5)])
-        py = y0 + th * 0.35
-        L(bez((c - 5.0, py - 1.5), (c - 3.5, py + 2.0), (c - 1.5, py + 1.5)))
-        L(bez((c + 5.0, py - 1.5), (c + 3.5, py + 2.0), (c + 1.5, py + 1.5)))
-    else:
-        fc = PROFILE[direction]
-        py = y0 + th * 0.45
-        L(bez((cx + fc * 0.5, py - 2.5), (cx + fc * 2.0, py + 1.2), (cx + fc * 4.6, py - 0.2)))
-        L([(cx + fc * 3.2, y0 + th * 0.75), (cx + fc * 4.2, y0 + th * 0.76)])
-    clip = (np.asarray(torso_im)[..., 3] > 0) & (np.asarray(Image.fromarray(
-        np.asarray(torso_im)[..., 3]).filter(ImageFilter.MinFilter(int(S(1.2)) * 2 + 1))) > 0)
-    mus_a = np.asarray(mus).copy()
-    mus_a[..., 3] = mus_a[..., 3] * clip
-    mus = Image.fromarray(mus_a, "RGBA")
-    sleeves = arms_o & ~hands_o
-    arm_im = class_layer([(arms_o, skin)], SKIN_LINE, 0.6) if arms_o.any() else None
+    Fh = shift(hand_px, dx, dy)
+    arms_o, hands_o = sh(moved_arms), sh(moved_hands)
+    head_o = shift(head, dx, dy - LIFT)
+    Fhead = shift(f, dx, dy - LIFT)
+    torso_im = torso_layer(direction, tc + dx, g.neck + 1 + dy - LIFT, waist + dy, skin)
+    arm_im = class_layer([(arms_o & ~hands_o | (arms_o & hands_o), skin)], SKIN_LINE, 0.65) if arms_o.any() else None
 
     # legs
     legs = []
     for name, al, sd in (("LF", BODY_L / 2 - 4, LEG_SIDE), ("RF", BODY_L / 2 - 4, -LEG_SIDE),
-                         ("LH", -BODY_L / 2 + 4.5, LEG_SIDE), ("RH", -BODY_L / 2 + 4.5, -LEG_SIDE)):
+                         ("LH", -BODY_L / 2 + 4.5, HIND_SIDE), ("RH", -BODY_L / 2 + 4.5, -HIND_SIDE)):
         hind = name[1] == "H"
         if t is None:
             swing, lift = 0.0, 0.0
             if anim == "tag":
-                # a little lunge into the tag
                 p = k / max(n - 1, 1)
                 swing = (2.0 if not hind else -1.0) * math.sin(math.pi * p) * (1 if name[0] == "L" else 0.6)
         else:
@@ -403,30 +501,25 @@ def centaurify(frame, direction, anim, col, meta):
         legs.append((h.depth(al + swing * 0.5, sd), leg_layer(h, al, sd, swing, lift, hind, run)))
     sway = math.sin(2 * math.pi * (k / max(n, 1))) * (1.0 if t is not None else 0.4)
     tail = tail_layer(h, sway, run, 2 * math.pi * k / max(n, 1))
-    tail_depth = h.depth(-BODY_L / 2 - 6)
-    barrel, barrel_front = barrel_layer(h, h.depth(WAIST_FWD))
+    wx, wy = h.pt(WAIST_FWD - 0.5, 0, WAIST_Z + bob - 1.0)
+    wrx = 6.0 if direction in PROFILE else 7.4
+    barrel, barrel_front = barrel_layer(h, h.depth(WAIST_FWD), (wx, wy, wrx, 2.6))
 
     cv = Image.new("RGBA", (OW * SS, OH * SS), (0, 0, 0, 0))
     behind_tail = h.f[1] >= -0.01     # rump away from the viewer (or side view)
     if behind_tail:
         cv.alpha_composite(tail)
-    # every leg hangs from under the barrel: paint them all behind it,
-    # far ones first
-    legs_back = [im for dep, im in sorted(legs, key=lambda x: x[0])]
-    for im in legs_back:
+    # every leg hangs from under the barrel: far ones first, all behind it
+    for dep, im in sorted(legs, key=lambda x: x[0]):
         cv.alpha_composite(im)
     cv.alpha_composite(barrel)
-    # the human: torso (head pasted on afterwards at 1x) sits in the barrel
-    hum = Image.new("RGBA", cv.size, (0, 0, 0, 0))
-    hum.alpha_composite(torso_im)
-    hum.alpha_composite(mus)
     if direction in BACK and arm_im is not None:
-        hum.alpha_composite(arm_im)
+        cv.alpha_composite(arm_im)
+    cv.alpha_composite(torso_im)
     out = down(cv)
-    out = over(out, down(hum))
-    out = over(out, premul(F, head_o.astype(np.float64)))
+    out = over(out, premul(Fhead, head_o.astype(np.float64)))
     if direction in BACK:
-        out = over(out, premul(F, hands_o.astype(np.float64)))
+        out = over(out, premul(Fh, hands_o.astype(np.float64)))
     top, _ = layer()
     top.alpha_composite(barrel_front)
     if not behind_tail:
@@ -435,7 +528,7 @@ def centaurify(frame, direction, anim, col, meta):
     if direction not in BACK:
         if arm_im is not None:
             out = over(out, down(arm_im))
-        out = over(out, premul(F, hands_o.astype(np.float64)))
+        out = over(out, premul(Fh, hands_o.astype(np.float64)))
     res = to_u8(out)
     res[res[..., 3] < 8] = 0
     return res
@@ -457,14 +550,22 @@ def main():
             fr = src[r * fh:(r + 1) * fh, c * fw:(c + 1) * fw]
             out[r * OH:(r + 1) * OH, c * OW:(c + 1) * OW] = centaurify(
                 fr, direction, anim_of(meta, c), c, meta)
-    Image.fromarray(out).save(ASSETS / "kid_centaur.png", optimize=True)
+    # two textures so neither side passes 4096px (mobile WebGL)
+    split = LEAD_COLS * OW
+    for name, part in (("kid_centaur.png", out[:, :split]), ("kid_centaur_b.png", out[:, split:])):
+        assert max(part.shape[:2]) <= 4096, part.shape
+        Image.fromarray(np.ascontiguousarray(part)).save(ASSETS / name, optimize=True)
+        print(f"wrote {ASSETS / name} ({part.shape[1]}x{part.shape[0]})")
     pm = dict(meta)
     pm["image"] = "kid_centaur.png"
     pm["frameWidth"], pm["frameHeight"] = OW, OH
     pm["baselineY"] = BASE_Y
     pm["anchorX"] = ANCHOR_X
+    pm["columns"] = LEAD_COLS
+    pm["logicalColumns"] = cols
+    pm["extraImage"] = "kid_centaur_b.png"
+    pm["extraColumns"] = cols - LEAD_COLS
     (ASSETS / "kid_centaur.json").write_text(json.dumps(pm, indent=2) + "\n")
-    print(f"wrote {ASSETS / 'kid_centaur.png'} ({out.shape[1]}x{out.shape[0]}) frames {OW}x{OH}")
 
     if args.preview:
         img = Image.fromarray(out)
@@ -484,6 +585,7 @@ def main():
         args.preview.parent.mkdir(parents=True, exist_ok=True)
         pv.convert("RGB").save(args.preview)
         print(f"wrote {args.preview}")
+        np.save("/tmp/centaur_full.npy", out)
 
 
 if __name__ == "__main__":
