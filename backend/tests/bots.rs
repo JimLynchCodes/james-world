@@ -433,90 +433,49 @@ fn every_join_is_named_james_with_a_server_wide_counter() {
 }
 
 #[test]
-fn skins_default_to_james_and_unknown_values_fall_back() {
+fn skins_are_opaque_validated_keys_with_a_james_fallback() {
     use taggame_backend::game::skin::Skin;
 
+    let james = Skin::default();
+    assert_eq!(james.as_str(), "james");
     let mut world = World::new();
     let human = Uuid::new_v4();
     world.add_player(human);
     // Everyone (bots included) starts as plain James.
-    assert!(world.players.values().all(|p| p.skin == Skin::James));
+    assert!(world.players.values().all(|p| p.skin == james));
 
     assert!(world.set_skin(human, Skin::parse("banana")));
-    assert_eq!(world.skin_of(&human), Skin::Banana);
+    assert_eq!(world.skin_of(&human).as_str(), "banana");
     let snap = world.snapshot();
     let me = snap.iter().find(|p| p.id == human).unwrap();
-    assert_eq!(me.skin, Skin::Banana);
     assert_eq!(serde_json::to_value(me).unwrap()["skin"], "banana");
     // Bots keep the default.
-    assert!(snap
-        .iter()
-        .filter(|p| p.is_bot)
-        .all(|p| p.skin == Skin::James));
+    assert!(snap.iter().filter(|p| p.is_bot).all(|p| p.skin == james));
 
-    for bad in ["", "pineapple", "BANANA2", "James 1"] {
-        assert_eq!(Skin::parse(bad), Skin::James, "{bad:?}");
+    // Every existing skin name stays wire-compatible, and new keys the
+    // server has never heard of are stored and relayed as-is.
+    for name in [
+        "james", "banana", "trex", "tuxedo", "pirate", "pharaoh", "spaceman", "wizard", "centaur",
+        "future_skin-2",
+    ] {
+        let skin = Skin::parse(name);
+        assert_eq!(skin.as_str(), name);
+        assert_eq!(serde_json::to_value(&skin).unwrap(), name);
+        assert_eq!(serde_json::from_value::<Skin>(serde_json::json!(name)).unwrap(), skin);
+        assert!(world.set_skin(human, skin.clone()));
+        assert_eq!(world.skin_of(&human), skin);
     }
-    assert_eq!(Skin::parse(" Banana "), Skin::Banana);
-    assert!(world.set_skin(human, Skin::parse("trex")));
-    assert_eq!(world.skin_of(&human), Skin::Trex);
-    assert_eq!(Skin::parse("TREX"), Skin::Trex);
-    assert_eq!(Skin::parse(" Trex "), Skin::Trex);
-    assert!(world.set_skin(human, Skin::parse("tuxedo")));
-    assert_eq!(world.skin_of(&human), Skin::Tuxedo);
-    assert_eq!(Skin::parse(" TUXEDO "), Skin::Tuxedo);
-    assert_eq!(Skin::Tuxedo.as_str(), "tuxedo");
-    assert_eq!(serde_json::to_value(Skin::Tuxedo).unwrap(), "tuxedo");
-    assert_eq!(
-        serde_json::from_value::<Skin>(serde_json::json!("tuxedo")).unwrap(),
-        Skin::Tuxedo
-    );
-    assert!(world.set_skin(human, Skin::parse("pirate")));
-    assert_eq!(world.skin_of(&human), Skin::Pirate);
-    assert_eq!(Skin::parse(" Pirate "), Skin::Pirate);
-    assert_eq!(Skin::Pirate.as_str(), "pirate");
-    assert_eq!(serde_json::to_value(Skin::Pirate).unwrap(), "pirate");
-    assert_eq!(
-        serde_json::from_value::<Skin>(serde_json::json!("pirate")).unwrap(),
-        Skin::Pirate
-    );
-    assert_eq!(Skin::parse("pirates"), Skin::James);
-    assert!(world.set_skin(human, Skin::parse("pharaoh")));
-    assert_eq!(world.skin_of(&human), Skin::Pharaoh);
-    assert_eq!(Skin::parse(" Pharaoh "), Skin::Pharaoh);
-    assert_eq!(Skin::Pharaoh.as_str(), "pharaoh");
-    assert_eq!(serde_json::to_value(Skin::Pharaoh).unwrap(), "pharaoh");
-    assert_eq!(
-        serde_json::from_value::<Skin>(serde_json::json!("pharaoh")).unwrap(),
-        Skin::Pharaoh
-    );
-    assert_eq!(Skin::parse("pharaohs"), Skin::James);
-    assert!(world.set_skin(human, Skin::parse("spaceman")));
-    assert_eq!(world.skin_of(&human), Skin::Spaceman);
-    assert_eq!(Skin::parse(" Spaceman "), Skin::Spaceman);
-    assert_eq!(Skin::Spaceman.as_str(), "spaceman");
-    assert_eq!(serde_json::to_value(Skin::Spaceman).unwrap(), "spaceman");
-    assert_eq!(
-        serde_json::from_value::<Skin>(serde_json::json!("spaceman")).unwrap(),
-        Skin::Spaceman
-    );
-    assert_eq!(Skin::parse("spacemen"), Skin::James);
-    assert!(world.set_skin(human, Skin::parse("wizard")));
-    assert_eq!(world.skin_of(&human), Skin::Wizard);
-    assert_eq!(Skin::parse(" Wizard "), Skin::Wizard);
-    assert_eq!(Skin::Wizard.as_str(), "wizard");
-    assert_eq!(serde_json::to_value(Skin::Wizard).unwrap(), "wizard");
-    assert_eq!(
-        serde_json::from_value::<Skin>(serde_json::json!("wizard")).unwrap(),
-        Skin::Wizard
-    );
-    assert_eq!(Skin::parse("wizards"), Skin::James);
-    assert_eq!(
-        Skin::parse("tux"),
-        Skin::James,
-        "unknown skins fall back to james"
-    );
-    assert!(!world.set_skin(Uuid::new_v4(), Skin::Banana));
+    // Trimmed and lowercased.
+    assert_eq!(Skin::parse(" TREX ").as_str(), "trex");
+    assert_eq!(Skin::parse(" Wizard ").as_str(), "wizard");
+    // Invalid keys fall back to james (also when deserialised).
+    let long = "a".repeat(33);
+    for bad in ["", "   ", "James 1", "pi/rate", "<script>", "émoji", long.as_str()] {
+        assert_eq!(Skin::parse(bad), james, "{bad:?}");
+        assert_eq!(serde_json::from_value::<Skin>(serde_json::json!(bad)).unwrap(), james, "{bad:?}");
+    }
+    assert_eq!(Skin::parse(&"a".repeat(32)).as_str().len(), 32);
+    assert!(!world.set_skin(Uuid::new_v4(), Skin::parse("banana")));
 }
 
 #[test]

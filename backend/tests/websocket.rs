@@ -222,10 +222,15 @@ async fn skin_round_trips_and_unknown_values_fall_back_to_james() {
         .await
         .unwrap();
     assert!(wait_for_skin(&mut b, &a_id, "wizard").await, "SetSkin wizard not seen");
-    a.send(Message::Text(r#"{"type":"SetSkin","data":{"skin":"pineapple"}}"#.into()))
+    // a skin the server has never heard of is relayed as-is
+    a.send(Message::Text(r#"{"type":"SetSkin","data":{"skin":"centaur"}}"#.into()))
         .await
         .unwrap();
-    assert!(wait_for_skin(&mut b, &a_id, "james").await, "unknown skin did not fall back");
+    assert!(wait_for_skin(&mut b, &a_id, "centaur").await, "SetSkin centaur not seen");
+    a.send(Message::Text(r#"{"type":"SetSkin","data":{"skin":"Not A Skin!"}}"#.into()))
+        .await
+        .unwrap();
+    assert!(wait_for_skin(&mut b, &a_id, "james").await, "invalid skin did not fall back");
 
     let text = loop {
         let text = b.next().await.unwrap().unwrap().into_text().unwrap();
