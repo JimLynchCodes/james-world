@@ -21,7 +21,7 @@ export const SIGNS: SignDef[] = [
     id: "playground",
     x: 3010,
     y: 3420,
-    text: "If you want to go on adventurous quests and spelunk,\n\nthen say the special code in the tree with the wide trunk",
+    text: "If you seek to go on adventurous quests and spelunk,\n\n Then do the special code in the tree with wide trunk...",
     buttons: [{ label: "ok", action: "close" }],
   },
   {
