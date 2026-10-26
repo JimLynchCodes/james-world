@@ -84,7 +84,7 @@ test("space keyup does not swallow a same-step tag press", () => {
   assert.equal(latchTagPress(false, "up"), false);
 });
 
-const SKINS = ["kid", "kid_pharaoh", "kid_banana", "kid_trex", "kid_tuxedo", "kid_pirate", "kid_spaceman", "kid_wizard"] as const;
+const SKINS = ["kid", "kid_pharaoh", "kid_banana", "kid_trex", "kid_tuxedo", "kid_pirate", "kid_spaceman", "kid_wizard", "kid_centaur"] as const;
 
 test("Alt zoom keeps W and Up from walking, and leaves A and Left alone", () => {
   const zooming = movementAxes(new Set(["KeyW", "KeyA", "ArrowUp"]), { altZoom: true });

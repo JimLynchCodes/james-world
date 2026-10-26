@@ -1613,6 +1613,9 @@ html[dir="rtl"] .settings-title {
   background-size: calc(var(--fw) * var(--draw) * 16px) calc(var(--fh) * var(--draw) * 8px);
 }
 .skin-card[data-skin="spaceman"].picked .skin-preview { animation-duration: 2.6s; }
+/* Centaur frames have room under the hooves (galloping legs): sit him on
+   the same ground line as everyone else */
+.skin-card[data-skin="centaur"] .skin-preview { bottom: calc(var(--draw) * -6px); }
 .skin-stage {
   position: relative;
   display: block;

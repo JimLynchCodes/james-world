@@ -114,6 +114,8 @@ export const trTR: Messages = {
   "skin.spaceman.note": "Küçük bir adım...",
   "skin.wizard": "Büyücü James",
   "skin.wizard.note": "Abrakadabra, ebe sensin!",
+  "skin.centaur": "Sentor James",
+  "skin.centaur.note": "Dört bacak, sıfır sakinlik!",
   "settings.credits.heading": "Emeği Geçenler",
   "credits.bio": "Bu oyunu New York City'de yaşayan yazılım mühendisi James yaptı (Jim, Jimbo, Jimothy ve Sir Jims-a-lot gibi başka birçok isimle de bilinir).",
   "credits.linkedinLead": "LinkedIn'de bağlantı kurmaktan çekinme:",

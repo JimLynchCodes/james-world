@@ -131,6 +131,8 @@ export const zhCN: Messages = {
   "skin.spaceman.note": "一小步……",
   "skin.wizard": "巫师 James",
   "skin.wizard.note": "变变变，你被抓到啦！",
+  "skin.centaur": "半人马 James",
+  "skin.centaur.note": "四条腿，停不下来！",
 
   "settings.credits.heading": "制作",
   "credits.bio":

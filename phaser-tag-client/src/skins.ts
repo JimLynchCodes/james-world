@@ -12,11 +12,14 @@
  *   pharaoh - public/assets/kid_pharaoh.png (tools/make_pharaoh_skin.py)
  *   spaceman - public/assets/kid_spaceman.png (tools/make_spaceman_skin.py)
  *   wizard   - public/assets/kid_wizard.png   (tools/make_wizard_skin.py)
+ *   centaur  - public/assets/kid_centaur.png  (tools/make_centaur_skin.py)
  *
  * The id is what goes over the wire (`skin` in Join / SetSkin /
- * PlayerSnapshot); the server falls back to "james" for unknown values.
+ * PlayerSnapshot). The server treats it as an opaque key (1-32 chars of
+ * [a-z0-9_-], else "james") and relays it as-is, so a new skin is a
+ * client-only change; clients that don't know a key draw the default kid.
  */
-export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate" | "pharaoh" | "spaceman" | "wizard";
+export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate" | "pharaoh" | "spaceman" | "wizard" | "centaur";
 
 export const DEFAULT_SKIN: Skin = "james";
 
@@ -166,6 +169,20 @@ export const SKINS: Record<Skin, SkinSheet> = {
     baselineY: 108,
     // same head as James: hair top ~90px above the feet
     artHeight: 90,
+  },
+  centaur: {
+    id: "centaur",
+    label: "Centaur James",
+    note: "Four legs, zero chill!",
+    texture: "kid_centaur",
+    url: `${BASE}assets/kid_centaur.png`,
+    // a whole horse under him: wide frames for the body and the tail, the
+    // anchor is the middle of the horse on the ground
+    frameWidth: 152,
+    frameHeight: 144,
+    baselineY: 134,
+    // James's head rides on a horse: hair top ~102px above the hooves
+    artHeight: 102,
   },
 };
 

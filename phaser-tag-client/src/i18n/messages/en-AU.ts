@@ -9,6 +9,7 @@ export const enAU: Partial<Messages> = {
   "skin.pharaoh.note": "Walk like an Egyptian!",
   "skin.spaceman.note": "One small step…",
   "skin.wizard.note": "Tag-ulus Totalus, mate!",
+  "skin.centaur.note": "Four legs, zero chill, mate!",
   "settings.controls.phoneHint":
     "On a phone or tablet? Choose <strong>Mobile</strong> for a joystick and big TAG and RUN buttons.",
   "howto.helpMobile": "Drag on the ground to steer. Mix and match! Spot on for phones and tablets.",

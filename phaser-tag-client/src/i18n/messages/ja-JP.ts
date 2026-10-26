@@ -131,6 +131,8 @@ export const jaJP: Messages = {
   "skin.spaceman.note": "小さな一歩…",
   "skin.wizard": "魔法使いジェームズ",
   "skin.wizard.note": "チチンプイプイ、きみがオニ！",
+  "skin.centaur": "ケンタウロスジェームズ",
+  "skin.centaur.note": "4本足で、落ち着きゼロ！",
 
   "settings.credits.heading": "クレジット",
   "credits.bio":

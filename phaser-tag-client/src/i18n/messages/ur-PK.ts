@@ -131,6 +131,8 @@ export const urPK: Messages = {
   "skin.spaceman.note": "ایک چھوٹا قدم…",
   "skin.wizard": "جادوگر James",
   "skin.wizard.note": "چھو منتر، اب تمہاری باری!",
+  "skin.centaur": "سینٹور James",
+  "skin.centaur.note": "چار ٹانگیں، صفر سکون!",
 
   "settings.credits.heading": "کریڈٹ",
   "credits.bio":

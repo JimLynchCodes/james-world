@@ -14,7 +14,7 @@
 
 import type { Mood, Settings } from "./settings";
 
-export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "spacemanStep" | "spacemanSwing" | "wizardStep" | "wizardSwing" | "click" | "blip" | "secret";
+export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "spacemanStep" | "spacemanSwing" | "wizardStep" | "wizardSwing" | "centaurStep" | "centaurSwing" | "click" | "blip" | "secret";
 
 const CROSSFADE_S = 1.5;
 const LOOKAHEAD_S = 0.15;
@@ -791,6 +791,19 @@ export class GameAudio {
         syn.noise(t, { filter: "bandpass", freq: 600, sweepTo: 3200, q: 1.8, gain: 0.3 * v, attack: 0.03, release: 0.14 });
         [1568, 2093, 2637, 3136].forEach((f, i) =>
           syn.tone(t + 0.06 + i * 0.035, f, { type: "sine", gain: 0.03 * v, attack: 0.002, release: 0.2 }));
+        break;
+      }
+      case "centaurStep": { // Centaur James: a hollow two-beat hoof clop
+        const p = 0.92 + Math.random() * 0.16;
+        [0, 0.07].forEach((dt, i) => {
+          syn.noise(t + dt, { filter: "bandpass", freq: (i ? 1350 : 1050) * p, q: 6, gain: 0.16 * v, attack: 0.001, release: 0.035 });
+          syn.tone(t + dt, (i ? 420 : 340) * p, { type: "sine", gain: 0.05 * v, attack: 0.001, release: 0.04, glideTo: 220 * p });
+        });
+        break;
+      }
+      case "centaurSwing": { // Centaur James's tag: arm whoosh plus a short silly whinny
+        syn.noise(t, { filter: "bandpass", freq: 420, sweepTo: 2200, q: 1.2, gain: 0.3 * v, attack: 0.03, release: 0.15 });
+        syn.tone(t + 0.04, 880, { type: "sawtooth", gain: 0.03 * v, attack: 0.01, hold: 0.16, release: 0.08, filter: 2400, glideTo: 520, vibrato: [22, 60] });
         break;
       }
       case "pharaohSwing": { // Pharaoh James's tag: cloth whoosh plus a short muted horn (open fifth)
