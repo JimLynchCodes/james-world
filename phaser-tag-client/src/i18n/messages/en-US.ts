@@ -42,6 +42,8 @@ export const enUS = {
   "sign.prompt.mobile": "Tap sign to read",
   "sign.ok": "OK",
   "sign.close": "Close",
+  "sign.quest": "If you seek to go on adventurous quests and spelunk,\n\nThen do the special code in the tree with wide trunk...",
+  "sign.codeLead": "The special code is:",
   "settings.tab.controls": "Controls",
   "settings.tab.sound": "Sound",
   "settings.tab.view": "View",

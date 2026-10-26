@@ -35,6 +35,8 @@ export const deDE: Messages = {
   "sign.prompt.mobile": "Tipp aufs Schild zum Lesen",
   "sign.ok": "OK",
   "sign.close": "Schließen",
+  "sign.quest": "Willst du auf Abenteuer gehen und Höhlen erkunden,\n\ndann mach den Spezialcode am Baum mit dem dicken Stamm – unumwunden...",
+  "sign.codeLead": "Der Spezialcode lautet:",
   "settings.tab.controls": "Steuerung",
   "settings.tab.sound": "Sound",
   "settings.tab.view": "Ansicht",

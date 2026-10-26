@@ -44,6 +44,8 @@ export const urPK: Messages = {
   "sign.prompt.mobile": "پڑھنے کے لیے بورڈ پر ٹیپ کریں",
   "sign.ok": "ٹھیک ہے",
   "sign.close": "بند کریں",
+  "sign.quest": "اگر مہم جوئی اور غاروں کی سیر کا ہے ارمان،\n\nتو چوڑے تنے والے درخت میں کرو خاص کوڈ، میری جان...",
+  "sign.codeLead": "خاص کوڈ یہ ہے:",
   "settings.tab.controls": "کنٹرول",
   "settings.tab.sound": "آواز",
   "settings.tab.view": "منظر",

@@ -8,4 +8,6 @@ export const arEG: Partial<Messages> = {
   "mood.chillin": "روقان",
   "credits.linkedinLead": "اتواصل معايا على LinkedIn:",
   "skin.tuxedo.note": "شياكة!",
+  "sign.quest": "لو عايز مغامرات وتستكشف الكهوف،\n\nاعمل الكود الخاص عند الشجرة اللي جذعها عريض وشوف...",
+  "sign.codeLead": "الكود الخاص هو:",
 };

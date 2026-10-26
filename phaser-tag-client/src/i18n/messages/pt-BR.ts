@@ -35,6 +35,8 @@ export const ptBR: Messages = {
   "sign.prompt.mobile": "Toque na placa para ler",
   "sign.ok": "OK",
   "sign.close": "Fechar",
+  "sign.quest": "Se você quer aventuras e cavernas pra explorar,\n\nfaça o código especial na árvore de tronco largo, sem enrolar...",
+  "sign.codeLead": "O código especial é:",
   "settings.tab.controls": "Controles",
   "settings.tab.sound": "Som",
   "settings.tab.view": "Visão",

@@ -35,6 +35,8 @@ export const trTR: Messages = {
   "sign.prompt.mobile": "Okumak için tabelaya dokun",
   "sign.ok": "Tamam",
   "sign.close": "Kapat",
+  "sign.quest": "Macera dolu görevler ve mağara keşfi istiyorsan eğer,\n\ngeniş gövdeli ağaçta özel kodu yap, değer...",
+  "sign.codeLead": "Özel kod şu:",
   "settings.tab.controls": "Kontroller",
   "settings.tab.sound": "Ses",
   "settings.tab.view": "Görünüm",

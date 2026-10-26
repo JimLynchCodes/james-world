@@ -35,6 +35,8 @@ export const idID: Messages = {
   "sign.prompt.mobile": "Ketuk papan untuk baca",
   "sign.ok": "OK",
   "sign.close": "Tutup",
+  "sign.quest": "Kalau kamu cari petualangan dan gua untuk dijelajah,\n\nlakukan kode spesial di pohon berbatang lebar, gampang kok, ayo dicoba...",
+  "sign.codeLead": "Kode spesialnya:",
   "settings.tab.controls": "Kontrol",
   "settings.tab.sound": "Suara",
   "settings.tab.view": "Tampilan",

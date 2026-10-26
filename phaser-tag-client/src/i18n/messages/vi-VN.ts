@@ -35,6 +35,8 @@ export const viVN: Messages = {
   "sign.prompt.mobile": "Chạm vào biển để đọc",
   "sign.ok": "OK",
   "sign.close": "Đóng",
+  "sign.quest": "Nếu bạn muốn phiêu lưu và khám phá hang động,\n\nhãy nhập mã đặc biệt ở cái cây có thân rộng...",
+  "sign.codeLead": "Mã đặc biệt là:",
   "settings.tab.controls": "Điều khiển",
   "settings.tab.sound": "Âm thanh",
   "settings.tab.view": "Hiển thị",

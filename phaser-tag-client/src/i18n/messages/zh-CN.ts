@@ -44,6 +44,8 @@ export const zhCN: Messages = {
   "sign.prompt.mobile": "点击告示牌阅读",
   "sign.ok": "好的",
   "sign.close": "关闭",
+  "sign.quest": "想去冒险寻宝、钻进洞穴探一探？\n\n那就在树干超粗的那棵树里，输入特别密码看一看……",
+  "sign.codeLead": "特别密码是：",
   "settings.tab.controls": "操作",
   "settings.tab.sound": "声音",
   "settings.tab.view": "视角",

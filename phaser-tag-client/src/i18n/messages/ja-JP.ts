@@ -44,6 +44,8 @@ export const jaJP: Messages = {
   "sign.prompt.mobile": "看板をタップして読む",
   "sign.ok": "OK",
   "sign.close": "閉じる",
+  "sign.quest": "ワクワクの冒険と洞窟探検がしたいなら、\n\n幹の太い木で、ひみつのコードをやってみな…",
+  "sign.codeLead": "ひみつのコードは：",
   "settings.tab.controls": "操作",
   "settings.tab.sound": "サウンド",
   "settings.tab.view": "表示",

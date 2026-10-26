@@ -4,6 +4,10 @@
  */
 import Phaser from "phaser";
 import { propDepth } from "./schoolyard";
+import { t } from "./i18n";
+
+/** The code itself is never translated. */
+const SPECIAL_CODE = "⚫️ ⚫️ ⚫️ ⬅️ ➡️ ⚫️";
 
 export type SignButton = { label: "ok"; action: "close" };
 export type SignDef = {
@@ -11,8 +15,8 @@ export type SignDef = {
   x: number;
   /** Post base (ground) Y. */
   y: number;
-  /** Shown verbatim in every locale. */
-  text: string;
+  /** Sign copy in the current locale. */
+  text: () => string;
   buttons: SignButton[];
 };
 
@@ -21,14 +25,14 @@ export const SIGNS: SignDef[] = [
     id: "playground",
     x: 3010,
     y: 3420,
-    text: "If you want to go on adventurous quests and spelunk,\n\nthen say the special code in the tree with the wide trunk",
+    text: () => t("sign.quest"),
     buttons: [{ label: "ok", action: "close" }],
   },
   {
     id: "track",
     x: 3766,
     y: 470,
-    text: "The special code is:\n\n⚫️ ⚫️ ⚫️ ⬅️ ➡️ ⚫️",
+    text: () => `${t("sign.codeLead")}\n\n${SPECIAL_CODE}`,
     buttons: [{ label: "ok", action: "close" }],
   },
 ];
@@ -231,7 +235,7 @@ export class SignModal {
   }
 
   open(sign: SignDef) {
-    this.body.textContent = sign.text;
+    this.body.textContent = sign.text();
     this.actions.replaceChildren(
       ...sign.buttons.map(b => {
         const btn = document.createElement("button");

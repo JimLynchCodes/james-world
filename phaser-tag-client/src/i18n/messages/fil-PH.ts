@@ -35,6 +35,8 @@ export const filPH: Messages = {
   "sign.prompt.mobile": "I-tap ang karatula para basahin",
   "sign.ok": "OK",
   "sign.close": "Isara",
+  "sign.quest": "Kung gusto mo ng pakikipagsapalaran at kuweba na susuyurin,\n\ngawin ang special code sa punong malapad ang katawan, subukan mo rin...",
+  "sign.codeLead": "Ang special code ay:",
   "settings.tab.controls": "Kontrol",
   "settings.tab.sound": "Tunog",
   "settings.tab.view": "View",

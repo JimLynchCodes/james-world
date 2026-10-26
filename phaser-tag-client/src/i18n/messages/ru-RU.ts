@@ -35,6 +35,8 @@ export const ruRU: Messages = {
   "sign.prompt.mobile": "Тапни по табличке, чтобы прочитать",
   "sign.ok": "ОК",
   "sign.close": "Закрыть",
+  "sign.quest": "Если хочешь приключений и в пещеры заглянуть,\n\nвведи особый код у дерева с толстым стволом — и в путь...",
+  "sign.codeLead": "Особый код:",
   "settings.tab.controls": "Управление",
   "settings.tab.sound": "Звук",
   "settings.tab.view": "Вид",

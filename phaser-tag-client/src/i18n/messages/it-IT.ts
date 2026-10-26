@@ -35,6 +35,8 @@ export const itIT: Messages = {
   "sign.prompt.mobile": "Tocca il cartello per leggere",
   "sign.ok": "OK",
   "sign.close": "Chiudi",
+  "sign.quest": "Se cerchi avventure e grotte da esplorare,\n\nfai il codice speciale nell’albero dal tronco largo, non tardare...",
+  "sign.codeLead": "Il codice speciale è:",
   "settings.tab.controls": "Comandi",
   "settings.tab.sound": "Audio",
   "settings.tab.view": "Vista",

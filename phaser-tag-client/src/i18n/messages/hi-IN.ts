@@ -44,6 +44,8 @@ export const hiIN: Messages = {
   "sign.prompt.mobile": "पढ़ने के लिए साइन पर टैप करो",
   "sign.ok": "ठीक है",
   "sign.close": "बंद करो",
+  "sign.quest": "अगर रोमांचक सफ़र और गुफ़ाओं की खोज है तुम्हारा ख़्वाब,\n\nतो चौड़े तने वाले पेड़ में करो स्पेशल कोड, जनाब...",
+  "sign.codeLead": "स्पेशल कोड है:",
   "settings.tab.controls": "कंट्रोल",
   "settings.tab.sound": "आवाज़",
   "settings.tab.view": "दृश्य",

@@ -35,6 +35,8 @@ export const plPL: Messages = {
   "sign.prompt.mobile": "Stuknij tabliczkę, żeby przeczytać",
   "sign.ok": "OK",
   "sign.close": "Zamknij",
+  "sign.quest": "Jeśli marzysz o przygodach i jaskiniach do zbadania,\n\nwpisz specjalny kod przy drzewie o grubym pniu – bez gadania...",
+  "sign.codeLead": "Specjalny kod to:",
   "settings.tab.controls": "Sterowanie",
   "settings.tab.sound": "Dźwięk",
   "settings.tab.view": "Widok",

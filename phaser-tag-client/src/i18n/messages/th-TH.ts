@@ -35,6 +35,8 @@ export const thTH: Messages = {
   "sign.prompt.mobile": "แตะป้ายเพื่ออ่าน",
   "sign.ok": "ตกลง",
   "sign.close": "ปิด",
+  "sign.quest": "ถ้าอยากออกผจญภัยและสำรวจถ้ำให้มันส์\n\nไปใส่รหัสพิเศษที่ต้นไม้ลำต้นใหญ่กันนั่น...",
+  "sign.codeLead": "รหัสพิเศษคือ:",
   "settings.tab.controls": "การควบคุม",
   "settings.tab.sound": "เสียง",
   "settings.tab.view": "มุมมอง",

@@ -47,6 +47,8 @@ export const esMX: Messages = {
   "sign.prompt.mobile": "Toca el letrero para leer",
   "sign.ok": "OK",
   "sign.close": "Cerrar",
+  "sign.quest": "Si buscas aventuras y cuevas que explorar,\n\nhaz el código especial en el árbol de tronco ancho sin dudar...",
+  "sign.codeLead": "El código especial es:",
   "settings.tab.controls": "Controles",
   "settings.tab.sound": "Sonido",
   "settings.tab.view": "Vista",

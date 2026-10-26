@@ -35,6 +35,8 @@ export const koKR: Messages = {
   "sign.prompt.mobile": "표지판을 탭해서 읽기",
   "sign.ok": "확인",
   "sign.close": "닫기",
+  "sign.quest": "신나는 모험과 동굴 탐험을 원한다면,\n\n줄기가 굵은 나무에서 특별한 코드를 해 봐...",
+  "sign.codeLead": "특별한 코드는:",
   "settings.tab.controls": "조작",
   "settings.tab.sound": "사운드",
   "settings.tab.view": "화면",

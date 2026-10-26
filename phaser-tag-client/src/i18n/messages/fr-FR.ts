@@ -35,6 +35,8 @@ export const frFR: Messages = {
   "sign.prompt.mobile": "Touche le panneau pour lire",
   "sign.ok": "OK",
   "sign.close": "Fermer",
+  "sign.quest": "Si tu rêves d’aventures et de grottes à explorer,\n\nfais le code spécial dans l’arbre au gros tronc, sans hésiter...",
+  "sign.codeLead": "Le code spécial est :",
   "settings.tab.controls": "Commandes",
   "settings.tab.sound": "Son",
   "settings.tab.view": "Vue",

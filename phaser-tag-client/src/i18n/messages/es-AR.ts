@@ -93,4 +93,5 @@ Información técnica:
 
 
 Apretá cualquier tecla o tocá para continuar `,
+  "sign.quest": "Si buscás aventuras y cuevas para explorar,\n\nhacé el código especial en el árbol de tronco ancho, dale, sin dudar...",
 };

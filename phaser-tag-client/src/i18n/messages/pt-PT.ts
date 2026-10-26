@@ -13,4 +13,5 @@ export const ptPT: Partial<Messages> = {
   "skin.trex.note": "Apanhada do T-Rex!",
   "credits.linkedinLead": "Liga-te a mim no LinkedIn:",
   "hint.mobileTouch": "<strong>Toca</strong> no chão para andar · <strong>toca duas vezes</strong> para correr · <strong>toca num jogador</strong> para apanhar",
+  "sign.quest": "Se queres aventuras e grutas para explorar,\n\nfaz o código especial na árvore de tronco largo, sem hesitar...",
 };

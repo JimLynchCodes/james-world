@@ -35,6 +35,8 @@ export const arSA: Messages = {
   "sign.prompt.mobile": "انقر على اللافتة للقراءة",
   "sign.ok": "حسنًا",
   "sign.close": "إغلاق",
+  "sign.quest": "إن كنت تبحث عن مغامرات واستكشاف الكهوف،\n\nفأدخل الرمز الخاص عند الشجرة ذات الجذع العريض المعروف...",
+  "sign.codeLead": "الرمز الخاص هو:",
   "settings.tab.controls": "التحكم",
   "settings.tab.sound": "الصوت",
   "settings.tab.view": "العرض",
