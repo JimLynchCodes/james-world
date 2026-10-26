@@ -14,8 +14,9 @@ held-item rules) with the smooth 4x rendering of make_trex_skin.py:
     swaying with the walk/run cycle;
   * the arms become black robe sleeves with crimson cuffs; hands, face and
     hair are James's own pixels, untouched;
-  * dark sunglasses over the eyes and a small lightning-bolt scar on the
-    forehead (front/side views);
+  * round wire-rim spectacles with clear glass (James's real eyes show
+    through) and a red lightning-bolt scar centred on the forehead
+    (front/side views, hidden from the back);
   * a wand in the tagging hand (in front of the body, behind it in back
     views) that sweeps through an arc on tag with a sparkle burst at the tip.
 
@@ -62,7 +63,8 @@ TIE_GOLD = (226, 178, 52)
 LENS = (16, 16, 22)
 LENS_GLINT = (110, 124, 150)
 FRAME = (30, 28, 34)
-SCAR = (168, 30, 40)
+SCAR = (212, 30, 40)
+GLINT = (236, 244, 255, 170)
 WAND = (74, 46, 28)
 WAND_LINE = (30, 18, 10)
 WAND_TIP = (236, 224, 190)
@@ -256,8 +258,18 @@ def find_eyes(f: np.ndarray, g: Geometry):
     return [(x, y) for x, y, _ in out[:2]]
 
 
+EYE_R = 4.2
 EYE_HW = 4.5     # lens half-width / height cover the whole eye
 EYE_HH = 3.4
+
+
+def lens(d, ex, ey, r, rx=None):
+    """Round wire-rim lens: clear glass (the real eye shows through), thin
+    dark rim and a faint glint."""
+    rx = r if rx is None else rx
+    d.ellipse([S(ex - rx), S(ey - r), S(ex + rx), S(ey + r)], outline=FRAME, width=max(1, int(round(S(0.55)))))
+    d.arc([S(ex - rx + 0.9), S(ey - r + 0.9), S(ex + rx - 0.9), S(ey + r - 0.9)], 200, 250,
+          fill=GLINT, width=max(1, int(round(S(0.45)))))
 
 
 def face_layer(size, direction, eyes, g) -> Image.Image:
@@ -267,17 +279,13 @@ def face_layer(size, direction, eyes, g) -> Image.Image:
     if not eyes:
         return im
     eyes = sorted(eyes)
-    lw = int(S(0.5))
     if direction in PROFILE:
         fc = PROFILE[direction]
         ex, ey = eyes[0] if fc < 0 else eyes[-1]
-        ex += fc * 0.3
-        d.line([(S(ex - fc * 1.2), S(ey - 0.6)), (S(ex - fc * 7.5), S(ey - 0.2))], fill=FRAME, width=int(S(0.8)))
-        d.rounded_rectangle([S(ex - 3.0), S(ey - EYE_HH - 0.3), S(ex + 3.0), S(ey + EYE_HH)], radius=S(1.2),
-                            fill=LENS, outline=FRAME, width=lw)
-        d.line([(S(ex - 0.6), S(ey - 0.9)), (S(ex + 0.6), S(ey - 0.9))], fill=LENS_GLINT, width=lw)
-        sx, sy = ex - fc * 0.6, ey - 9.2
-        bolt(d, sx, sy)
+        r = EYE_R
+        d.line([(S(ex - fc * r * 0.75), S(ey - 0.8)), (S(ex - fc * 7.5), S(ey - 0.4))], fill=FRAME, width=int(S(0.6)))
+        lens(d, ex + fc * 0.3, ey, r, r * 0.72)
+        bolt(d, ex - fc * 1.2, ey - 9.0)
         return im
     if len(eyes) == 1:
         x, y = eyes[0]
@@ -287,22 +295,22 @@ def face_layer(size, direction, eyes, g) -> Image.Image:
     (x0, y0), (x1, y1) = eyes
     yc = (y0 + y1) / 2
     gap = x1 - x0
-    hw = max(2.6, min(EYE_HW, gap * 0.46))
+    r = max(3.0, min(EYE_R, gap * 0.45))
     for ex in (x0, x1):
-        d.rounded_rectangle([S(ex - hw), S(yc - EYE_HH - 0.4), S(ex + hw), S(yc + EYE_HH + 0.2)], radius=S(1.3),
-                            fill=LENS, outline=FRAME, width=lw)
-        d.line([(S(ex - hw + 0.9), S(yc - 0.9)), (S(ex - hw + 1.9), S(yc - 0.9))], fill=LENS_GLINT, width=lw)
-    d.line([(S(x0 + hw), S(yc - 0.8)), (S(x1 - hw), S(yc - 0.8))], fill=FRAME, width=int(S(0.7)))
-    for ex, s in ((x0, -1), (x1, 1)):
-        d.line([(S(ex + s * hw), S(yc - 1.0)), (S(ex + s * (hw + 1.4)), S(yc - 1.3))], fill=FRAME, width=int(S(0.7)))
-    # bolt above the wearer's right eye (screen left from the front)
-    bolt(d, x0 + 1.5, yc - 9.6)
+        lens(d, ex, yc, r)
+    # bridge and temples
+    d.arc([S(x0 + r - 0.3), S(yc - 1.6), S(x1 - r + 0.3), S(yc + 0.6)], 200, 340, fill=FRAME, width=int(S(0.55)))
+    for ex, s_ in ((x0, -1), (x1, 1)):
+        d.line([(S(ex + s_ * r), S(yc - 0.6)), (S(ex + s_ * (r + 1.3)), S(yc - 1.0))], fill=FRAME, width=int(S(0.55)))
+    # scar: centred on the forehead, between the brows and the fringe
+    bolt(d, (x0 + x1) / 2, yc - 9.4)
     return im
 
 
 def bolt(d, x, y):
-    pts = [(x + 1.1, y - 1.9), (x - 0.6, y + 0.2), (x + 0.7, y - 0.1), (x - 1.1, y + 2.0)]
-    d.line([(S(px), S(py)) for px, py in pts], fill=SCAR, width=int(S(0.75)), joint="curve")
+    """Red 'N' lightning bolt (like the reference photo), ~5px tall."""
+    pts = [(x - 1.5, y + 2.4), (x - 0.3, y - 2.0), (x + 0.3, y + 1.0), (x + 1.6, y - 2.5)]
+    d.line([(S(px), S(py)) for px, py in pts], fill=SCAR, width=int(round(S(0.9))), joint="curve")
 
 
 # --- wand -------------------------------------------------------------------------
