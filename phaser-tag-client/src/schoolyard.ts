@@ -1,3 +1,4 @@
+import { SIGN_FOOTPRINTS } from "./signs";
 import Phaser from "phaser";
 import { pickSecretTree } from "./secretSequence";
 import { PLAYER_RADIUS, WALL_BOTTOM, WALL_LEFT, WALL_RIGHT, WALL_TOP } from "./world";
@@ -1163,7 +1164,7 @@ export function createSchoolyard(scene: Phaser.Scene, worldW: number, worldH: nu
   for (let x = 0; x < worldW; x += 56) g.lineBetween(x, road + 5, x, outTop - 10);
 
   // --- props
-  const blocked: Rect[] = [...Object.values(areas)];
+  const blocked: Rect[] = [...Object.values(areas), ...SIGN_FOOTPRINTS];
   const free = (x: number, y: number, pad: number) =>
     !blocked.some(r => overlaps(r, x, y, pad)) && Math.hypot(x - 400, y - 300) > 160; // open clearing (players spawn at random now)
 
