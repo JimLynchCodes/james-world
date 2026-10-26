@@ -41,7 +41,7 @@ export const urPK: Messages = {
   "settings.title": "سیٹنگز",
   "settings.close": "سیٹنگز بند کرو",
   "sign.prompt.keyboard": "پڑھنے کے لیے {key} دبائیں",
-  "sign.prompt.mobile": "پڑھنے کے لیے Tag دبائیں",
+  "sign.prompt.mobile": "پڑھنے کے لیے بورڈ پر ٹیپ کریں",
   "sign.ok": "ٹھیک ہے",
   "sign.close": "بند کریں",
   "settings.tab.controls": "کنٹرول",

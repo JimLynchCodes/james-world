@@ -41,7 +41,7 @@ export const zhCN: Messages = {
   "settings.title": "设置",
   "settings.close": "关闭设置",
   "sign.prompt.keyboard": "按 {key} 阅读",
-  "sign.prompt.mobile": "点 Tag 阅读",
+  "sign.prompt.mobile": "点击告示牌阅读",
   "sign.ok": "好的",
   "sign.close": "关闭",
   "settings.tab.controls": "操作",

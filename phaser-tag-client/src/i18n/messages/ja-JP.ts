@@ -41,7 +41,7 @@ export const jaJP: Messages = {
   "settings.title": "設定",
   "settings.close": "設定を閉じる",
   "sign.prompt.keyboard": "{key} で読む",
-  "sign.prompt.mobile": "Tag で読む",
+  "sign.prompt.mobile": "看板をタップして読む",
   "sign.ok": "OK",
   "sign.close": "閉じる",
   "settings.tab.controls": "操作",

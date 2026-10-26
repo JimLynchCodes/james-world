@@ -41,7 +41,7 @@ export const hiIN: Messages = {
   "settings.title": "सेटिंग्स",
   "settings.close": "सेटिंग्स बंद करो",
   "sign.prompt.keyboard": "पढ़ने के लिए {key} दबाओ",
-  "sign.prompt.mobile": "पढ़ने के लिए Tag दबाओ",
+  "sign.prompt.mobile": "पढ़ने के लिए साइन पर टैप करो",
   "sign.ok": "ठीक है",
   "sign.close": "बंद करो",
   "settings.tab.controls": "कंट्रोल",

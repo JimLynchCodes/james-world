@@ -44,7 +44,7 @@ export const esMX: Messages = {
   "settings.title": "Ajustes",
   "settings.close": "Cerrar ajustes",
   "sign.prompt.keyboard": "Pulsa {key} para leer",
-  "sign.prompt.mobile": "Toca Tag para leer",
+  "sign.prompt.mobile": "Toca el letrero para leer",
   "sign.ok": "OK",
   "sign.close": "Cerrar",
   "settings.tab.controls": "Controles",

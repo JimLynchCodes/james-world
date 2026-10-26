@@ -1110,6 +1110,14 @@ class GameScene extends Phaser.Scene {
         return;
       }
       const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+      // Tapping a sign reads it from anywhere; it never walks or tags.
+      const sign = this.signAt(world.x, world.y);
+      if (sign && this.onReadSign) {
+        this.pendingTag = null;
+        this.clearTapTarget();
+        this.onReadSign(sign);
+        return;
+      }
       const kid = this.remoteAt(world.x, world.y);
       // In range: wait for the finger to lift before tagging, so a second
       // finger (a pinch) can cancel it. Out of range: walk toward them.
@@ -1423,6 +1431,23 @@ class GameScene extends Phaser.Scene {
       }
       if (s.prompt.visible !== show) s.prompt.setVisible(show);
     }
+  }
+
+  /** Sign under a world point, padded to at least a 48px screen target. */
+  private signAt(x: number, y: number): PlacedSign | null {
+    const pad = Math.max(6, 24 / this.cameras.main.zoom);
+    let best: PlacedSign | null = null;
+    let bestD = Infinity;
+    for (const s of this.signs) {
+      const cy = s.y - 22;
+      if (Math.abs(x - s.x) > 22 + pad || Math.abs(y - cy) > 25 + pad) continue;
+      const d = Math.hypot(x - s.x, y - cy);
+      if (d < bestD) {
+        bestD = d;
+        best = s;
+      }
+    }
+    return best;
   }
 
   /** Tag pressed: read a nearby sign instead of swinging. */

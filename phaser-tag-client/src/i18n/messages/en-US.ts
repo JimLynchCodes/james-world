@@ -39,7 +39,7 @@ export const enUS = {
   "settings.title": "Settings",
   "settings.close": "Close settings",
   "sign.prompt.keyboard": "Press {key} to read",
-  "sign.prompt.mobile": "Tag to read",
+  "sign.prompt.mobile": "Tap sign to read",
   "sign.ok": "OK",
   "sign.close": "Close",
   "settings.tab.controls": "Controls",
