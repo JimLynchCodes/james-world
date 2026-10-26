@@ -14,7 +14,7 @@
 
 import type { Mood, Settings } from "./settings";
 
-export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "spacemanStep" | "spacemanSwing" | "click" | "blip" | "secret";
+export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "spacemanStep" | "spacemanSwing" | "wizardStep" | "wizardSwing" | "click" | "blip" | "secret";
 
 const CROSSFADE_S = 1.5;
 const LOOKAHEAD_S = 0.15;
@@ -779,6 +779,18 @@ export class GameAudio {
         syn.noise(t, { filter: "bandpass", freq: 520, sweepTo: 2100, q: 1.2, gain: 0.3 * v, attack: 0.03, release: 0.15 });
         syn.tone(t + 0.04, 990, { type: "square", gain: 0.035 * v, attack: 0.002, release: 0.05, filter: 3600 });
         syn.tone(t + 0.09, 1480, { type: "square", gain: 0.028 * v, attack: 0.002, release: 0.045, filter: 3600 });
+        break;
+      }
+      case "wizardStep": { // Wizard James: soft shoe pat plus the swish of a long robe
+        const p = 0.94 + Math.random() * 0.12;
+        syn.noise(t, { filter: "bandpass", freq: 1500 * p, q: 2.5, gain: 0.14 * v, attack: 0.001, release: 0.03 });
+        syn.noise(t + 0.02, { filter: "lowpass", freq: 900 * p, sweepTo: 300, q: 0.6, gain: 0.07 * v, attack: 0.02, release: 0.09 });
+        break;
+      }
+      case "wizardSwing": { // Wizard James's tag: wand whoosh plus a little rising sparkle chime
+        syn.noise(t, { filter: "bandpass", freq: 600, sweepTo: 3200, q: 1.8, gain: 0.3 * v, attack: 0.03, release: 0.14 });
+        [1568, 2093, 2637, 3136].forEach((f, i) =>
+          syn.tone(t + 0.06 + i * 0.035, f, { type: "sine", gain: 0.03 * v, attack: 0.002, release: 0.2 }));
         break;
       }
       case "pharaohSwing": { // Pharaoh James's tag: cloth whoosh plus a short muted horn (open fifth)

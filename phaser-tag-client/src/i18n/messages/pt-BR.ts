@@ -112,6 +112,8 @@ export const ptBR: Messages = {
   "skin.pharaoh.note": "Ande como um egípcio!",
   "skin.spaceman": "James Astronauta",
   "skin.spaceman.note": "Um pequeno passo...",
+  "skin.wizard": "James Bruxo",
+  "skin.wizard.note": "Abracadabra, tá com você!",
   "settings.credits.heading": "Créditos",
   "credits.bio": "Este jogo foi feito pelo James, um engenheiro de software que mora em Nova York (também conhecido por vários outros nomes, como Jim, Jimbo, Jimothy e Sir Jims-a-lot).",
   "credits.linkedinLead": "Bora se conectar no LinkedIn:",

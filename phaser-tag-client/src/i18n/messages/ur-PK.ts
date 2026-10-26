@@ -129,6 +129,8 @@ export const urPK: Messages = {
   "skin.pharaoh.note": "مصر والی چال!",
   "skin.spaceman": "خلاباز James",
   "skin.spaceman.note": "ایک چھوٹا قدم…",
+  "skin.wizard": "جادوگر James",
+  "skin.wizard.note": "چھو منتر، اب تمہاری باری!",
 
   "settings.credits.heading": "کریڈٹ",
   "credits.bio":

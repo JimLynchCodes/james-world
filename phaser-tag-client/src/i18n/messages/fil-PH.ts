@@ -112,6 +112,8 @@ export const filPH: Messages = {
   "skin.pharaoh.note": "Maglakad na parang Egyptian!",
   "skin.spaceman": "Spaceman James",
   "skin.spaceman.note": "Isang maliit na hakbang...",
+  "skin.wizard": "Wizard James",
+  "skin.wizard.note": "Abrakadabra, ikaw na ang taya!",
   "settings.credits.heading": "Credits",
   "credits.bio": "Ang larong ito ay ginawa ni James, isang software engineer na nakatira sa New York City (kilala rin sa iba pang pangalan gaya ng Jim, Jimbo, Jimothy, at Sir Jims-a-lot).",
   "credits.linkedinLead": "Tara, mag-connect tayo sa LinkedIn:",

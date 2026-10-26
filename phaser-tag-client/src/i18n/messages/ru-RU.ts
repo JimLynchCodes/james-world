@@ -112,6 +112,8 @@ export const ruRU: Messages = {
   "skin.pharaoh.note": "Шагай как египтянин!",
   "skin.spaceman": "James-Космонавт",
   "skin.spaceman.note": "Маленький шаг...",
+  "skin.wizard": "James-Волшебник",
+  "skin.wizard.note": "Крибле-крабле-бумс, ты водишь!",
   "settings.credits.heading": "Авторы",
   "credits.bio": "Эту игру сделал James, программист из Нью-Йорка (ещё известный под кучей других имён: Jim, Jimbo, Jimothy и Sir Jims-a-lot).",
   "credits.linkedinLead": "Добавляйся ко мне в LinkedIn:",

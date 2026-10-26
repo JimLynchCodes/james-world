@@ -9,7 +9,7 @@ A minimal fullscreen Phaser client for the Rust WebSocket protocol.
 - WASD / arrow-key movement, or Mobile mode (tap where to walk, or a
   virtual joystick with Tag and Run buttons)
 - Settings panel (cog, top right): controls mode, volumes, music mood, skin
-- Skins: James (default), Banana James, T-rex James, Tuxedo James, Pirate James, or Pharaoh James, seen by every player
+- Skins: James (default), Banana James, T-rex James, Tuxedo James, Pirate James, Pharaoh James, Spaceman James, or Wizard James, seen by every player
 - Music and sound effects: procedural (Web Audio) plus one CC0 lo-fi loop
 - SHIFT to request running
 - SPACE to attempt tagging the nearest player
@@ -238,7 +238,8 @@ player stops.
   **Banana James** (squeaky shoes), **T-rex James** (scary stomp),
   **Tuxedo James** (dress-shoe click), **Pirate James** (boot clomp), and
   **Pharaoh James** (sand shuffle, short horn on a tag), and
-  **Spaceman James** (radio beep, low-gravity hop). See "Skins" below.
+  **Spaceman James** (radio beep, low-gravity hop), and
+  **Wizard James** (robe swish, sparkle chime on a tag). See "Skins" below.
 
 Only settings the user has actually chosen are saved in `localStorage`
 (`tag26.settings`), and they are applied on load. Invalid or unknown saved

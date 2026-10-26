@@ -11,11 +11,12 @@
  *   pirate - public/assets/kid_pirate.png  (tools/make_pirate_skin.py)
  *   pharaoh - public/assets/kid_pharaoh.png (tools/make_pharaoh_skin.py)
  *   spaceman - public/assets/kid_spaceman.png (tools/make_spaceman_skin.py)
+ *   wizard   - public/assets/kid_wizard.png   (tools/make_wizard_skin.py)
  *
  * The id is what goes over the wire (`skin` in Join / SetSkin /
  * PlayerSnapshot); the server falls back to "james" for unknown values.
  */
-export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate" | "pharaoh" | "spaceman";
+export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate" | "pharaoh" | "spaceman" | "wizard";
 
 export const DEFAULT_SKIN: Skin = "james";
 
@@ -151,6 +152,20 @@ export const SKINS: Record<Skin, SkinSheet> = {
       columns: 14,
       columnStart: 16,
     },
+  },
+  wizard: {
+    id: "wizard",
+    label: "Wizard James",
+    note: "Tag-ulus Totalus!",
+    texture: "kid_wizard",
+    url: `${BASE}assets/kid_wizard.png`,
+    // padded like the pirate: 20px each side for the wand, 12px on top for
+    // the sparkle burst when the wand flicks up
+    frameWidth: 120,
+    frameHeight: 112,
+    baselineY: 108,
+    // same head as James: hair top ~90px above the feet
+    artHeight: 90,
   },
 };
 

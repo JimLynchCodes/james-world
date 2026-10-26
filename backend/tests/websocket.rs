@@ -218,6 +218,10 @@ async fn skin_round_trips_and_unknown_values_fall_back_to_james() {
         .await
         .unwrap();
     assert!(wait_for_skin(&mut b, &a_id, "spaceman").await, "SetSkin spaceman not seen");
+    a.send(Message::Text(r#"{"type":"SetSkin","data":{"skin":"wizard"}}"#.into()))
+        .await
+        .unwrap();
+    assert!(wait_for_skin(&mut b, &a_id, "wizard").await, "SetSkin wizard not seen");
     a.send(Message::Text(r#"{"type":"SetSkin","data":{"skin":"pineapple"}}"#.into()))
         .await
         .unwrap();
