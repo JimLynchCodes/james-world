@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { getLocale, t } from "./i18n";
+import { getLocale, isRtl, t } from "./i18n";
 import { DEFAULT_SKIN, SKINS, SKIN_IDS, type Skin, type SkinSheet } from "./skins";
 import { SPACEMAN_BOOSTERS } from "./spacemanBoosters";
 import { DIRECTIONS, directionFromAngle, nextAvatarAnim, type Direction } from "./tagging";
@@ -284,9 +284,11 @@ export type KidRole = "self" | "it" | "bot" | "human";
 const LABEL_LINES = ["name", "you", "it"] as const;
 type LabelLine = (typeof LABEL_LINES)[number];
 
+const LABEL_FONT =
+  '"Noto Sans Devanagari", "Noto Nastaliq Urdu", "Noto Naskh Arabic", system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Noto Sans CJK KR", "Thonburi", "Leelawadee UI", "Noto Sans Thai", sans-serif';
+
 const LABEL_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
-  fontFamily:
-    '"Noto Sans Devanagari", "Noto Nastaliq Urdu", "Noto Naskh Arabic", system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", sans-serif',
+  fontFamily: LABEL_FONT,
   fontStyle: "bold",
   stroke: "#10131a",
   strokeThickness: 4,
@@ -471,11 +473,14 @@ export class KidAvatar {
 
   /** YOU / IT in the current language. Names stay as the server sent them. */
   applyLocale() {
-    const rtl = getLocale() === "ur-PK";
+    const locale = getLocale();
+    const rtl = isRtl(locale);
     this.labels.you.setText(t("label.you"));
     this.labels.it.setText(t("label.it"));
-    this.labels.you.setStyle({ rtl });
-    this.labels.it.setStyle({ rtl });
+    // Arabic first for ar-*: the Nastaliq subset only covers Urdu letters.
+    const fontFamily = locale.startsWith("ar-") ? `"Noto Naskh Arabic", ${LABEL_FONT}` : LABEL_FONT;
+    this.labels.you.setStyle({ rtl, fontFamily });
+    this.labels.it.setStyle({ rtl, fontFamily });
     this.labels.name.setStyle({ rtl: false });
   }
 

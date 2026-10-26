@@ -516,16 +516,19 @@ export class SecretDungeonScene extends Phaser.Scene {
     time: number
   ) {
     const family =
-      '"Noto Sans Devanagari", "Noto Nastaliq Urdu", "Noto Naskh Arabic", "Nirmala UI", "Urdu Typesetting", "Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans SC", "Noto Sans JP", "PingFang SC", "Hiragino Sans", "Microsoft YaHei", "Yu Gothic", "WenQuanYi Micro Hei", "Droid Sans Fallback", "Noto Sans", sans-serif';
+      '"Noto Sans Devanagari", "Noto Nastaliq Urdu", "Noto Naskh Arabic", "Nirmala UI", "Urdu Typesetting", "Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans SC", "Noto Sans JP", "PingFang SC", "Hiragino Sans", "Microsoft YaHei", "Yu Gothic", "WenQuanYi Micro Hei", "Droid Sans Fallback", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Noto Sans CJK KR", "Thonburi", "Leelawadee UI", "Noto Sans Thai", "Noto Sans", sans-serif';
     const rtl = /[\u0600-\u06FF]/.test(lines[0] + lines[1]);
+    // Arabic letters the Nastaliq (Urdu) subset lacks, e.g. ة ى ك ي.
+    const arabic = /[\u0629\u0643\u0649\u064A]/.test(lines[0] + lines[1]);
+    const fontFamily = arabic ? `"Noto Naskh Arabic", ${family}` : family;
     const maxW = CAVE.w - 12;
     let size = rtl ? 11 : 12;
     const widthAt = (px: number) => {
-      ctx.font = `bold ${px}px ${family}`;
+      ctx.font = `bold ${px}px ${fontFamily}`;
       return Math.max(ctx.measureText(lines[0]).width, ctx.measureText(lines[1]).width);
     };
     while (size > 7 && widthAt(size) > maxW) size -= 1;
-    ctx.font = `bold ${size}px ${family}`;
+    ctx.font = `bold ${size}px ${fontFamily}`;
     ctx.fillStyle = "#ffffff";
     ctx.textBaseline = "top";
     ctx.direction = rtl ? "rtl" : "ltr";

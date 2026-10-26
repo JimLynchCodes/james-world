@@ -164,6 +164,82 @@ function pakistan(): string {
     <polygon points="${star(41.2, 20, 2.5, 5)}" fill="#ffffff"/>`;
 }
 
+function flag_br(): string {
+  return `<rect width="60" height="40" fill="#009c3b"/><polygon points="30,5 55,20 30,35 5,20" fill="#ffdf00"/><circle cx="30" cy="20" r="8" fill="#002776"/><path d="M22.3 18 q8 -2 15.4 3" stroke="#fff" stroke-width="1.2" fill="none"/>`;
+}
+
+function flag_pt(): string {
+  return `<rect width="60" height="40" fill="#ff0000"/><rect width="24" height="40" fill="#006600"/><circle cx="24" cy="20" r="7" fill="#ffcc00"/><path d="M20 15 h8 v6 a4 4 0 0 1-8 0 z" fill="#ff0000" stroke="#fff" stroke-width="0.8"/>`;
+}
+
+function flag_fr(): string {
+  return `<rect width="20" height="40" fill="#002395"/><rect x="20" width="20" height="40" fill="#ffffff"/><rect x="40" width="20" height="40" fill="#ed2939"/>`;
+}
+
+function flag_ca(): string {
+  return `<rect width="60" height="40" fill="#ffffff"/><rect width="15" height="40" fill="#d52b1e"/><rect x="45" width="15" height="40" fill="#d52b1e"/><polygon points="30,8 32,13 35,11.5 34,18 37.5,15.5 38.5,18 42,17.5 40,22 41.5,23 35,28 35.5,30.5 30.8,30 30.8,34 29.2,34 29.2,30 24.5,30.5 25,28 18.5,23 20,22 18,17.5 21.5,18 22.5,15.5 26,18 25,11.5 28,13" fill="#d52b1e"/>`;
+}
+
+function flag_be(): string {
+  return `<rect width="20" height="40" fill="#000000"/><rect x="20" width="20" height="40" fill="#fae042"/><rect x="40" width="20" height="40" fill="#ed2939"/>`;
+}
+
+function flag_de(): string {
+  return `<rect width="60" height="13.4" fill="#000000"/><rect y="13.3" width="60" height="13.4" fill="#dd0000"/><rect y="26.6" width="60" height="13.4" fill="#ffce00"/>`;
+}
+
+function flag_at(): string {
+  return `<rect width="60" height="40" fill="#ed2939"/><rect y="13.33" width="60" height="13.34" fill="#ffffff"/>`;
+}
+
+function flag_ch(): string {
+  return `<rect width="60" height="40" fill="#da291c"/><rect x="27" y="10" width="6" height="20" fill="#fff"/><rect x="20" y="17" width="20" height="6" fill="#fff"/>`;
+}
+
+function flag_ru(): string {
+  return `<rect width="60" height="13.4" fill="#ffffff"/><rect y="13.3" width="60" height="13.4" fill="#0039a6"/><rect y="26.6" width="60" height="13.4" fill="#d52b1e"/>`;
+}
+
+function flag_kr(): string {
+  return `<rect width="60" height="40" fill="#ffffff"/><path d="M22 20 a8 8 0 0 1 16 0 a4 4 0 0 1-8 0 a4 4 0 0 0-8 0z" fill="#cd2e3a"/><path d="M38 20 a8 8 0 0 1-16 0 a4 4 0 0 1 8 0 a4 4 0 0 0 8 0z" fill="#0047a0"/><g stroke="#000" stroke-width="1.6"><path d="M8 9 l6-4 M9.5 11 l6-4 M11 13 l6-4"/><path d="M43 31 l6-4 M44.5 33 l6-4 M46 35 l6-4"/><path d="M43 9 l6 4 M44.5 7 l6 4 M46 5 l6 4"/><path d="M8 31 l6 4 M9.5 29 l6 4 M11 27 l6 4"/></g>`;
+}
+
+function flag_id(): string {
+  return `<rect width="60" height="40" fill="#ffffff"/><rect width="60" height="20" fill="#ce1126"/>`;
+}
+
+function flag_sa(): string {
+  return `<rect width="60" height="40" fill="#006c35"/><path d="M16 15 q3-3 5 0 q3-3 5 0 q3-3 5 0 q3-3 5 0 q3-3 5 0" stroke="#fff" stroke-width="1.6" fill="none"/><path d="M15 27 h28 l3-2" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round"/><rect x="18" y="26" width="1.6" height="3" fill="#fff"/>`;
+}
+
+function flag_eg(): string {
+  return `<rect width="60" height="13.4" fill="#ce1126"/><rect y="13.3" width="60" height="13.4" fill="#ffffff"/><rect y="26.6" width="60" height="13.4" fill="#000000"/><path d="M27 16 l3 -2 l3 2 v6 l-3 2 l-3 -2z" fill="#c09300"/>`;
+}
+
+function flag_tr(): string {
+  return `<rect width="60" height="40" fill="#e30a17"/><circle cx="22" cy="20" r="9" fill="#fff"/><circle cx="24.3" cy="20" r="7.2" fill="#e30a17"/><polygon points="${star(34.5, 20, 3.6, 5)}" fill="#fff"/>`;
+}
+
+function flag_vn(): string {
+  return `<rect width="60" height="40" fill="#da251d"/><polygon points="${star(30, 20, 10, 5)}" fill="#ffff00"/>`;
+}
+
+function flag_it(): string {
+  return `<rect width="20" height="40" fill="#009246"/><rect x="20" width="20" height="40" fill="#ffffff"/><rect x="40" width="20" height="40" fill="#ce2b37"/>`;
+}
+
+function flag_pl(): string {
+  return `<rect width="60" height="40" fill="#dc143c"/><rect width="60" height="20" fill="#ffffff"/>`;
+}
+
+function flag_ph(): string {
+  return `<rect width="60" height="40" fill="#ce1126"/><rect width="60" height="20" fill="#0038a8"/><polygon points="0,0 34.6,20 0,40" fill="#fff"/><circle cx="11" cy="20" r="4" fill="#fcd116"/><polygon points="${star(4, 6, 1.6, 5)}" fill="#fcd116"/><polygon points="${star(4, 34, 1.6, 5)}" fill="#fcd116"/><polygon points="${star(28, 20, 1.6, 5)}" fill="#fcd116"/>`;
+}
+
+function flag_th(): string {
+  return `<rect width="60" height="40" fill="#a51931"/><rect y="6.67" width="60" height="26.66" fill="#f4f5f8"/><rect y="13.33" width="60" height="13.34" fill="#2d2a4a"/>`;
+}
+
 const BODIES: Record<Locale, () => string> = {
   "en-US": us,
   "en-GB": () => unionJack(),
@@ -177,6 +253,25 @@ const BODIES: Record<Locale, () => string> = {
   "ja-JP": jp,
   "hi-IN": india,
   "ur-PK": pakistan,
+  "pt-BR": flag_br,
+  "pt-PT": flag_pt,
+  "fr-FR": flag_fr,
+  "fr-CA": flag_ca,
+  "fr-BE": flag_be,
+  "de-DE": flag_de,
+  "de-AT": flag_at,
+  "de-CH": flag_ch,
+  "ru-RU": flag_ru,
+  "ko-KR": flag_kr,
+  "id-ID": flag_id,
+  "ar-SA": flag_sa,
+  "ar-EG": flag_eg,
+  "tr-TR": flag_tr,
+  "vi-VN": flag_vn,
+  "it-IT": flag_it,
+  "pl-PL": flag_pl,
+  "fil-PH": flag_ph,
+  "th-TH": flag_th,
 };
 
 /** Inline SVG for `locale`'s region. GB is 2:1; the rest are 3:2. */

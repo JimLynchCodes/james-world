@@ -444,6 +444,62 @@ canvas {
   padding-top: 12px;
   padding-bottom: 10px;
 }
+/* Arabic (MSA + Egypt): Naskh, not the Urdu Nastaliq. Thai and Korean use system fonts. */
+:lang(ar-SA),
+:lang(ar-EG) {
+  --font-fun: "Noto Naskh Arabic", "Geeza Pro", "Segoe UI", Tahoma, ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", "Nunito", "Varela Round", "Trebuchet MS", system-ui, sans-serif;
+}
+:lang(ar-SA) body,
+:lang(ar-EG) body {
+  font-family: "Noto Naskh Arabic", "Geeza Pro", "Segoe UI", Tahoma, system-ui, sans-serif;
+}
+:lang(ko-KR) {
+  --font-fun: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Noto Sans CJK KR", ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", "Nunito", "Varela Round", "Trebuchet MS", system-ui, sans-serif;
+}
+:lang(ko-KR) body {
+  font-family: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Noto Sans CJK KR", system-ui, sans-serif;
+}
+:lang(th-TH) {
+  --font-fun: "Thonburi", "Leelawadee UI", "Leelawadee", "Noto Sans Thai", Tahoma, ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", "Nunito", "Varela Round", "Trebuchet MS", system-ui, sans-serif;
+}
+:lang(th-TH) body {
+  font-family: "Thonburi", "Leelawadee UI", "Leelawadee", "Noto Sans Thai", Tahoma, system-ui, sans-serif;
+}
+:lang(ar-SA) .title-kicker, :lang(ar-EG) .title-kicker,
+:lang(ar-SA) .title-heading, :lang(ar-EG) .title-heading,
+:lang(ar-SA) .settings-title, :lang(ar-EG) .settings-title,
+:lang(th-TH) .title-kicker, :lang(th-TH) .title-heading, :lang(th-TH) .settings-title,
+:lang(ko-KR) .title-kicker, :lang(ko-KR) .title-heading, :lang(ko-KR) .settings-title {
+  letter-spacing: 0;
+}
+:lang(ar-SA) .title-heading, :lang(ar-EG) .title-heading,
+:lang(th-TH) .title-heading { line-height: 1.4; padding-bottom: 2px; }
+:lang(ar-SA) .title-blurb, :lang(ar-EG) .title-blurb,
+:lang(ar-SA) .skin-note, :lang(ar-EG) .skin-note,
+:lang(ar-SA) .credit-copy, :lang(ar-EG) .credit-copy,
+:lang(ar-SA) .credit-lead, :lang(ar-EG) .credit-lead,
+:lang(ar-SA) .setting-help, :lang(ar-EG) .setting-help,
+:lang(ar-SA) .howto-what, :lang(ar-EG) .howto-what,
+:lang(ar-SA) .status, :lang(ar-EG) .status,
+:lang(th-TH) .title-blurb, :lang(th-TH) .skin-note, :lang(th-TH) .credit-copy,
+:lang(th-TH) .credit-lead, :lang(th-TH) .setting-help, :lang(th-TH) .howto-what,
+:lang(th-TH) .status { line-height: 1.6; }
+:lang(ar-SA) .settings-tab, :lang(ar-EG) .settings-tab,
+:lang(ar-SA) .mode-option, :lang(ar-EG) .mode-option,
+:lang(th-TH) .settings-tab, :lang(th-TH) .mode-option {
+  line-height: 1.5;
+  overflow: visible;
+}
+.lang-option[lang="ar-SA"],
+.lang-option[lang="ar-EG"] {
+  font-family: "Noto Naskh Arabic", "Geeza Pro", "Segoe UI", Tahoma, var(--font-fun);
+  line-height: 1.6;
+}
+.lang-option[lang="ko-KR"] { font-family: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Noto Sans CJK KR", var(--font-fun); }
+.lang-option[lang="th-TH"] {
+  font-family: "Thonburi", "Leelawadee UI", "Leelawadee", "Noto Sans Thai", Tahoma, var(--font-fun);
+  line-height: 1.6;
+}
 /* Close button hangs off the start corner when the page is right-to-left. */
 html[dir="rtl"] .settings-close {
   right: auto;
@@ -2010,6 +2066,16 @@ body.in-secret .lang-popover {
 :lang(hi-IN) .bsod pre,
 :lang(hi-IN) .bsod-cursor {
   font-family: "Noto Sans Devanagari", "Nirmala UI", "Mangal", sans-serif;
+  line-height: 1.6;
+}
+:lang(ar-SA) .bsod pre, :lang(ar-EG) .bsod pre,
+:lang(ar-SA) .bsod-cursor, :lang(ar-EG) .bsod-cursor {
+  font-family: "Noto Naskh Arabic", "Geeza Pro", Tahoma, sans-serif;
+  line-height: 1.7;
+}
+:lang(ko-KR) .bsod pre, :lang(ko-KR) .bsod-cursor { font-family: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Noto Sans CJK KR", sans-serif; }
+:lang(th-TH) .bsod pre, :lang(th-TH) .bsod-cursor {
+  font-family: "Thonburi", "Leelawadee UI", "Leelawadee", "Noto Sans Thai", Tahoma, sans-serif;
   line-height: 1.6;
 }
 :lang(ur-PK) .bsod pre,
