@@ -48,7 +48,7 @@ PROFILE = {"E": 1, "W": -1}
 BACK = {"NW": -1, "N": 0, "NE": 1}
 
 WHITE = (247, 247, 243)
-SHORTS = (236, 237, 236)
+SHORTS = (238, 238, 235)
 SOCK = (250, 250, 248)
 SHOE = (244, 244, 246)
 SOLE = (196, 200, 208)
@@ -277,348 +277,268 @@ def pend_hand(sh, direction, side, phi):
 
 
 # --- per frame ----------------------------------------------------------------------
+def loose_skinlike(f):
+    r, g, b = (f[..., i].astype(np.int32) for i in range(3))
+    return (f[..., 3] >= 128) & (r - b > 25) & (r - g > 14) & (r > 70)
+
+
+def recolor(f, g):
+    """Recolour the base kid frame in place of the outfit: slate tee -> white
+    polo (short sleeves), navy shorts -> white shorts, shoes -> white sneakers
+    with a grey sole. Silhouette, outlines, skin, face and hair stay base."""
+    h, w = f.shape[:2]
+    yy, xx = np.mgrid[0:h, 0:w]
+    a = f[..., 3] >= 128
+    c = f[..., :3].astype(np.float64)
+    lum = c.mean(-1)
+    r_, g_, b_ = c[..., 0], c[..., 1], c[..., 2]
+    skin = loose_skinlike(f)
+    line = lum < 26
+    cloth = a & ~skin & ~line
+    # collar bits of the tee poke into the head mask: slate, bluish, near neck
+    head = yy <= g.neck + 1
+    tee_col = (b_ - r_ > 4) & (lum > 40) & (lum < 140)
+    cloth &= ~head | ((yy > g.neck - 3) & tee_col)
+    navy = cloth & (b_ - g_ > 11)
+    waist = g.hem - 12
+    for y in range(g.neck + 6, g.hem):
+        row = cloth[y] | skin[y]
+        if row.sum() >= 4 and navy[y].sum() / row.sum() > 0.4:
+            waist = y
+            break
+    shirt = cloth & (yy < waist)
+    shorts = cloth & (yy >= waist) & (yy < g.hem + 1)
+    shoes = cloth & (yy >= g.hem + 1)
+    out = f.copy().astype(np.float64)
+
+    def paint(m, col, lo=0.80, hi=1.0):
+        if not m.any():
+            return
+        ref = np.percentile(lum[m], 80) or 1.0
+        k = np.clip(lo + (hi - lo) * lum[m] / ref, lo, hi)
+        out[m, :3] = np.array(col, float)[None] * k[:, None]
+
+    paint(shirt, WHITE)
+    paint(shorts, SHORTS, 0.82)
+    # sneakers: white uppers, the bottom 1-2 rows of each shoe grey sole
+    sole = np.zeros_like(shoes)
+    for x in range(w):
+        ys = np.nonzero(shoes[:, x] | (line[:, x] & (yy[:, x] > g.hem)))[0]
+        if len(ys) and shoes[:, x].any():
+            sole[ys.max() - 1:ys.max() + 1, x] = True
+    paint(shoes & ~sole, SHOE, 0.82)
+    out[shoes & sole, :3] = SOLE
+    # soften the black outline next to white cloth a little
+    near_cloth = line & grow(shirt | shorts | shoes, a, 1) & ~head
+    out[near_cloth, :3] = LINE
+    return to_u8_simple(out), shirt, skin
+
+
+def to_u8_simple(x):
+    return np.clip(np.round(x), 0, 255).astype(np.uint8)
+
+
+def wrist_bands(f, g, hands, side_ok, skin):
+    """white wristbands on the skin just above each hand"""
+    h, w = f.shape[:2]
+    yy, xx = np.mgrid[0:h, 0:w]
+    out = f.copy()
+    for comp in components8(hands & (yy > g.neck + 2)):
+        if comp.sum() < 3:
+            continue
+        ys, xs = np.nonzero(comp)
+        hcx, hcy = xs.mean() + 0.5, ys.mean() + 0.5
+        sd = 1 if hcx > g.head_cx else -1
+        sh = (g.head_cx + sd * 7.0, g.neck + 4.0)
+        dh = np.hypot(xx + 0.5 - hcx, yy + 0.5 - hcy)
+        ds = np.hypot(xx + 0.5 - sh[0], yy + 0.5 - sh[1])
+        L = math.hypot(hcx - sh[0], hcy - sh[1])
+        y0 = ys.min()
+        band = skin & ~comp & (yy >= y0 - 2) & (yy < y0) & (np.abs(xx + 0.5 - hcx) < 3.5)
+        if band.any():
+            lower = band & ~np.roll(band, 1, 0)
+            out[band, :3] = BAND
+            out[band & np.roll(band, -1, 0) & ~np.roll(band, 1, 0), :3] = BAND
+            bot = band & ~np.roll(band, -1, 0)
+            out[bot, :3] = BAND_SHADE
+    return out
+
+
+def arm_comps_on(arms, g, direction, side):
+    m = np.zeros_like(arms)
+    for comp in components8(arms):
+        if comp.sum() < 4:
+            continue
+        xs = np.nonzero(comp)[1]
+        if direction in PROFILE or side == 0 or (xs.mean() + 0.5 - g.head_cx) * side > 0:
+            m |= comp
+    return m
+
+
+def headband(f, g, head):
+    h, w = f.shape[:2]
+    yy = np.mgrid[0:h, 0:w][0]
+    hb0 = g.top + 12
+    band = head & (yy >= hb0) & (yy <= hb0 + 3) & (f[..., 3] >= 128)
+    out = f.copy()
+    out[band & (yy < hb0 + 3), :3] = BAND
+    out[band & (yy >= hb0 + 3), :3] = BAND_SHADE
+    # outline the band's top/bottom edge where it meets hair
+    edge = band & ((yy == hb0) | (yy == hb0 + 3))
+    out[edge & (yy == hb0), :3] = (200, 202, 206)
+    return out
+
+
+def shift(img, dx, dy):
+    o = np.zeros_like(img)
+    h, w = img.shape[:2]
+    ys0, ys1 = max(dy, 0), h + min(dy, 0)
+    xs0, xs1 = max(dx, 0), w + min(dx, 0)
+    o[ys0:ys1, xs0:xs1] = img[ys0 - dy:ys1 - dy, xs0 - dx:xs1 - dx]
+    return o
+
+
+def tag_base(f, g, direction, side, idle_f):
+    """base tag frame with its tagging arm removed: head + legs from the tag
+    frame, torso from the direction's idle frame (aligned), idle's tag-side
+    arm removed too, so the drawn swing arm is the only arm on that side"""
+    gi = Geometry(idle_f)
+    dx, dy = int(round(g.hip_cx - gi.hip_cx)), int(g.neck - gi.neck)
+    idl = shift(idle_f, dx, dy)
+    gi = Geometry(idl) if alpha_mask(idl).any() else gi
+    h, w = f.shape[:2]
+    yy, xx = np.mgrid[0:h, 0:w]
+    face_i = (yy <= gi.neck + 1) & skin_mask(idl)
+    arms_i, _ = arms_and_hands(idl, gi, face_i)
+    rm_i = arm_comps_on(arms_i, gi, direction, side)
+    rm = grow(rm_i, alpha_mask(idl), 1) & (yy > gi.neck + 1)
+    # arm pixels lying over the torso (between body pixels on both sides of
+    # the row) are painted as tee / shorts so the base silhouette (width) is
+    # kept exactly; arm pixels outside the torso are removed
+    ai = alpha_mask(idl)
+    keep = ai & ~rm
+    over_t = np.zeros_like(rm)
+    for y in range(h):
+        xs = np.nonzero(keep[y])[0]
+        if len(xs) >= 2:
+            over_t[y, xs.min() + 1:xs.max()] = True
+    over_t &= rm
+    inner = ai.copy()
+    for sy, sx in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+        inner &= np.roll(ai & (keep | over_t), (sy, sx), (0, 1))
+    c = idl[..., :3].astype(np.int32)
+    lum = c.mean(-1)
+    sk = loose_skinlike(idl)
+    ok = ai & ~sk & ~rm & (lum > 35)
+    navy = ok & (c[..., 2] - c[..., 1] > 11)
+    tee = ok & ~navy & (yy > gi.neck + 2) & (yy < gi.hem - 8)
+    tee_c = np.median(idl[tee][:, :3], 0) if tee.any() else (60, 77, 84)
+    sh_c = np.median(idl[navy][:, :3], 0) if navy.any() else (30, 40, 60)
+    waist = int(np.median(np.nonzero(navy)[0]) - 3) if navy.any() else gi.hem - 10
+    for m, col in (((yy < waist), tee_c), ((yy >= waist), sh_c)):
+        idl[over_t & inner & m, :3] = col
+    idl[over_t & ~inner, :3] = (22, 24, 30)
+    idl[rm & ~over_t] = 0
+    out = np.zeros_like(f)
+    top = yy <= g.neck + 1
+    # head of the tag frame, limited to the idle head silhouette (+2px) so a
+    # raised hand / arm above the shoulder never stays
+    ih = grow(alpha_mask(idl) & (yy <= gi.neck + 1), np.ones_like(top), 2)
+    out[top & ih] = f[top & ih]
+    mid = (yy > g.neck + 1) & (yy <= g.hem)
+    out[mid] = idl[mid]
+    low = yy > g.hem
+    face = (yy <= g.neck + 1) & skin_mask(f)
+    arms_t, _ = arms_and_hands(f, g, face)
+    leg = f.copy()
+    leg[arm_comps_on(arms_t, g, direction, side)] = 0
+    out[low] = leg[low]
+    if direction in PROFILE:
+        # side view head: only what the idle head shows (no far ear / hand)
+        out[top & ~ih] = 0
+    return out
+
+
 def tennify(frame, direction, anim, col, meta, memo, env_memo):
     f = pad_frame(frame)
     a = alpha_mask(f)
     if not a.any():
         return f
     g = Geometry(f)
-    f = close_streaks(f, g.neck + 2)
-    a = alpha_mask(f)
     h, w = a.shape
     size = (h, w)
     yy, xx = np.mgrid[0:h, 0:w]
-    r_, g_, b_ = (f[..., i].astype(np.int32) for i in range(3))
-    skinlike = a & (r_ - b_ > 40) & (r_ > 110)
-
     rng = meta["animations"].get(anim, {"start": col, "count": 1})
     k = col - rng["start"]
     tag = anim == "tag"
     side = TAG_SIDE[direction]
 
+    if tag:
+        f = tag_base(f, g, direction, side, pad_frame(meta["_base_idle"][direction]))
+        g = Geometry(f)
+    a = alpha_mask(f)
+    rc, shirt, skin = recolor(f, g)
     face = (yy <= g.neck + 1) & skin_mask(f)
     arms, hands = arms_and_hands(f, g, face)
     head = a & (yy <= g.neck + 1)
-    head &= ~(arms & (yy > g.neck - 4))
-    # the base t-shirt's collar shows a little at the bottom of the head mask
-    head &= ~((yy > g.neck - 3) & ~skinlike & (np.abs(xx + 0.5 - g.head_cx) < g.head_hw) &
-              (b_ - r_ > 8))
-    if direction in PROFILE:
-        # only the near arm in side views
-        far = np.zeros_like(arms)
-        cs = [c for c in components8(arms) if c.sum() >= 4]
-        if len(cs) > 1:
-            near = max(cs, key=lambda c: c.sum())
-            for comp in cs:
-                if comp is not near:
-                    far |= comp
-        arms &= ~far
-        hands &= ~far
-        a &= ~far
+    rc = headband(rc, g, head)
+    rc = wrist_bands(rc, g, hands, None, skin)
+    skin_rgb = tuple(int(v) for v in np.median(f[skin & ~face][:, :3], 0)) if (skin & ~face).any() else (240, 180, 130)
 
-    # torso envelope from the direction's idle frame: in tag frames anything
-    # of the old reaching arm outside it goes, inside it becomes shirt
-    body0 = a & ~head & ~arms
-    if not tag:
-        env_memo[direction] = ((body0 | arms) if direction in PROFILE else body0.copy(), g.hip_cx, head.copy(), g.head_cx)
-    tag_arm = np.zeros_like(a)
-    if tag:
-        env, ecx, head0, hcx = env_memo[direction]
-        env = np.roll(env, int(round(g.hip_cx - ecx)), 1)
-        env = grow(env, np.ones_like(env), 1)
-        # the head keeps its idle outline: a reaching hand at chin height goes
-        head0 = grow(np.roll(head0, int(round(g.head_cx - hcx)), 1), np.ones_like(head0), 1)
-        tag_arm |= head & ~head0
-        head &= head0
-        for comp in components8(arms):
-            ys, xs = np.nonzero(comp)
-            if direction in PROFILE or side * (xs.mean() + 0.5 - g.head_cx) > 0:
-                tag_arm |= comp
-        # reach pixels above the neck line outside the skull
-        band = head & (yy >= g.neck - 14) & (yy <= g.neck - 9)
-        bx = np.nonzero(band)[1]
-        if len(bx):
-            strip = head & (yy > g.neck - 12) & ((xx < bx.min() - 1) | (xx > bx.max() + 1))
-            head &= ~strip
-            tag_arm |= strip
-        tside = (xx + 0.5 - g.head_cx) * side > 0 if direction not in PROFILE else np.ones_like(a)
-        out_env = a & ~head & ~env & (yy > g.neck - 12) & (yy < g.hem + 5) & tside
-        tag_arm |= out_env
-        arms &= ~tag_arm
-        hands &= ~tag_arm
-    body = a & ~head & ~arms & ~tag_arm
-    if tag:
-        # fill the torso where the old arm lay across it
-        hole = tag_arm & env & (yy > g.neck) & (yy < g.hem)
-        body |= hole
-        # thin outline leftovers of the old arm hugging the torso
-        for _ in range(3):
-            nb = sum(np.roll(np.roll(body, dy, 0), dx, 1).astype(int) for dy in (-1, 0, 1) for dx in (-1, 0, 1)) - body.astype(int)
-            body &= ~(~env & (nb.astype(int) < 4) & (yy < g.hem + 5))
-        for y in range(g.neck + 1, g.hem):
-            xs = np.nonzero((env[y] if direction in PROFILE else body[y] & env[y]))[0]
-            if len(xs):
-                body[y, xs.min():xs.max() + 1] |= env[y, xs.min():xs.max() + 1]
-
-    else:
-        for _ in range(3):
-            nb = sum(np.roll(np.roll(body, dy, 0), dx, 1).astype(int) for dy in (-1, 0, 1) for dx in (-1, 0, 1)) - body.astype(int)
-            body &= ~((nb < 4) & (yy > g.neck) & (yy < g.hem + 5))
-        for y in range(g.neck + 2, g.hem):
-            xs = np.nonzero(body[y])[0]
-            if len(xs):
-                body[y, xs.min():xs.max() + 1] = True
-
-    if direction not in PROFILE:
-        # torso = the base idle shirt between its own outline columns (arms
-        # excluded); one width per direction so it never jitters
-        if ("tw", direction) not in env_memo:
-            b0 = meta["_base_idle"][direction]
-            env_memo[("tw", direction)] = torso_span(b0, range(58, 70), base_center(b0)) + (base_center(b0),)
-        Lm, Rm, bcx = env_memo[("tw", direction)]
-        cx0 = int(round(g.hip_cx))
-        x0, x1 = cx0 - int(round(Lm)), cx0 + int(round(Rm)) + 1
-        for y in range(g.neck + 2, g.hem - 3):
-            body[y, :] = False
-            body[y, max(x0, 0):min(x1, w)] = True
-        env_memo[("tspan", direction)] = (x0, x1)
-    else:
-        # canonical torso: per-row half-widths from the direction's first idle frame
-        # (monotone from the shoulders down), stamped on every frame so removed
-        # arms never leave notches and the torso keeps one shape frame to frame
-        tkey = ("tmpl", direction)
-        if tkey not in env_memo:
-            L, R = [], []
-            for y in range(g.neck + 2, g.hem - 3):
-                xs = np.nonzero(body[y])[0]
-                L.append(g.hip_cx - xs.min() if len(xs) else 0)
-                R.append(xs.max() + 1 - g.hip_cx if len(xs) else 0)
-            L = np.maximum.accumulate(np.array(L, float))
-            R = np.maximum.accumulate(np.array(R, float))
-            env_memo[tkey] = (L, R)
-        L, R = env_memo[tkey]
-        for i in range(len(L)):
-            y = g.neck + 2 + i
-            if y >= g.hem - 3:
-                break
-            x0, x1 = int(round(g.hip_cx - L[i])), int(round(g.hip_cx + R[i]))
-            body[y, max(x0, 0):min(x1, w)] = True
-    # drop thin (<=2 px) outline strands of removed arms: 3x3 opening on the torso rows
-    def _nb_all(m):
-        e = m.copy()
-        for dy in (-1, 0, 1):
-            for dx in (-1, 0, 1):
-                e &= np.roll(np.roll(m, dy, 0), dx, 1)
-        return e
-    tz0 = (yy > g.neck + 2) & (yy < g.hem - 1)
-    opened = grow(_nb_all(body), body, 1)
-    body &= ~(tz0 & ~opened)
-    # solid torso: close 1-2 px seams and fill pinholes left by removed arms
-    tz = (yy > g.neck) & (yy < g.hem)
-    for y in range(g.neck + 1, g.hem):
-        row = body[y]
-        for x in range(1, w - 3):
-            if not row[x] and row[x - 1]:
-                for gap in (1, 2):
-                    if row[x + gap] and not row[x:x + gap].any():
-                        row[x:x + gap] = True
-                        break
-    for x in range(w):
-        col_ = body[:, x]
-        for y in range(g.neck + 1, g.hem - 2):
-            if not col_[y] and col_[y - 1]:
-                for gap in (1, 2):
-                    if col_[y + gap] and not col_[y:y + gap].any():
-                        col_[y:y + gap] = True
-                        break
-    outside = np.zeros_like(body)
-    outside[0, :] = outside[-1, :] = True
-    outside[:, 0] = outside[:, -1] = True
-    outside &= ~body
-    while True:
-        nxt = grow(outside, ~body, 1)
-        if nxt.sum() == outside.sum():
-            break
-        outside = nxt
-    body |= ~outside & ~body & tz
-    # classes
-    navy = body & ~skinlike & (b_ - g_ > 11)
-    waist = g.hem - 12
-    for y in range(g.neck + 6, g.hem):
-        row = body[y]
-        if row.sum() >= 4 and (navy[y] & row).sum() / row.sum() > 0.4:
-            waist = y
-            break
-    shirt = body & (yy < waist)
-    lower = body & (yy >= waist)
-    legs_skin = lower & skinlike & (yy >= g.hem - 3)
-    shoes = lower & (yy >= g.hem) & ~skinlike & ~(b_ - g_ > 11)
-    top_shoe = np.full(w, 10 ** 6)
-    for x in range(w):
-        ys = np.nonzero(shoes[:, x])[0]
-        if len(ys):
-            top_shoe[x] = ys.min()
-    socks = legs_skin & grow(shoes, legs_skin | shoes, 2) & (yy >= top_shoe[None, :] - 3)
-    legs_skin &= ~socks
-    shorts = lower & ~legs_skin & ~socks & ~shoes
-    # a clear gap between the legs (front / back views)
-    if direction not in PROFILE:
-        best, gx = -1, None
-        for x in range(int(g.hip_cx) - 4, int(g.hip_cx) + 5):
-            col_ = lower[g.hem:g.bottom - 1, x]
-            dark = ((r_ + g_ + b_)[g.hem:g.bottom - 1, x] < 110) & col_
-            sc = int(dark.sum()) * 2 - int(col_.sum()) // 3
-            if sc > best:
-                best, gx = sc, x
-        if gx is not None and best > 2:
-            cut_ = (xx == gx) & (yy >= g.hem) & (yy <= g.bottom - 1)
-            for m_ in (shoes, socks, legs_skin, lower):
-                m_ &= ~cut_
-    sole = shoes & ((yy >= g.bottom - 1) | ((r_ + g_ + b_) > 450))
-    skin_px = f[face][:, :3]
-    skin = tuple(int(v) for v in np.median(skin_px, 0)) if len(skin_px) else (240, 180, 130)
-    lum = r_ + g_ + b_
-    details = lower & (yy >= g.hem - 2) & (lum < 45) & ~shoes & ~socks
-    body_im = class_layer([(shirt, WHITE), (shorts, SHORTS), (legs_skin, skin), (socks, SOCK),
-                           (shoes & ~sole, SHOE), (sole, SOLE)], LINE)
-
-    # base arms (non-tag ones): sleeve near the shoulder, skin, wristband, hand
-    arm_geo = []
-    for comp in components8(arms):
-        if comp.sum() < 6:
-            continue
-        ys, xs = np.nonzero(comp)
-        if direction in PROFILE:
-            shp = (g.head_cx - PROFILE[direction] * 0.5, g.neck + 4.5)
-        else:
-            sd = 1 if xs.mean() + 0.5 > g.head_cx else -1
-            shp = (g.head_cx + sd * 8.0, g.neck + 4.5)
-        hm = hands & comp
-        if hm.any():
-            hy_, hx_ = np.nonzero(hm)
-            hp = (hx_.mean() + 0.5, hy_.mean() + 0.5)
-        else:
-            dd = (xs + 0.5 - shp[0]) ** 2 + (ys + 0.5 - shp[1]) ** 2
-            kk = int(dd.argmax())
-            hp = (xs[kk] + 0.5, ys[kk] - 1.0)
-        arm_geo.append([comp, shp, hp])
-
-    # headband: a strip across the head at the hairline
-    hb0 = g.top + 12
-    hband = head & (yy >= hb0) & (yy <= hb0 + 3)
-    head_band_im = class_layer([(hband & (yy < hb0 + 3), BAND), (hband & (yy >= hb0 + 3), BAND_SHADE)], LINE, 0.55, seams=False)
-
-    # polo collar: coral V trim at the neck (front views), collar line otherwise
-    coll = Image.new("RGBA", (w * SS, h * SS), (0, 0, 0, 0))
-    cd = ImageDraw.Draw(coll)
-    cy = g.neck + 1.6
-    if direction in FRONT:
-        cx = g.head_cx + FRONT[direction] * 1.5
-        cd.line([(S(cx - 3.4), S(cy)), (S(cx), S(cy + 3.4)), (S(cx + 3.4), S(cy))], fill=TRIM, width=int(S(0.6)), joint="curve")
-    elif direction in PROFILE:
-        fc = PROFILE[direction]
-        cd.line([(S(g.head_cx - fc * 4), S(cy - 0.4)), (S(g.head_cx + fc * 3.2), S(cy + 1.4))], fill=TRIM, width=int(S(0.55)))
-    else:
-        cd.line([(S(g.head_cx - 4.5), S(cy)), (S(g.head_cx + 4.5), S(cy))], fill=TRIM, width=int(S(0.55)))
-
-    # racket + (tag) the drawn arm
-    key = (direction, anim)
-    drawn_arm = None
-    hand_comp = None
     behind = False
+    drawn = None
+    hand_px = None
     if tag:
         n = rng["count"]
         ai, ri = swing_pose(direction, min(k, n - 1))
-        if direction in PROFILE:
-            sh = (g.head_cx - PROFILE[direction] * 0.5, g.neck + 4.5)
-        else:
-            sh = (g.head_cx + side * ARM_X, g.neck + 4.5)
-        reach = 15.0
-        hand = (sh[0] + math.cos(ai) * reach, sh[1] + math.sin(ai) * reach)
-        # elbow droops (down / away from the head)
+        sh = racket_shoulder(g, direction, side)
+        if direction not in PROFILE:
+            sh = (g.head_cx + (side or 1) * 7.5, g.neck + 4.5)
+        hand = (sh[0] + math.cos(ai) * 15.0, sh[1] + math.sin(ai) * 15.0)
         e1 = ik(sh, hand, 8.3, 7.9, 1)
         e2 = ik(sh, hand, 8.3, 7.9, -1)
         elbow = e1 if e1[1] >= e2[1] else e2
-        drawn_arm = shapes_layer(size, arm_parts(sh, elbow, hand, skin), LINE, 0.55)
+        drawn = shapes_layer(size, arm_parts(sh, elbow, hand, skin_rgb, 0.3), LINE, 0.55)
         hx, hy = hand
         rang = ri
     else:
-        # procedural pendulum hand: no frame-to-frame pops from pixel detection
-        n = rng["count"]
-        amp = {"walk": 26.0, "run": 40.0}.get(anim, 0.0)
-        phi = math.radians(amp) * math.sin(2 * math.pi * k / max(n, 1))
-        sh = racket_shoulder(g, direction, side)
-        hx, hy = pend_hand(sh, direction, side, phi)
-        if direction in PROFILE:
-            rang = math.radians(90 - PROFILE[direction] * 62) - PROFILE[direction] * phi * 0.6
+        pick = pick_hand(hands & (yy > g.neck + 1), g, side, a)
+        if pick is None:
+            hc = [c for c in components8(hands & (yy > g.neck + 1)) if c.sum() >= 3]
+            if hc:
+                c = max(hc, key=lambda c: c.sum())
+                ys_, xs_ = np.nonzero(c)
+                pick = (float(xs_.mean() + 0.5), float(ys_.mean() + 0.5), c)
+        if pick is not None:
+            hx, hy, comp = pick
+            hand_px = comp
+            memo[(direction, anim)] = (hx, hy)
         else:
-            rang = math.radians(90 - side * 58)
+            hx, hy = memo.get((direction, anim), (g.hip_cx + (side or 1) * 9.0, g.hem - 6.0))
+        if direction in PROFILE:
+            rang = math.radians(90 - PROFILE[direction] * 62)
+        else:
+            rang = math.radians(90 - (side or 1) * 58)
         behind = direction in BACK
-    racket_im = racket_layer(size, (hx, hy), rang)
-    base_arm_ims = []
-    n_ = rng["count"]
-    amp_ = {"walk": 26.0, "run": 40.0}.get(anim, 0.0)
-    phi_ = math.radians(amp_) * math.sin(2 * math.pi * k / max(n_, 1))
-    geo = []
-    if not tag:
-        sh = racket_shoulder(g, direction, side)
-        geo.append((sh, (hx, hy)))
-    if direction not in PROFILE:
-        osd = -side if side else -1
-        sh2 = (g.head_cx + osd * ARM_X, g.neck + 4.5)
-        geo.append((sh2, pend_hand(sh2, direction, osd, -phi_)))
-    for shp, hp in geo:
-        e1 = ik(shp, hp, 8.0, 7.6, 1)
-        e2 = ik(shp, hp, 8.0, 7.6, -1)
-        out_sd = 1 if hp[0] >= g.head_cx else -1
-        el = e1 if out_sd * e1[0] >= out_sd * e2[0] else e2
-        base_arm_ims.append(shapes_layer(size, arm_parts(shp, el, hp, skin, 0.45), LINE, 0.55))
-    # base hand pixels closing over the grip (non-tag)
-    grip = None
-    if hand_comp is not None:
-        grip = hand_comp
-
-    cv = Image.new("RGBA", (w * SS, h * SS), (0, 0, 0, 0))
+    racket = down(racket_layer(size, (hx, hy), rang))
+    base = premul(rc, np.ones((h, w)))
     if behind:
-        cv.alpha_composite(racket_im)
-    if body_im is not None:
-        cv.alpha_composite(body_im)
-    cv.alpha_composite(coll)
-    out = down(cv)
-    dl = np.zeros((h, w, 4))
-    dl[details] = (*[c / 255 for c in LINE], 1.0)
-    out = over(out, dl * 0.85)
-    out = over(out, premul(f, head.astype(np.float64)))
-    if head_band_im is not None:
-        out = over(out, down(head_band_im))
-    if not behind:
-        out = over(out, down(racket_im))
-    for im_ in base_arm_ims:
-        out = over(out, down(im_))
-    if drawn_arm is not None:
-        out = over(out, down(drawn_arm))
+        out = over(racket, base)
+    else:
+        out = over(base, racket)
+        if hand_px is not None:
+            # fingers close over the grip
+            out = over(out, premul(rc, hand_px.astype(np.float64)))
+    if drawn is not None:
+        out = over(out, down(drawn))
     res = to_u8(out)
     res[res[..., 3] < 8] = 0
-    # close 1-2 px seams inside the torso (between body and redrawn arms)
-    al = res[..., 3].astype(int)
-    for y in range(int(g.neck) + 2, int(g.hem) + 1):
-        row = al[y]
-        for x in range(1, w - 2):
-            if row[x] < 200:
-                for gap in (1, 2):
-                    if x + gap < w and row[x - 1] >= 200 and row[x + gap] >= 200 and all(row[x:x + gap] < 200):
-                        for q in range(gap):
-                            res[y, x + q] = res[y, x - 1] if q == 0 else res[y, x + gap]
-                        break
-        al[y] = res[y, :, 3]
-    # drop stray specks not attached to the figure
     comps = components8(res[..., 3] > 40)
     if comps:
         big = max(comps, key=lambda c: c.sum())
         for c in comps:
-            if c is not big and c.sum() < 40:
-                res[grow(c, np.ones_like(c), 1) & ~grow(big, np.ones_like(big), 1)] = 0
-    # every pixel inside the silhouette fully opaque (no see-through holes)
+            if c is not big and c.sum() < 25:
+                res[c] = 0
     res = solidify(res, (int(g.neck), int(g.hem) - 1))
     return res
 
