@@ -548,33 +548,33 @@ def draw_face(img, L, direction, eyes_o, wp, head_box):
         else:
             return None
         ey = (ly + ry) / 2
-        sp = float(np.clip(rx - lx, 7.0, 7.2))
+        sp = float(np.clip(rx - lx, 8.0, 8.2))
         mid = (lx + rx) / 2 + fx * 0.3
         lx, rx = mid - sp / 2, mid + sp / 2
-        hw_l = 2.9 * (0.8 if fx > 0 else 1.0)
-        hw_r = 2.9 * (0.8 if fx < 0 else 1.0)
-        mx = mid + fx * 0.9
-        my = ey + 6.4
+        hw_l = 3.55 * (0.8 if fx > 0 else 1.0)
+        hw_r = 3.55 * (0.8 if fx < 0 else 1.0)
+        mx = mid + fx * 0.2
+        my = ey + 7.2
         # full rounded cheeks: soft flat shade
         for ex, hw in ((lx, hw_l), (rx, hw_r)):
-            ell(d, ex + (ex - mid) * 0.15, ey + 4.0, hw * 0.55, 1.1, CHEEK)
+            ell(d, ex + (ex - mid) * 0.15, ey + 4.4, hw * 0.55, 1.1, CHEEK)
         # broad nose
-        ell(d, mx, ey + 3.4, 1.5, 1.0, SKIN_SHADE)
-        ell(d, mx, ey + 2.8, 0.8, 0.6, COL[SKIN])
+        ell(d, mx, ey + 3.9, 1.5, 1.0, SKIN_SHADE)
+        ell(d, mx, ey + 3.3, 0.8, 0.6, COL[SKIN])
         for k in (-1, 1):
-            ell(d, mx + k * 0.8, ey + 3.95, 0.38, 0.3, SKIN_LINE)
+            ell(d, mx + k * 0.8, ey + 4.45, 0.38, 0.3, SKIN_LINE)
         # lenses (warm tint) with the smiling eyes behind them
         for ex, hw in ((lx, hw_l), (rx, hw_r)):
-            d.rounded_rectangle([S(ex - hw), S(ey - 2.75), S(ex + hw), S(ey + 2.45)], radius=S(0.8), fill=LENS)
-            smile_eye(d, ex + fx * 0.3, ey + 0.1, hw * 0.86, side=(1 if ex > mid else -1), fx=fx)
+            d.rounded_rectangle([S(ex - hw), S(ey - 3.2), S(ex + hw), S(ey + 2.9)], radius=S(0.8), fill=LENS)
+            smile_eye(d, ex + fx * 0.3, ey + 0.1, hw * 0.86, ry=2.3, side=(1 if ex > mid else -1), fx=fx)
         # defined dark eyebrows, slightly arched
         for ex, hw, sg in ((lx, hw_l, -1), (rx, hw_r, 1)):
-            tline(d, [(ex - sg * hw * 0.8, ey - 4.3), (ex + sg * hw * 0.1, ey - 4.75), (ex + sg * hw * 0.95, ey - 4.2)], BROW, 1.15)
+            tline(d, [(ex - sg * hw * 0.8, ey - 4.9), (ex + sg * hw * 0.1, ey - 5.4), (ex + sg * hw * 0.95, ey - 4.8)], BROW, 1.15)
         # thick black rectangular frames + bridge + temples
         for ex, hw in ((lx, hw_l), (rx, hw_r)):
-            d.rounded_rectangle([S(ex - hw), S(ey - 2.75), S(ex + hw), S(ey + 2.45)], radius=S(0.8), outline=GLASS, width=W_(0.6))
+            d.rounded_rectangle([S(ex - hw), S(ey - 3.2), S(ex + hw), S(ey + 2.9)], radius=S(0.8), outline=GLASS, width=W_(0.6))
             # glint
-            tline(d, [(ex + hw * 0.55, ey - 1.9), (ex + hw * 0.8, ey - 1.6)], (235, 240, 245), 0.45)
+            tline(d, [(ex + hw * 0.55, ey - 2.4), (ex + hw * 0.8, ey - 2.1)], (235, 240, 245), 0.45)
         tline(d, [(lx + hw_l - 0.2, ey - 1.0), (mid, ey - 1.35), (rx - hw_r + 0.2, ey - 1.0)], GLASS, 1.2)
         tline(d, [(lx - hw_l, ey - 1.2), (max(x0 + 0.4, lx - hw_l - 2.4), ey - 1.5)], GLASS, 1.1)
         tline(d, [(rx + hw_r, ey - 1.2), (min(x1 - 0.4, rx + hw_r + 2.4), ey - 1.5)], GLASS, 1.1)
@@ -598,7 +598,7 @@ def draw_face(img, L, direction, eyes_o, wp, head_box):
         return None
     ex, ey, _ = eyes_o[0]
     ex += fx * 0.2
-    my = ey + 6.4
+    my = ey + 7.2
     yi = int(S(my))
     row = np.nonzero(np.isin(L[yi], (SKIN,)))[0]
     front = ((row.max() if fx > 0 else row.min()) / SS) if len(row) else ex + fx * 4
@@ -609,11 +609,11 @@ def draw_face(img, L, direction, eyes_o, wp, head_box):
     ell(d, ex + fx * 2.4, ey + 3.7, 0.35, 0.28, SKIN_LINE)
     lx0, lx1 = sorted((ex - fx * 1.6, ex + fx * 1.4))
     ex -= fx * 1.2
-    lx0, lx1 = sorted((ex - fx * 2.2, ex + fx * 1.5))
-    d.rounded_rectangle([S(lx0), S(ey - 2.75), S(lx1), S(ey + 2.45)], radius=S(0.6), fill=LENS)
-    smile_eye(d, ex, ey + 0.1, 1.5, side=fx, half=True, fx=fx)
-    tline(d, [(ex - fx * 1.7, ey - 3.1), (ex, ey - 3.7), (ex + fx * 1.6, ey - 3.4)], BROW, 1.25)
-    d.rounded_rectangle([S(lx0), S(ey - 2.75), S(lx1), S(ey + 2.45)], radius=S(0.6), outline=GLASS, width=W_(0.6))
+    lx0, lx1 = sorted((ex - fx * 2.6, ex + fx * 2.0))
+    d.rounded_rectangle([S(lx0), S(ey - 3.2), S(lx1), S(ey + 2.9)], radius=S(0.6), fill=LENS)
+    smile_eye(d, ex - fx * 0.2, ey + 0.1, 2.0, ry=2.25, side=fx, half=True, fx=fx)
+    tline(d, [(ex - fx * 2.0, ey - 4.0), (ex, ey - 4.6), (ex + fx * 1.8, ey - 4.3)], BROW, 1.25)
+    d.rounded_rectangle([S(lx0), S(ey - 3.2), S(lx1), S(ey + 2.9)], radius=S(0.6), outline=GLASS, width=W_(0.6))
     tline(d, [(ex + fx * 0.3, ey - 1.15), (ex + fx * 0.9, ey - 1.15)], (255, 255, 255), 0.45)
     # glasses arm back to the ear
     tline(d, [(ex - fx * 1.6, ey - 1.0), (wp.hcx_o + fx * 0.2, ey - 1.5)], GLASS, 0.9)
