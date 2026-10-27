@@ -238,7 +238,7 @@ def render(base, d, col, mouths):
         u = max(0.0, min(1.0, z / zt))
         return 6.4 - 1.4 * u
 
-    cv = Canvas()
+    cv = None
     body = body_path(p, anim, k, n)
     neck_pts = []
     for i in range(80):
@@ -251,78 +251,8 @@ def render(base, d, col, mouths):
 
     behind = fy > 0.3 or abs(fy) <= 0.3     # body trails away from viewer (or sideways)
 
-    # hood geometry
-    z0, z1 = zt - 40, zt + 8
-    edgeL, edgeR, centre = [], [], []
-    Wmax = 29.0
-    for i in range(41):
-        u = i / 40
-        z = z0 + (z1 - z0) * u
-        w = Wmax * math.sin(math.pi * min(1, u ** 0.85)) ** 0.75
-        w = max(w, neck_r(z) + 0.5)
-        f, s = neck_fs(z)
-        f -= 1.5 if abs(lx) > 0.3 else 4.5
-        cx, cy, _ = p(f, s, z)
-        hw = max(w * abs(lx), neck_r(z) + 1.0 + 6.5 * (1 - abs(lx)) * math.sin(math.pi * min(1, u ** 0.85)) ** 0.75)
-        # lateral vector on screen (x only, y compression)
-        sx = 1 if lx >= 0 else -1
-        dy = w * p.ly * PROJ * sx if abs(lx) > 0.3 else 0
-        edgeL.append((cx - hw, cy - dy * 0))
-        edgeR.append((cx + hw, cy + dy * 0))
-        centre.append((cx, cy, hw, u))
-    hood_poly = edgeL + edgeR[::-1]
-
-    def draw_hood():
-        outer = poly(hood_poly)
-        cv.paint(dilate(outer, 3), LINE)
-        front = fy > 0.3
-        back = fy < -0.3
-        cv.paint(outer, SHADE)
-        inner = poly([(cx - hw * 0.78, cy) for cx, cy, hw, u in centre] +
-                     [(cx + hw * 0.78, cy) for cx, cy, hw, u in centre[::-1]]) & outer
-        if front:
-            cv.paint(inner, COIL)
-            bel = poly([(cx - hw * 0.42, cy) for cx, cy, hw, u in centre] +
-                       [(cx + hw * 0.42, cy) for cx, cy, hw, u in centre[::-1]]) & outer
-            cv.paint(bel, BELLY)
-            # bands
-            bm = new_mask(); bd = ImageDraw.Draw(bm)
-            for cx, cy, hw, u in centre[1::4]:
-                bd.line([((cx - hw * 0.42) * SS, cy * SS), ((cx + hw * 0.42) * SS, cy * SS)], fill=255, width=3)
-            cv.paint(arr(bm) & bel, BAND)
-            # dark throat spots like the reference
-            for cx, cy, hw, u in centre:
-                if abs(u - 0.42) < 0.013:
-                    for kk in (-1, 1):
-                        cv.paint(ellipse(cx + kk * hw * 0.6, cy, max(1.2, hw * 0.1), 3.2) & inner, SPOT)
-        else:
-            cv.paint(inner, COIL)
-            if back:
-                for cx, cy, hw, u in centre:
-                    if abs(u - 0.36) < 0.013:
-                        for kk in (-1, 1):
-                            ex = cx + kk * hw * 0.42
-                            rx = max(1.6, 3.6 * abs(lx))
-                            cv.paint(ellipse(ex, cy, rx + 1.1, 4.6) & outer, SPOT)
-                            cv.paint(ellipse(ex, cy, rx * 0.62 + 0.3, 3.0) & outer, RIM)
-                            cv.paint(ellipse(ex, cy + 0.3, rx * 0.3, 1.5) & outer, SPOT)
-
-    def draw_neck():
-        tube(cv, neck_pts, dots=False)
-        if fy > -0.3:
-            # pale banded belly on the front of the neck
-            off = 0.45 * fx
-            wsc = 0.42 + 0.28 * max(0.0, fy)
-            bp = [(x + off * r, y, r * wsc) for x, y, r in neck_pts[3:]]
-            fill = circles(neck_pts, grow=-0.85)
-            bel = circles(bp) & fill
-            cv.paint(bel, BELLY)
-            bm = new_mask(); bd = ImageDraw.Draw(bm)
-            for x, y, r in neck_pts[6::7]:
-                bd.line([((x - r) * SS, y * SS), ((x + r) * SS, y * SS)], fill=255, width=3)
-            cv.paint(arr(bm) & bel, BAND)
-
     def draw_body():
+        nonlocal cv
         pts = [(x, y, r) for x, y, r, _ in body]
         # chunk for self-overlap (painter order with seamless joins)
         CH = 20
@@ -348,29 +278,119 @@ def render(base, d, col, mouths):
                 dd.ellipse([ox * SS - rr, oy * SS - rr, ox * SS + rr, oy * SS + rr], fill=255)
             cv.paint(arr(dm) & light, SCALE)
 
-    profile = abs(lx) <= 0.3
-    if behind:
-        draw_body()
-    if profile:
-        draw_hood(); draw_neck()
-    else:
-        draw_neck(); draw_hood()
-    if not behind:
-        draw_body()
-
-    out = cv.down()
-    # paste James's real head
+    # head placement (the hood is attached to the head, so it follows the dart)
     nf, ns = neck_fs(zt)
     tx, ty, _ = p(nf, ns, zt)
-    bx, by, _ = p(neck_fs(GY - (NECK_Y + PADY - 7))[0] * 0, 0, GY - (NECK_Y + PADY - 7))
+    z_rest = GY - (NECK_Y + PADY - 7)
+    bx, by, _ = p(0, 0, z_rest)
     dx = int(round(tx - bx)); dy = int(round(ty - by))
+    x0, y0 = PADX + dx, PADY + dy
+    htop = ys.min() + y0
+    hcx_now = hcx + dx
+
+    back = fy < -0.3
+    front = fy > 0.3
+    al = abs(lx)
+
+    # hood: tall rounded spade, in screen space around the head
+    top_y = htop + (15 if back else 11)    # about temple / ear height
+    chin_y = NECK_Y + y0
+    bot_y = chin_y + 30
+    W = 27.0 * al + 14.0 * (1 - al)        # broad face-on, flared profile edge-on
+    off = -fx * (8.0 * (1 - al) + 2.5 * al)  # sits behind the head
+
+    def neck_x_at(y):
+        best = min(neck_pts[1:], key=lambda q: abs(q[1] - y))
+        return best[0], best[2]
+
+    rows = []
+    for i in range(61):
+        v = i / 60
+        y = top_y + (bot_y - top_y) * v
+        nx, nr = neck_x_at(y)
+        if v < 0.3:
+            w = W * math.sin(math.pi / 2 * min(1.0, (v + 0.02) / 0.3)) ** 0.55
+            c = hcx_now + off
+        else:
+            q = (v - 0.3) / 0.7
+            w = nr + (W - nr) * math.cos(math.pi / 2 * q) ** 1.25
+            c = (hcx_now + off) * (1 - q ** 1.5) + nx * q ** 1.5
+        rows.append((c, y, max(w, 1.0), v))
+    hood_poly = [(c - w, y) for c, y, w, v in rows] + [(c + w, y) for c, y, w, v in rows[::-1]]
+
+    def draw_union(target):
+        U = poly(hood_poly) | circles(neck_pts)
+        target.paint(dilate(U, 3), LINE)
+        H4, W4 = U.shape
+        yy, xx = np.mgrid[0:H4, 0:W4]
+        # per-row extent of the union -> normalised across-body position t
+        anyrow = U.any(1)
+        left = np.where(anyrow, U.argmax(1), 0)
+        right = np.where(anyrow, W4 - 1 - U[:, ::-1].argmax(1), 1)
+        cx = (left + right) / 2.0
+        hw = np.maximum((right - left) / 2.0, 1.0)
+        t = (xx - cx[:, None]) / hw[:, None]
+        sm = lambda e0, e1, x: np.clip((x - e0) / (e1 - e0), 0, 1) ** 2 * (3 - 2 * np.clip((x - e0) / (e1 - e0), 0, 1))
+        shade = sm(0.45, 1.0, np.abs(t)) * 0.85 + sm(-0.2, 1.0, -t * 0.7 * (1 if True else 0)) * 0.0
+        # light from upper-left: right side a touch darker
+        shade = np.clip(shade + 0.18 * sm(0.0, 1.0, t), 0, 1)
+        col = np.array(COIL, np.float32) * (1 - shade[..., None]) + np.array(SHADE, np.float32) * shade[..., None]
+        # scale texture (small diamonds), stronger on the hood rim
+        cell = 3 * SS
+        dia = (((xx + yy) // cell + (xx - yy) // cell) % 2 == 0)
+        rim = sm(0.55, 0.95, np.abs(t))
+        k = (0.05 + 0.17 * rim) * dia
+        col = col * (1 - k[..., None]) + np.array(LINE, np.float32) * k[..., None]
+        if not back:
+            c0 = 0.5 * fx if not front else 0.42 * fx
+            bw = 0.36 + 0.14 * max(0.0, fy)
+            dd = np.abs(t - c0) / bw
+            bel = 1 - sm(0.65, 1.0, dd)
+            band = ((yy // SS) % 4 == 0) & (yy > (top_y + 6) * SS)
+            bcol = np.where(band[..., None], np.array(BAND, np.float32), np.array(BELLY, np.float32))
+            col = col * (1 - bel[..., None]) + bcol * bel[..., None]
+        m = U.astype(np.float32)
+        target.rgb = target.rgb * (1 - m[..., None]) + col * m[..., None]
+        target.a = np.maximum(target.a, m)
+        # markings
+        def at(v):
+            return min(rows, key=lambda r: abs(r[3] - v))
+        if back:
+            c, y, w, v = at(0.5)
+            for kk in (-1, 1):
+                ex = c + kk * w * 0.45
+                rx = max(1.8, 4.2 * al)
+                target.paint(ellipse(ex, y, rx + 1.2, 5.2) & U, SPOT)
+                target.paint(ellipse(ex, y, rx * 0.62 + 0.3, 3.4) & U, RIM)
+                target.paint(ellipse(ex, y + 0.4, rx * 0.3, 1.7) & U, SPOT)
+        elif front:
+            c, y, w, v = at(0.56)
+            for kk in (-1, 1):
+                target.paint(ellipse(c + kk * w * 0.66, y, max(1.4, w * 0.09), 3.4) & U, SPOT)
+
+    lower = Canvas()
+    upper = Canvas()
+    if back:
+        draw_union(upper)
+    if behind:
+        cv = lower
+        draw_body()
+    if not back:
+        draw_union(lower)
+    if not behind:
+        cv = upper
+        draw_body()
+    out = lower.down()
     hd = head.astype(np.float32)
     H = np.zeros((OH, OW, 4), np.float32)
-    x0, y0 = PADX + dx, PADY + dy
     H[y0:y0 + BH, x0:x0 + BW] = hd
     ha = H[..., 3:4] / 255
     out = np.concatenate([out[..., :3] * (1 - ha) + H[..., :3] * ha,
                           np.maximum(out[..., 3:4], H[..., 3:4])], -1)
+    up = upper.down()
+    ua = up[..., 3:4] / 255
+    out = np.concatenate([out[..., :3] * (1 - ua) + up[..., :3] * ua,
+                          np.maximum(out[..., 3:4], up[..., 3:4])], -1)
     if fangs and mouths.get(d):
         mx, my = mouths[d]
         mx += x0; my += y0
