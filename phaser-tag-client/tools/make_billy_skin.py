@@ -47,6 +47,10 @@ ASSETS = HERE.parent / "public" / "assets"
 
 SS = 4
 OW, OH = 128, 124          # output frame
+HEAD_SCALE = 1.45
+ARM_R = 3.5
+BACK_D = 12.0
+TORSO_D = 15.0
 OBASE = 118                # feet line in the output frame
 SRC_BASE = 96              # feet line in kid.png
 SRC_CX = 40
@@ -269,7 +273,7 @@ def render_body(lab, wp, back_fx=0):
         if back_fx:
             # side view: square the jacket back off to the torso's back line
             # (the warp slants the shoulder and the removed far arm notches it)
-            y0, y1 = int(S(wp.yn_o - 0.5)), jr.max() - SS
+            y0, y1 = int(S(wp.yn_o - 0.5)), jr.max() + 1
             wrows = range(int(S(wp.yn_o - 4)), int(S(wp.yn_o + 4)))
             wid = [(union[y].sum() if union[y].any() else 10 ** 6, y) for y in wrows]
             if wid:
@@ -280,10 +284,32 @@ def render_body(lab, wp, back_fx=0):
                      for y in range(y0, y1) if J[y].any()}
             if edges:
                 lower = [v for y, v in edges.items() if y > (y0 + y1) / 2]
-                ref = np.percentile(lower or list(edges.values()), 20 if back_fx > 0 else 80)
+                # fixed torso depth behind the neck in every side frame
+                wy = min(wid)[1] if wid else y0
+                nx_ = xs_[union[wy]]
+                ncx_ = (nx_.min() + nx_.max()) / 2 if len(nx_) else np.median(list(edges.values()))
+                # fixed torso depth behind the neck; follow the lean of the
+                # back (slope of the existing back line)
+                # torso axis: neck centre -> centre of the jacket hem row
+                hy_ = y1 - 1
+                hx_ = xs_[(L[hy_] == JACKET)]
+                if len(hx_) and hy_ > wy:
+                    slope = float(np.clip(((hx_.min() + hx_.max()) / 2 - ncx_) / (hy_ - wy), -0.05, 0.05))
+                else:
+                    slope = 0.0
                 for y, e in edges.items():
-                    rb = max(0.0, 3.0 * SS - (y - y0)) * 0.8
+                    ref = ncx_ - back_fx * BACK_D * SS + slope * (y - wy)
+                    Rr = 4.5 * SS
+                    dy_ = min(Rr, y - y0)
+                    rb = Rr - math.sqrt(max(0.0, Rr * Rr - (Rr - dy_) ** 2))
                     bx = int(round(ref + back_fx * rb))
+                    # cut anything behind the rounded back line
+                    if back_fx > 0:
+                        cut = (xs_ < bx) & np.isin(L[y], (JACKET, SLEEVE))
+                    else:
+                        cut = (xs_ > bx) & np.isin(L[y], (JACKET, SLEEVE))
+                    L[y, cut] = BG
+                    union[y, cut] = False
                     if back_fx > 0 and e > bx:
                         sl = slice(bx, e)
                     elif back_fx < 0 and e < bx:
@@ -293,6 +319,13 @@ def render_body(lab, wp, back_fx=0):
                     seg = ~union[y, sl] | (L[y, sl] == JACKET)
                     L[y, sl][seg] = JACKET
                     union[y, sl] = True
+            cps = components8(union)
+            if cps:
+                big_ = max(cps, key=lambda c_: c_.sum())
+                for c_ in cps:
+                    if c_ is not big_ and c_.sum() < 40 * SS * SS:
+                        L[c_] = BG
+                        union[c_] = False
     rgb = np.zeros(X.shape + (3,), np.uint8)
     for k, col in COL.items():
         rgb[L == k] = col
@@ -346,13 +379,13 @@ def rebuild_head(L, rgb, union, direction, wp, eyes_o):
         ey_m = float(np.mean([e[1] for e in eyes_o]))
         bot = max(bot, ey_m + 9.6)
         top = min(top, ey_m - 10.8)
-        hw = min(hw, (bot - top) / 1.26 / 2) if direction not in PROFILE else min(hw, (bot - top) / 1.12 / 2)
+        hw = min(hw, (bot - top) / 1.38 / 2) if direction not in PROFILE else min(hw, (bot - top) / 1.24 / 2)
     hh = (bot - top) / 2
     cy = (top + bot) / 2
     fx = FACE[direction][0]
     # jaw a touch narrower than the cranium
     t = np.clip((Yo - cy) / hh, 0, 1)
-    Xs = cx + (Xo - cx) / (1 - 0.2 * t * t)
+    Xs = cx + (Xo - cx) / (1 - 0.3 * t * t)
     sdf = _rbox_sdf(Xs, Yo, cx, cy, hw, hh, hw * 0.96)
     head = sdf < 0
     # erase the old head
@@ -446,8 +479,17 @@ def rebuild_head(L, rgb, union, direction, wp, eyes_o):
     # jacket
     below = (Yo > bot - 0.8) & ~allm
     stray = below & (L == SKIN)
-    L[stray] = JACKET
-    rgb[stray] = COL[JACKET]
+    Jk = L == JACKET
+    inside_j = np.zeros_like(stray)
+    for y in np.nonzero(stray.any(1))[0]:
+        xj = np.nonzero(Jk[y])[0]
+        if len(xj):
+            inside_j[y, xj.min():xj.max() + 1] = True
+    L[stray & inside_j] = JACKET
+    rgb[stray & inside_j] = COL[JACKET]
+    gone = stray & ~inside_j
+    L[gone] = BG
+    union[gone] = False
     ncx = cx - fx * (0.6 if direction in PROFILE else -0.2)
     nhw = 2.0 if direction in PROFILE else 2.5
     J = np.isin(L, (JACKET, SLEEVE)) & (np.abs(Xo - ncx) < nhw)
@@ -495,8 +537,10 @@ def leg_layer(hip, foot, fx, back, L_leg):
     toe = (foot[0] + fx * 2.5, foot[1] - 1.5)
     heel = (foot[0] - fx * 1.4, foot[1] - 1.7)
     parts = [
-        (capsule_fn(hip, 3.4, knee, 2.9), pc),
-        (capsule_fn(knee, 2.9, ankle, 2.5), pc),
+        (capsule_fn(hip, 5.0, knee, 4.8), pc),
+        (capsule_fn(knee, 4.8, ankle, 4.7), pc),
+        # loose hem bunched over the sneaker
+        (capsule_fn((ankle[0] - fx * 0.4, ankle[1] - 1.6), 5.1, (ankle[0] + fx * 0.6, ankle[1] + 0.2), 5.0), pc),
         (capsule_fn(heel, 1.75, toe, 1.55), COL[SHOE]),
     ]
     im = shapes_layer((OH, OW), parts, LINE, 0.75)
@@ -805,14 +849,14 @@ def arm_layer(sh, hand, elbow):
     dd = math.hypot(dx, dy) or 1.0
     cuff = (hand[0] - dx / dd * 1.6, hand[1] - dy / dd * 1.6)
     parts = [
-        (capsule_fn(sh, 2.7, elbow, 2.35), COL[SLEEVE]),
-        (capsule_fn(elbow, 2.35, cuff, 2.1), COL[SLEEVE]),
+        (capsule_fn(sh, ARM_R, elbow, ARM_R - 0.3), COL[SLEEVE]),
+        (capsule_fn(elbow, ARM_R - 0.3, cuff, ARM_R - 0.5), COL[SLEEVE]),
     ]
     return shapes_layer((OH, OW), parts, SLEEVE_LINE, 0.8)
 
 
 def hand_layer(hand):
-    return shapes_layer((OH, OW), [(disc_fn(hand, 1.9), COL[SKIN])], SKIN_LINE, 0.6)
+    return shapes_layer((OH, OW), [(disc_fn(hand, 2.4), COL[SKIN])], SKIN_LINE, 0.6)
 
 
 def elbow_of(sh, hand, out_x):
@@ -926,20 +970,6 @@ def billyfy(src_f, direction, anim, col, meta, memo, wp, idle_f):
     if comps_:
         keep_ = max(comps_, key=lambda c_: c_.sum())
         lab[(lab > 0) & ~keep_] = BG
-    if direction in PROFILE:
-        # side view: the removed far arm leaves a slanted notch in the upper
-        # back; square the back of the jacket off to the torso's back line
-        jk2 = lab == JACKET
-        back = int(round(np.percentile(los, 15) if fx > 0 else np.percentile(his, 85))) if los else int(round(tlo if fx > 0 else thi))
-        for y in range(g.neck, g.hem):
-            if not jk2[y].any():
-                continue
-            b_ = back + fx * max(0, 2 - (y - g.neck))
-            xs_j = xs_all[jk2[y]]
-            if fx > 0 and xs_j.min() > b_:
-                lab[y, b_:xs_j.min()] = JACKET
-            elif fx < 0 and xs_j.max() < b_:
-                lab[y, xs_j.max() + 1:b_ + 1] = JACKET
     free = []  # (shoulder_out, hand_out, outward_x, side)
     sides = [0] if direction in PROFILE else [-1, 1]
     for s_ in sides:
@@ -960,6 +990,15 @@ def billyfy(src_f, direction, anim, col, meta, memo, wp, idle_f):
             hand_o = memo.get((direction, anim, s_, k), memo.get((direction, "hand", s_),
                               wp.pt((g.head_cx + s_ * 8.5 - fx * 1.0, g.hem - 3))))
         sh_o = wp.pt(sh_src)
+        if direction not in PROFILE:
+            # sleeve's outer edge on the jacket's shoulder line: no flap of
+            # jacket sticking out past the arm
+            jr_ = lab[int(round(g.neck + 5))] == JACKET
+            if jr_.any():
+                xs_j = xs_all[jr_]
+                e_src = (xs_j.max() + 1.0) if s_ > 0 else float(xs_j.min())
+                e_o = wp.pt((e_src, g.neck + 5))[0]
+                sh_o = (e_o - s_ * (ARM_R - (-0.3 if direction in ("NW", "NE") else 0.7)), wp.pt((sh_src[0], g.neck + 3.4))[1])
         if direction not in PROFILE:
             hand_o = (sh_o[0] + s_ * min(1.8, max(0.8, s_ * (hand_o[0] - sh_o[0]))), hand_o[1])
         out_x = s_ if direction not in PROFILE else -fx
@@ -993,6 +1032,32 @@ def billyfy(src_f, direction, anim, col, meta, memo, wp, idle_f):
             res.append((s_, pm(arm_layer(sh_o, hand_o, el)), pm(hand_layer(hand_o)), hand_o))
         return res
 
+    if direction in ("NW", "NE"):
+        # back diagonals: the kid's own arm sits inside the torso and leaves
+        # seam lines once the new arms are drawn; it is all jacket from behind
+        lab = lab.copy()
+        lab[np.isin(lab, (SLEEVE, HAND)) & (np.mgrid[0:lab.shape[0], 0:lab.shape[1]][0] < g.hem - 8)] = JACKET
+        # the kid's arm was cut out of the torso: fill the torso back to the
+        # shoulder-row width down to the waist
+        jy = np.nonzero((lab == JACKET).any(1))[0]
+        if len(jy):
+            y_s = int(jy.min()) + 3
+            xs_r = np.nonzero(lab[y_s] == JACKET)[0]
+            if len(xs_r):
+                xl, xr = xs_r.min(), xs_r.max()
+                for y_ in range(y_s, int(jy.max()) + 1):
+                    seg_ = lab[y_, xl:xr + 1]
+                    seg_[np.isin(seg_, (BG,))] = JACKET
+        # the kid's hip-height hand was labelled pants: inside the jacket it
+        # is jacket (pants pixels with jacket on both sides in the row)
+        for y_ in range(lab.shape[0]):
+            jx = np.nonzero(lab[y_] == JACKET)[0]
+            if len(jx) < 2:
+                continue
+            row = lab[y_]
+            px_ = np.nonzero(row == PANTS)[0]
+            inside = px_[(px_ > jx.min()) & (px_ < jx.max())]
+            row[inside] = JACKET
     L, union, rgb, lines = render_body(lab, wp, fx if direction in PROFILE else 0)
     eyes = eyes_of(src_f if not tag else idle_f, g if not tag else Geometry(idle_f))
     eyes_o = [wp.pt((x, y)) + (ew,) for x, y, ew in eyes]
@@ -1018,6 +1083,20 @@ def billyfy(src_f, direction, anim, col, meta, memo, wp, idle_f):
     if mouth is None:
         mouth = memo.get((direction, "mouth"), ((head_box[0] + head_box[2]) / 2, head_box[3] - 5))
     memo[(direction, "mouth")] = mouth
+    # bigger head, closer to James's chibi head:body ratio, scaled about the
+    # chin so it stays on the neck
+    hm2 = grow(hm, np.ones_like(hm), 3)
+    ba = np.asarray(body).copy()
+    hl_ = ba.copy()
+    hl_[~hm2] = 0
+    cyb = hy.max()
+    ax = float(np.median(hx[hy >= cyb - 2 * SS]))
+    ay = float(cyb)
+    k_ = HEAD_SCALE
+    big = Image.fromarray(hl_, "RGBA").transform(
+        body.size, Image.AFFINE, (1 / k_, 0, ax - ax / k_, 0, 1 / k_, ay - ay / k_), resample=Image.NEAREST)
+    body = Image.alpha_composite(body, big)
+    mouth = (ax / SS + (mouth[0] - ax / SS) * k_, ay / SS + (mouth[1] - ay / SS) * k_)
 
     out = pm(body)
     if legs:
