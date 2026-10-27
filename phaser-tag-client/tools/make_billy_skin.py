@@ -18,8 +18,9 @@ Pipeline (same family as make_tennis_skin.py):
   * a clear iced coffee (tan coffee, ice, dome lid, orange straw, small
     orange/pink logo dot) in his near hand in every frame; on tag the near arm
     is redrawn as one solid limb from the shoulder: it reaches the cup out in
-    the facing direction, pulls it back, sips from the straw and lets out a
-    small "ahh" puff;
+    the facing direction, pulls it back and sips from the straw (tag frame 4;
+    no puff or sparkle). The other arms are drawn jacket sleeves from the
+    shoulders to James's hand positions, and a short neck joins head and collar;
   * box-downscaled to 1x and solidified (no holes).
 
 Requires: Python 3 + Pillow + numpy.  Usage:
@@ -412,7 +413,34 @@ def rebuild_head(L, rgb, union, direction, wp, eyes_o):
     hs = Image.fromarray((hair * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(3))
     hline = (np.asarray(hs) > 127) & ~hair & skinm & allm
     rgb[hline] = LINE
-    # the neck: chin line over the neck top
+    # the neck: a short skin column from under the jaw into the jacket
+    # collar; any other skin below the chin (James's warped shoulders) is
+    # jacket
+    below = (Yo > bot - 0.8) & ~allm
+    stray = below & (L == SKIN)
+    L[stray] = JACKET
+    rgb[stray] = COL[JACKET]
+    ncx = cx - fx * (0.6 if direction in PROFILE else -0.2)
+    nhw = 2.0 if direction in PROFILE else 2.5
+    J = np.isin(L, (JACKET, SLEEVE)) & (np.abs(Xo - ncx) < nhw)
+    jr = np.nonzero(J.any(1))[0]
+    jt = (jr[jr > S(bot - 2)].min() / SS) if (jr > S(bot - 2)).any() else bot + 2.5
+    if direction not in BACK:
+        neck_t = bot - 2.5
+        neck_b = max(jt + 1.2, bot + 1.6)
+        neck = (np.abs(Xo - ncx) < nhw) & (Yo > neck_t) & (Yo < neck_b) & ~allm
+        L[neck] = SKIN
+        union |= neck
+        rgb[neck] = COL[SKIN]
+        edge = neck & (np.abs(Xo - ncx) > nhw - 0.75)
+        rgb[edge] = SKIN_LINE
+        sh_ = neck & (Yo < bot + 1.3)
+        rgb[sh_ & ~edge] = SKIN_SHADE
+    else:
+        neck = (np.abs(Xo - ncx) < nhw) & (Yo > bot - 2.5) & (Yo < jt + 1.0) & ~allm & ~union
+        L[neck] = SKIN
+        union |= neck
+        rgb[neck] = SKIN_SHADE
     return allm
 
 
@@ -509,8 +537,8 @@ def smile_eye(d, ex, ey, hw, side=0, ry=1.9, half=False, fx=0):
     img = d._image
     n = 15
     ts = np.linspace(-1, 1, n)
-    up = [(ex + hw * t, ey - ry * (1 - t * t) ** 0.6 - 0.25 * side * t) for t in ts]
-    lo = [(ex + hw * t, ey + ry * 0.85 * (1 - t * t) ** 0.8 - 0.1 * side * t) for t in ts]
+    up = [(ex + hw * t, ey - ry * 1.05 * (1 - t * t) ** 0.6 - 0.2 * side * t) for t in ts]
+    lo = [(ex + hw * t, ey + ry * 0.15 - ry * 0.3 * (1 - t * t) ** 0.8 - 0.1 * side * t) for t in ts]
     poly = [(S(x), S(y)) for x, y in up + lo[::-1]]
     m = Image.new("L", img.size, 0)
     ImageDraw.Draw(m).polygon(poly, fill=255)
@@ -519,16 +547,20 @@ def smile_eye(d, ex, ey, hw, side=0, ry=1.9, half=False, fx=0):
     ld.polygon(poly, fill=(250, 248, 244, 255))
     ix = ex + (0.35 * fx if half else 0.15 * fx)
     r = ry * 0.62
-    ld.ellipse([S(ix - r), S(ey - r + 0.1), S(ix + r), S(ey + r + 0.1)], fill=(84, 52, 34, 255))
-    ld.ellipse([S(ix - r * 0.55), S(ey - r * 0.55 + 0.1), S(ix + r * 0.55), S(ey + r * 0.55 + 0.1)], fill=(16, 12, 12, 255))
-    ld.ellipse([S(ix - r * 0.55 - 0.15), S(ey - r * 0.6), S(ix - r * 0.55 + 0.45), S(ey - r * 0.6 + 0.6)], fill=(255, 255, 255, 255))
+    iy = ey - ry * 0.45
+    ld.ellipse([S(ix - r), S(iy - r), S(ix + r), S(iy + r)], fill=(84, 52, 34, 255))
+    ld.ellipse([S(ix - r * 0.55), S(iy - r * 0.55), S(ix + r * 0.55), S(iy + r * 0.55)], fill=(16, 12, 12, 255))
+    ld.ellipse([S(ix - r * 0.55 - 0.15), S(iy - r * 0.7), S(ix - r * 0.55 + 0.45), S(iy - r * 0.7 + 0.6)], fill=(255, 255, 255, 255))
     la = np.asarray(lay).copy()
     la[..., 3] = np.minimum(la[..., 3], np.asarray(m))
     img.alpha_composite(Image.fromarray(la, "RGBA"))
     d2 = ImageDraw.Draw(img)
     # bold soft upper lid, thin lower line
     d2.line([(S(x), S(y - 0.15)) for x, y in up], fill=EYE, width=max(1, int(S(0.75))), joint="curve")
-    d2.line([(S(x), S(y)) for x, y in lo[3:-3]], fill=SKIN_LINE, width=max(1, int(S(0.35))), joint="curve")
+    d2.line([(S(x), S(y + 0.1)) for x, y in lo[1:-1]], fill=EYE, width=max(1, int(S(0.5))), joint="curve")
+    # smiling cheek crease under the eye
+    d2.line([(S(ex + hw * t * 0.8), S(ey + ry * 0.75 - ry * 0.25 * (1 - t * t))) for t in ts[3:-3]],
+            fill=SKIN_LINE, width=max(1, int(S(0.35))), joint="curve")
 
 
 def draw_face(img, L, direction, eyes_o, wp, head_box):
@@ -579,19 +611,18 @@ def draw_face(img, L, direction, eyes_o, wp, head_box):
         tline(d, [(lx - hw_l, ey - 1.2), (max(x0 + 0.4, lx - hw_l - 2.4), ey - 1.5)], GLASS, 1.1)
         tline(d, [(rx + hw_r, ey - 1.2), (min(x1 - 0.4, rx + hw_r + 2.4), ey - 1.5)], GLASS, 1.1)
         # wide toothy smile
-        mw = 4.2 if fx == 0 else 3.6
+        mw = 5.0 if fx == 0 else 4.3
         def curve(y_end, y_mid, n=9):
             return [(mx + mw * t, my + y_end + (y_mid - y_end) * (1 - t * t)) for t in np.linspace(-1, 1, n)]
-        top_c = curve(-0.8, 0.1)
-        bot_c = curve(-0.8, 2.2)
-        mid_c = curve(-0.65, 1.05)
+        top_c = curve(-1.2, 0.0)
+        bot_c = curve(-1.2, 3.0)
+        mid_c = curve(-1.0, 1.3)
         d.polygon([(S(x), S(y)) for x, y in top_c + bot_c[::-1]], fill=MOUTH)
         d.polygon([(S(x), S(y)) for x, y in top_c + mid_c[::-1]], fill=TEETH)
         tline(d, bot_c[1:-1], SKIN_LINE, 0.4)
         # thin dark mustache, a small chin patch
-        tline(d, [(mx - mw * 1.0, my - 0.75), (mx - mw * 0.55, my - 1.35), (mx, my - 1.2),
-                  (mx + mw * 0.55, my - 1.35), (mx + mw * 1.0, my - 0.75)], STACHE, 1.35)
-        ell(d, mx, my + 3.5, 0.95, 0.65, STACHE)
+        st_c = [(x, y - 0.75) for x, y in curve(-1.05, 0.0, 11)[1:-1]]
+        tline(d, st_c, STACHE, 1.3)
         return (mx, my)
     # profile
     if not eyes_o:
@@ -618,12 +649,12 @@ def draw_face(img, L, direction, eyes_o, wp, head_box):
     # glasses arm back to the ear
     tline(d, [(ex - fx * 1.6, ey - 1.0), (wp.hcx_o + fx * 0.2, ey - 1.5)], GLASS, 0.9)
     # smile, mustache, chin patch
-    a0, a1 = sorted((mx, mx - fx * 3.4))
-    d.chord([S(a0), S(my - 1.3), S(a1), S(my + 2.0)], 0, 180, fill=MOUTH)
-    d.chord([S(a0 + 0.3), S(my - 1.2), S(a1 - 0.2), S(my + 1.0)], 0, 180, fill=TEETH)
-    tline(d, [(mx - fx * 3.0, my + 0.4), (mx - fx * 3.2, my - 0.1)], SKIN_LINE, 0.45)
-    tline(d, [(mx - fx * 3.6, my - 0.2), (mx - fx * 1.6, my - 1.3), (mx + fx * 0.4, my - 1.0)], STACHE, 1.3)
-    ell(d, mx - fx * 1.1, my + 3.2, 0.9, 0.72, STACHE)
+    a0, a1 = sorted((mx + fx * 0.2, mx - fx * 4.0))
+    d.chord([S(a0), S(my - 1.4), S(a1), S(my + 2.6)], 0, 180, fill=MOUTH)
+    d.chord([S(a0 + 0.3), S(my - 1.3), S(a1 - 0.2), S(my + 1.2)], 0, 180, fill=TEETH)
+    # upturned smile corner at the cheek
+    tline(d, [(mx - fx * 3.6, my + 0.6), (mx - fx * 4.3, my - 0.4)], SKIN_LINE, 0.45)
+    tline(d, [(mx - fx * 3.9, my - 0.9), (mx - fx * 1.8, my - 1.35), (mx + fx * 0.3, my - 1.1)], STACHE, 1.25)
     return (mx, my)
 
 
@@ -741,17 +772,32 @@ def straw_tip(c, tilt):
 
 
 def arm_layer(sh, hand, elbow):
-    skin = COL[SKIN]
+    """natural jacket sleeve: shoulder -> elbow -> cuff, the hand at the end"""
+    dx, dy = hand[0] - elbow[0], hand[1] - elbow[1]
+    dd = math.hypot(dx, dy) or 1.0
+    cuff = (hand[0] - dx / dd * 1.6, hand[1] - dy / dd * 1.6)
     parts = [
-        (capsule_fn(sh, 3.3, elbow, 3.0), COL[SLEEVE]),
-        (capsule_fn(elbow, 3.0, hand, 2.6), COL[SLEEVE]),
-        (disc_fn(hand, 2.3), skin),
+        (capsule_fn(sh, 2.7, elbow, 2.35), COL[SLEEVE]),
+        (capsule_fn(elbow, 2.35, cuff, 2.1), COL[SLEEVE]),
     ]
-    return shapes_layer((OH, OW), parts, LINE, 0.75)
+    return shapes_layer((OH, OW), parts, LINE, 0.7)
 
 
 def hand_layer(hand):
-    return shapes_layer((OH, OW), [(disc_fn(hand, 2.3), COL[SKIN])], SKIN_LINE, 0.6)
+    return shapes_layer((OH, OW), [(disc_fn(hand, 1.9), COL[SKIN])], SKIN_LINE, 0.6)
+
+
+def elbow_of(sh, hand, out_x):
+    """elbow for a relaxed arm of fixed segment length, bent outward/back"""
+    d = math.hypot(hand[0] - sh[0], hand[1] - sh[1]) or 1.0
+    seg = max(d / 2 + 0.05, 8.6)
+    a = d / 2
+    h = math.sqrt(max(0.0, seg * seg - a * a))
+    ux, uy = (hand[0] - sh[0]) / d, (hand[1] - sh[1]) / d
+    px, py = -uy, ux
+    if px * out_x < 0:
+        px, py = -px, -py
+    return (sh[0] + ux * a + px * h, sh[1] + uy * a + py * h)
 
 
 def puff_layer(p, side, alpha, spark=False):
@@ -814,6 +860,68 @@ def billyfy(src_f, direction, anim, col, meta, memo, wp, idle_f):
         f[~keep] = 0
         g = Geometry(f)
     lab = classify(f, g, direction, min(e[1] for e in ey_src) if ey_src else None)
+    # James's chunky warped arms are replaced by drawn sleeves: find his hands,
+    # drop the sleeve/hand labels (the jacket closes over the gap)
+    yy_ = np.mgrid[0:f.shape[0], 0:f.shape[1]][0]
+    _, hm_src = arms_and_hands(f, g, (yy_ <= g.neck + 1) & skin_mask(f))
+    hcomps = [c_ for c_ in components8(hm_src & (yy_ > g.neck + 3)) if c_.sum() >= 3]
+    hcent = []
+    for c_ in hcomps:
+        ys_, xs_ = np.nonzero(c_)
+        hcent.append((float(xs_.mean() + 0.5), float(ys_.max() - 0.5), int(c_.sum())))
+    arm_px = np.isin(lab, (SLEEVE, HAND))
+    xs_all = np.arange(f.shape[1])
+    lab = lab.copy()
+    jk = lab == JACKET
+    los, his = [], []
+    for y in range(g.neck + 3, g.hem):
+        if jk[y].any() and not arm_px[y].any():
+            los.append(xs_all[jk[y]].min()); his.append(xs_all[jk[y]].max())
+    if not los:
+        for y in range(g.neck + 3, g.hem):
+            if jk[y].any():
+                los.append(xs_all[jk[y]].min()); his.append(xs_all[jk[y]].max())
+    tlo, thi = (np.median(los), np.median(his)) if los else (g.head_cx - 6, g.head_cx + 6)
+    for y in range(f.shape[0]):
+        row = arm_px[y]
+        if not row.any():
+            continue
+        tor = jk[y] & (xs_all >= tlo - 1) & (xs_all <= thi + 1)
+        lab[y, row] = BG
+        lab[y, jk[y] & ~tor & (y > g.neck + 3)] = BG
+        if tor.any():
+            lo, hi = xs_all[tor].min(), xs_all[tor].max()
+            inside = row & (xs_all > lo) & (xs_all < hi)
+            lab[y, inside] = JACKET
+    # drop stray bits of James's arm outline left beside the body
+    comps_ = components8(lab > 0)
+    if comps_:
+        keep_ = max(comps_, key=lambda c_: c_.sum())
+        lab[(lab > 0) & ~keep_] = BG
+    free = []  # (shoulder_out, hand_out, outward_x, side)
+    sides = [0] if direction in PROFILE else [-1, 1]
+    for s_ in sides:
+        if tag and (s_ == side or direction in PROFILE):
+            continue
+        if direction in PROFILE:
+            sh_src = (g.head_cx - fx * 0.5, g.neck + 4.5)
+            cand = hcent
+        else:
+            sh_src = (g.head_cx + s_ * (6.6 if fx == 0 else ((5.4 if s_ * fx > 0 else 6.2) - (0.6 if direction in BACK else 0))), g.neck + 4.0)
+            cand = [h_ for h_ in hcent if s_ * (h_[0] - g.head_cx) > 2]
+        if cand:
+            hb = max(cand, key=lambda h_: h_[2])
+            hand_o = wp.pt((hb[0], hb[1] - 1.0))
+            memo[(direction, anim, s_, k)] = hand_o
+            memo[(direction, "hand", s_)] = hand_o
+        else:
+            hand_o = memo.get((direction, anim, s_, k), memo.get((direction, "hand", s_),
+                              wp.pt((g.head_cx + s_ * 8.5 - fx * 1.0, g.hem - 3))))
+        sh_o = wp.pt(sh_src)
+        if direction not in PROFILE:
+            hand_o = (sh_o[0] + s_ * min(1.8, max(0.8, s_ * (hand_o[0] - sh_o[0]))), hand_o[1])
+        out_x = s_ if direction not in PROFILE else -fx
+        free.append((sh_o, hand_o, out_x, s_))
     legs = []
     if direction in PROFILE:
         feet = feet_of(lab)
@@ -836,6 +944,13 @@ def billyfy(src_f, direction, anim, col, meta, memo, wp, idle_f):
             back = i == 0 if len(fo) == 2 and abs(fo[0][0] - fo[1][0]) > 1.5 else i == 0
             h_ = (hip_x + fx * (0.9 if not back else -0.9), hip_y)
             legs.append(pm(leg_layer(h_, (ft[0], min(ft[1], OBASE)), fx, back, L_leg)))
+    def draw_free_arms(free, _unused=0):
+        res = []
+        for sh_o, hand_o, out_x, s_ in free:
+            el = elbow_of(sh_o, hand_o, out_x)
+            res.append((s_, pm(arm_layer(sh_o, hand_o, el)), pm(hand_layer(hand_o)), hand_o))
+        return res
+
     L, union, rgb, lines = render_body(lab, wp)
     eyes = eyes_of(src_f if not tag else idle_f, g if not tag else Geometry(idle_f))
     eyes_o = [wp.pt((x, y)) + (ew,) for x, y, ew in eyes]
@@ -907,50 +1022,29 @@ def billyfy(src_f, direction, anim, col, meta, memo, wp, idle_f):
         arm = pm(arm_layer(sh, hand, elbow))
         cup = pm(cup_layer(c, tilt))
         handl = pm(hand_layer(hand))
+        for _, al, hl, _h in draw_free_arms(free):
+            out = over(over(out, al), hl)
         if behind:
             # back views: arm and cup behind the body
             res = over(over(over(cup, handl), arm), np.zeros_like(out))
-            out = over(res, pm(body))
+            out = over(res, out)
         else:
             out = over(over(over(out, arm), cup), handl)
-        if k == 4 and direction not in BACK:
-            if direction in PROFILE:
-                sp = (mouth[0] + fx * 6.5, mouth[1] - 4.5)
-            else:
-                sp = (mouth[0] - side * 6.5, mouth[1] - 3.5)
-            out = over(out, pm(puff_layer(sp, 1, 1.0, spark=True)))
-        if k == 5 and direction not in BACK:
-            if direction in PROFILE:
-                p = (mouth[0] + fx * 3.5, mouth[1] - 1.5)
-                ps = fx
-            else:
-                p = (mouth[0] - side * 5.0, mouth[1] - 1.0)
-                ps = -side
-            out = over(out, pm(puff_layer(p, ps, 0.8)))
     else:
-        yy = np.mgrid[0:f.shape[0], 0:f.shape[1]][0]
-        face_i = (yy <= g.neck + 1) & skin_mask(f)
-        _, hands = arms_and_hands(f, g, face_i)
-        a = alpha_mask(f)
-        pick = pick_hand(hands & (yy > g.neck + 1), g, side, a)
-        if pick is None:
-            hc = [c_ for c_ in components8(hands & (yy > g.neck + 1)) if c_.sum() >= 3]
-            if hc:
-                c_ = max(hc, key=lambda c_: (side * (np.nonzero(c_)[1].mean() - g.hip_cx), c_.sum()))
-                ys_, xs_ = np.nonzero(c_)
-                pick = (float(xs_.mean() + 0.5), float(ys_.mean() + 0.5), c_)
-        if pick is not None:
-            hand = wp.pt((pick[0], pick[1]))
-            memo[(direction, anim)] = hand
-        else:
-            hand = memo.get((direction, anim), memo.get((direction, "idle"), wp.pt((g.head_cx + side * 9, g.hem - 4))))
+        arms_l = draw_free_arms(free)
+        cup_i = 0
+        if direction not in PROFILE:
+            cup_i = max(range(len(arms_l)), key=lambda i: arms_l[i][0] == side)
+        hand = arms_l[cup_i][3]
         c = (hand[0] + (fx * 1.0 if direction in PROFILE else side * 1.4), hand[1] - 0.4)
         cup = pm(cup_layer(c))
-        handl = pm(hand_layer(hand))
         if behind:
-            out = over(over(cup, handl), out)
-        else:
-            out = over(over(out, cup), handl)
+            out = over(cup, out)
+        for i, (_, al, hl, _h) in enumerate(arms_l):
+            out = over(out, al)
+            if i == cup_i and not behind:
+                out = over(out, cup)
+            out = over(out, hl)
     res = to_u8(out)
     res[res[..., 3] < 8] = 0
     a = res[..., 3] > 40
