@@ -81,9 +81,9 @@ POCKET_HI = (128, 131, 146)
 ZIP = (170, 173, 182)
 HEM = (62, 64, 75)
 PANTS_BACK = (16, 16, 19)
-HAIR_HI = (70, 62, 60)
+HAIR_HI = (100, 86, 78)
 GLASS = (14, 14, 17)
-BROW = (34, 28, 28)
+BROW = (22, 18, 18)
 STACHE = (40, 30, 28)
 TEETH = (250, 248, 240)
 EYE = (30, 24, 26)
@@ -312,13 +312,18 @@ def rebuild_head(L, rgb, union, direction, wp, eyes_o):
     xs = np.nonzero(old[rows].any(0))[0]
     cxs = [np.nonzero(old[y])[0] for y in rows]
     cx = float(np.median([(c.min() + c.max() + 1) / 2 for c in cxs])) / SS
-    hw = mw / SS / 2 * 0.97
+    hw = mw / SS / 2 * 1.0
+    if eyes_o and direction not in BACK:
+        ey_m = float(np.mean([e[1] for e in eyes_o]))
+        bot = max(bot, ey_m + 9.6)
+        top = min(top, ey_m - 10.8)
+        hw *= 1.06
     hh = (bot - top) / 2
     cy = (top + bot) / 2
     fx = FACE[direction][0]
     # jaw a touch narrower than the cranium
     t = np.clip((Yo - cy) / hh, 0, 1)
-    Xs = cx + (Xo - cx) / (1 - 0.13 * t * t)
+    Xs = cx + (Xo - cx) / (1 - 0.07 * t * t)
     sdf = _rbox_sdf(Xs, Yo, cx, cy, hw, hh, min(hw, hh) * 0.8)
     head = sdf < 0
     # erase the old head
@@ -333,37 +338,64 @@ def rebuild_head(L, rgb, union, direction, wp, eyes_o):
         hl = top + 0.74 * (bot - top)
         hair = hair_cap & (Yo < hl + 1.2 * np.cos(np.clip((Xo - cx) / hw, -1, 1) * 1.4))
         ear_y = top + 0.55 * (bot - top)
-        ears = [(cx - hw - 0.2, ear_y), (cx + hw + 0.2, ear_y)]
+        ears = [(cx - hw - 0.5, ear_y), (cx + hw + 0.5, ear_y)]
     elif direction in PROFILE:
         ey = eyes_o[0][1] if eyes_o else top + 0.55 * (bot - top)
-        hl = ey - 4.6
-        back = fx * (Xo - cx) < -hw * 0.15
-        hair = hair_cap & ((Yo < hl + 0.9 * np.clip(-fx * (Xo - cx) / hw, 0, 1)) | (back & (Yo < ey + 3.0)))
-        ears = [(cx - fx * hw * 0.12, ey + 1.0)]
+        hl = ey - 6.2
+        back = fx * (Xo - cx) < -hw * 0.5
+        hair = hair_cap & ((Yo < hl + 1.6 * np.clip(-fx * (Xo - cx) / hw, 0, 1)) | (back & (Yo < ey + 2.0)))
+        ears = [(cx - fx * hw * 0.22, ey + 1.0)]
     else:
         ey = np.mean([e[1] for e in eyes_o]) if eyes_o else top + 0.55 * (bot - top)
-        hl = ey - 4.7
-        edge = np.clip((np.abs(Xo - (cx + fx * 0.8)) / hw - 0.72) / 0.28, 0, 1)
-        hair = hair_cap & (Yo < hl + 2.6 * edge)
+        ph_ = ((Xo - cx + 0.6 * fx) / 2.6) % 1
+        hl = ey - 7.4 + 0.8 * np.clip((Xo - (cx - 0.3 * hw)) / hw, -1, 1) + 2.4 * (1 - ph_) ** 1.6
+        edge = np.clip((np.abs(Xo - (cx + fx * 0.8)) / hw - 0.74) / 0.26, 0, 1)
+        hair = hair_cap & (Yo < hl + 3.4 * edge)
         ears = [(cx - hw - 0.1, ey + 0.8), (cx + hw + 0.1, ey + 0.8)]
         if fx:
             ears = [ears[0] if fx > 0 else ears[1]]  # the far ear is hidden in 3/4
+    # messy tufts sticking up along the crown (a fixed pattern per view)
+    rng = np.random.RandomState(7 + len(direction) * 3 + (fx > 0))
+    tuft = np.zeros_like(head)
+    for i in range(7):
+        tx = cx + (i - 3) * hw * 0.3 + rng.uniform(-0.4, 0.4)
+        ty = top + 0.25 + 0.9 * ((i - 3) / 3.0) ** 2 * hh * 0.35
+        rx_, ry_ = rng.uniform(1.3, 1.9), rng.uniform(1.1, 1.6)
+        tuft |= ((Xo - tx) / rx_) ** 2 + ((Yo - ty) / ry_) ** 2 < 1
+    hair |= tuft & (Yo < top + hh * 0.7)
     ear = np.zeros_like(head)
     for ex_, ey_ in ears:
         ear |= ((Xo - ex_) / 1.3) ** 2 + ((Yo - ey_) / 1.9) ** 2 < 1
     allm = head | hair | ear
     # do not grow over the body below the chin
-    allm &= Yo < wp.yn_o + 1.0
-    skinm = (head | ear) & ~hair
+    allm &= Yo < bot + 0.6
+    skinm = (head & ~hair) | ear
     L[allm & skinm] = SKIN
     L[allm & ~skinm] = HAIR
     union |= allm
     rgb[allm & skinm] = COL[SKIN]
     rgb[allm & ~skinm] = COL[HAIR]
-    # a soft highlight on the hair, inner ear shade
-    hi = hair & (np.abs(Yo - (top + 0.9)) < 0.45) & (np.abs(Xo - cx + fx * 1.5) < hw * 0.45)
-    if direction not in BACK:
-        rgb[hi & allm] = HAIR_HI
+    # hair texture: a side part and a few flat highlight strands (no noise)
+    tex = Image.new("L", (W, H), 0)
+    td = ImageDraw.Draw(tex)
+    px = cx - 0.35 * hw * (1 if fx >= 0 else -1) if direction not in PROFILE else cx - fx * 0.2 * hw
+    strands = []
+    rows_ = [0.0] + ([0.3, 0.55] if direction in BACK else [])
+    for j, rr in [(j, rr) for rr in rows_ for j in range(-3, 4)]:
+        sx = px + j * hw * 0.24 + rr * 3
+        if rr:
+            strands.append([(sx, top + rr * 2 * hh), (sx + 0.8, top + rr * 2 * hh + 1.6), (sx + 0.6, top + rr * 2 * hh + 3.0)])
+            continue
+        sgn = -1 if sx < px else 1
+        strands.append([(sx, top + 1.0 + 0.2 * abs(j)), (sx + sgn * 1.4, top + 2.6), (sx + sgn * 2.4, top + 3.9)])
+    for st in strands:
+        td.line([(S(a), S(b)) for a, b in st], fill=255, width=max(1, int(S(0.7))), joint="curve")
+    hm_ = (np.asarray(tex) > 127) & hair & allm
+    rgb[hm_] = HAIR_HI
+    if direction not in PROFILE:
+        part = Image.new("L", (W, H), 0)
+        ImageDraw.Draw(part).line([(S(px), S(top + 0.6)), (S(px - 0.3), S(top + 3.6))], fill=255, width=max(1, int(S(0.55))))
+        rgb[(np.asarray(part) > 127) & hair & allm] = LINE
     for ex_, ey_ in ears:
         inner_e = ((Xo - ex_) / 0.6) ** 2 + ((Yo - ey_) / 1.0) ** 2 < 1
         rgb[inner_e & allm & ~hair] = SKIN_SHADE
@@ -461,13 +493,28 @@ def ell(d, cx, cy, rx, ry, col, outline=None, width=0.5):
               outline=outline, width=max(1, int(round(S(width)))) if outline else 0)
 
 
+CHEEK = (194, 128, 92)
+LENS = (226, 192, 166)
+MOUTH = (96, 34, 34)
+
+
+def _blend(c, k, t):
+    return tuple(int(round(a * (1 - t) + b * t)) for a, b in zip(c, k))
+
+
+def smile_eye(d, ex, ey, hw):
+    """narrow, warm, smiling eye: a bold upturned arc (closed-ish happy eye)"""
+    d.arc([S(ex - hw), S(ey - 0.6), S(ex + hw), S(ey + 1.8)], 190, 350, fill=EYE, width=max(1, int(S(1.1))))
+
+
 def draw_face(img, L, direction, eyes_o, wp, head_box):
-    """new face over the flat skin: returns the mouth point (out px)"""
+    """detailed face over the flat skin (at SS): returns the mouth point (out px)"""
     d = ImageDraw.Draw(img)
     fx = FACE[direction][0]
     x0, y0, x1, y1 = head_box
     if direction in BACK:
         return ((x0 + x1) / 2 + fx * 3, y0 + 0.72 * (y1 - y0))
+    W_ = lambda v: max(1, int(round(S(v))))
     if direction in FRONT:
         if len(eyes_o) >= 2:
             (lx, ly, lw), (rx, ry, rw) = eyes_o[0], eyes_o[-1]
@@ -477,56 +524,77 @@ def draw_face(img, L, direction, eyes_o, wp, head_box):
         else:
             return None
         ey = (ly + ry) / 2
-        # lens sizes: the far eye (turned away) is narrower in 3/4 views
-        hw_l = 3.0 * (0.82 if fx > 0 else 1.0)
-        hw_r = 3.0 * (0.82 if fx < 0 else 1.0)
-        lx += fx * 0.3
-        rx += fx * 0.3
-        lens = [(lx, hw_l), (rx, hw_r)]
-        for ex, hw in lens:
-            ell(d, ex + fx * 0.4, ey + 0.3, 0.85, 1.0, EYE)
-            ell(d, ex + fx * 0.4 - 0.35, ey - 0.15, 0.3, 0.3, (255, 255, 255))
-            tline(d, [(ex - hw + 0.4, ey - 3.5), (ex, ey - 3.9), (ex + hw - 0.4, ey - 3.5)], BROW, 1.1)
-        for ex, hw in lens:
-            rrect(d, ex - hw, ey - 2.3, ex + hw, ey + 2.1, 0.9, 0.75, GLASS)
-        tline(d, [(lx + hw_l, ey - 0.9), (rx - hw_r, ey - 0.9)], GLASS, 0.7)
-        # temples out to the sides of the head
-        tline(d, [(lx - hw_l, ey - 1.1), (max(x0 + 0.8, lx - hw_l - 2.2), ey - 1.4)], GLASS, 0.7)
-        tline(d, [(rx + hw_r, ey - 1.1), (min(x1 - 0.8, rx + hw_r + 2.2), ey - 1.4)], GLASS, 0.7)
-        mx = (lx + rx) / 2 + fx * 0.8
-        # nose: a soft shade under the bridge
-        ell(d, mx + fx * 0.6, ey + 3.3, 1.1, 0.75, SKIN_SHADE)
+        sp = max(4.6, rx - lx)
+        mid = (lx + rx) / 2 + fx * 0.3
+        lx, rx = mid - sp / 2 - 0.25, mid + sp / 2 + 0.25
+        hw_l = 3.1 * (0.8 if fx > 0 else 1.0)
+        hw_r = 3.1 * (0.8 if fx < 0 else 1.0)
+        mx = mid + fx * 0.9
         my = ey + 6.4
-        mw = 4.0 if fx == 0 else 3.4
-        # wide toothy grin, thin mustache over it, small chin patch under it
-        d.chord([S(mx - mw), S(my - 2.0), S(mx + mw), S(my + 2.3)], 0, 180, fill=TEETH, outline=SKIN_LINE,
-                width=max(1, int(S(0.45))))
-        tline(d, [(mx - mw - 0.3, my + 0.5), (mx - mw * 0.55, my - 0.9), (mx, my - 1.1),
-                  (mx + mw * 0.55, my - 0.9), (mx + mw + 0.3, my + 0.5)], STACHE, 1.0)
-        ell(d, mx, my + 3.9, 0.85, 0.7, STACHE)
+        # full rounded cheeks: soft flat shade
+        for ex, hw in ((lx, hw_l), (rx, hw_r)):
+            ell(d, ex + (ex - mid) * 0.25, ey + 4.2, hw * 0.75, 1.6, CHEEK)
+        # broad nose
+        ell(d, mx, ey + 3.3, 2.3, 1.3, SKIN_SHADE)
+        ell(d, mx, ey + 2.7, 1.0, 0.7, COL[SKIN])
+        for k in (-1, 1):
+            ell(d, mx + k * 1.15, ey + 3.9, 0.55, 0.4, SKIN_LINE)
+        # lenses (warm tint) with the smiling eyes behind them
+        for ex, hw in ((lx, hw_l), (rx, hw_r)):
+            d.rounded_rectangle([S(ex - hw), S(ey - 2.3), S(ex + hw), S(ey + 2.1)], radius=S(0.6), fill=LENS)
+            smile_eye(d, ex + fx * 0.35, ey + 0.2, hw * 0.68)
+        # defined dark eyebrows, slightly arched
+        for ex, hw, sg in ((lx, hw_l, -1), (rx, hw_r, 1)):
+            tline(d, [(ex - sg * hw * 0.85, ey - 3.3), (ex, ey - 4.0), (ex + sg * hw * 0.95, ey - 3.75)], BROW, 1.5)
+        # thick black rectangular frames + bridge + temples
+        for ex, hw in ((lx, hw_l), (rx, hw_r)):
+            d.rounded_rectangle([S(ex - hw), S(ey - 2.3), S(ex + hw), S(ey + 2.1)], radius=S(0.6), outline=GLASS, width=W_(1.3))
+            # glint
+            tline(d, [(ex + hw * 0.35, ey - 1.0), (ex + hw * 0.62, ey - 1.0)], (235, 240, 245), 0.5)
+        tline(d, [(lx + hw_l - 0.2, ey - 1.0), (mid, ey - 1.35), (rx - hw_r + 0.2, ey - 1.0)], GLASS, 1.2)
+        tline(d, [(lx - hw_l, ey - 1.2), (max(x0 + 0.4, lx - hw_l - 2.4), ey - 1.5)], GLASS, 1.1)
+        tline(d, [(rx + hw_r, ey - 1.2), (min(x1 - 0.4, rx + hw_r + 2.4), ey - 1.5)], GLASS, 1.1)
+        # wide toothy smile
+        mw = 4.9 if fx == 0 else 4.2
+        d.chord([S(mx - mw), S(my - 2.1), S(mx + mw), S(my + 2.5)], 0, 180, fill=MOUTH)
+        d.chord([S(mx - mw + 0.6), S(my - 1.9), S(mx + mw - 0.6), S(my + 2.0)], 0, 180, fill=TEETH)
+        d.arc([S(mx - mw), S(my - 2.1), S(mx + mw), S(my + 2.5)], 0, 180, fill=SKIN_LINE, width=W_(0.45))
+        ell(d, mx - mw - 0.2, my + 0.4, 0.35, 0.35, SKIN_LINE)
+        ell(d, mx + mw + 0.2, my + 0.4, 0.35, 0.35, SKIN_LINE)
+        # thin dark mustache, a small chin patch
+        tline(d, [(mx - mw - 0.2, my + 0.15), (mx - mw * 0.55, my - 1.0), (mx, my - 1.05),
+                  (mx + mw * 0.55, my - 1.0), (mx + mw + 0.2, my + 0.15)], STACHE, 1.2)
+        ell(d, mx, my + 3.85, 0.95, 0.75, STACHE)
         return (mx, my)
     # profile
     if not eyes_o:
         return None
     ex, ey, _ = eyes_o[0]
     ex += fx * 0.2
-    ell(d, ex + fx * 0.3, ey + 0.3, 0.7, 1.0, EYE)
-    tline(d, [(ex - fx * 1.6, ey - 3.6), (ex + fx * 1.5, ey - 3.8)], BROW, 1.1)
-    rrect(d, min(ex - fx * 1.7, ex + fx * 1.3), ey - 2.3, max(ex - fx * 1.7, ex + fx * 1.3), ey + 2.1, 0.7, 0.75, GLASS)
-    # temple arm back to the ear
-    tline(d, [(ex - fx * 1.7, ey - 1.0), (wp.hcx_o + fx * 0.5, ey - 1.6)], GLASS, 0.75)
     my = ey + 6.4
-    # face front edge on the mouth row
     yi = int(S(my))
     row = np.nonzero(np.isin(L[yi], (SKIN,)))[0]
-    if len(row):
-        front = (row.max() if fx > 0 else row.min()) / SS
-    else:
-        front = ex + fx * 4
-    mx = front - fx * 1.3
-    d.pieslice([S(min(mx, mx - fx * 2.4)), S(my - 1.4), S(max(mx, mx - fx * 2.4)), S(my + 1.5)], 0, 180, fill=TEETH)
-    tline(d, [(mx - fx * 2.8, my - 0.6), (mx - fx * 1.2, my - 1.2), (mx + fx * 0.5, my - 0.9)], STACHE, 1.25)
-    ell(d, mx - fx * 1.0, my + 3.1, 0.85, 0.75, STACHE)
+    front = ((row.max() if fx > 0 else row.min()) / SS) if len(row) else ex + fx * 4
+    mx = front - fx * 1.7
+    # cheek and nose shade
+    ell(d, ex - fx * 0.6, ey + 4.2, 2.0, 1.5, CHEEK)
+    ell(d, ex + fx * 2.6, ey + 3.3, 1.2, 0.9, SKIN_SHADE)
+    ell(d, ex + fx * 2.4, ey + 3.7, 0.35, 0.28, SKIN_LINE)
+    lx0, lx1 = sorted((ex - fx * 1.6, ex + fx * 1.4))
+    d.rounded_rectangle([S(lx0), S(ey - 2.0), S(lx1), S(ey + 1.9)], radius=S(0.5), fill=LENS)
+    smile_eye(d, ex + fx * 0.2, ey + 0.1, 1.0)
+    tline(d, [(ex - fx * 1.7, ey - 3.1), (ex, ey - 3.7), (ex + fx * 1.6, ey - 3.4)], BROW, 1.25)
+    d.rounded_rectangle([S(lx0), S(ey - 2.0), S(lx1), S(ey + 1.9)], radius=S(0.5), outline=GLASS, width=W_(0.95))
+    tline(d, [(ex + fx * 0.3, ey - 1.15), (ex + fx * 0.9, ey - 1.15)], (255, 255, 255), 0.45)
+    # glasses arm back to the ear
+    tline(d, [(ex - fx * 1.6, ey - 1.0), (wp.hcx_o + fx * 0.2, ey - 1.5)], GLASS, 0.9)
+    # smile, mustache, chin patch
+    a0, a1 = sorted((mx, mx - fx * 3.6))
+    d.chord([S(a0), S(my - 1.5), S(a1), S(my + 1.7)], 0, 180, fill=MOUTH)
+    d.chord([S(a0 + 0.2), S(my - 1.35), S(a1 - 0.2), S(my + 1.1)], 0, 180, fill=TEETH)
+    tline(d, [(mx - fx * 3.0, my + 0.4), (mx - fx * 3.2, my - 0.1)], SKIN_LINE, 0.45)
+    tline(d, [(mx - fx * 3.0, my - 0.3), (mx - fx * 1.3, my - 1.15), (mx + fx * 0.4, my - 0.85)], STACHE, 0.85)
+    ell(d, mx - fx * 1.1, my + 3.2, 0.9, 0.72, STACHE)
     return (mx, my)
 
 
@@ -745,6 +813,8 @@ def billyfy(src_f, direction, anim, col, meta, memo, wp, idle_f):
     if direction not in BACK and len(eyes_o) == 0:
         eyes_o = memo.get((direction, "eyes"), [])
     memo[(direction, "eyes")] = eyes_o
+    if direction not in BACK:
+        eyes_o = [(e[0], e[1] - 1.0) + tuple(e[2:]) for e in eyes_o]
     rebuild_head(L, rgb, union, direction, wp, eyes_o)
     torso_details(rgb, L, lines, direction, wp)
     soles(rgb, L, lines)
