@@ -65,10 +65,10 @@ COL = {
     HAIR: (46, 40, 40),
     SKIN: (204, 150, 112),
     HAND: (204, 150, 112),
-    SLEEVE: (60, 62, 72),
-    JACKET: (60, 62, 72),
-    PANTS: (34, 35, 41),
-    SHOE: (28, 28, 32),
+    SLEEVE: (76, 78, 90),
+    JACKET: (76, 78, 90),
+    PANTS: (24, 24, 28),
+    SHOE: (30, 30, 34),
 }
 LINE = (10, 10, 13)
 SKIN_LINE = (96, 58, 40)
@@ -76,7 +76,12 @@ SKIN_SHADE = (178, 124, 90)
 SOLE = (240, 240, 234)
 SHIRT = (132, 134, 141)
 SHIRT_DARK = (104, 106, 114)
-POCKET = (78, 80, 92)
+POCKET = (96, 98, 112)
+POCKET_HI = (128, 131, 146)
+ZIP = (170, 173, 182)
+HEM = (62, 64, 75)
+PANTS_BACK = (16, 16, 19)
+HAIR_HI = (70, 62, 60)
 GLASS = (14, 14, 17)
 BROW = (34, 28, 28)
 STACHE = (40, 30, 28)
@@ -88,8 +93,8 @@ COFFEE = (198, 148, 100)
 COFFEE_LIGHT = (222, 190, 150)
 ICE = (234, 240, 244)
 LID = (242, 246, 250)
-STRAW = (244, 112, 40)
-STRAW_LINE = (168, 66, 22)
+STRAW = (255, 116, 18)
+STRAW_LINE = (178, 64, 8)
 LOGO_O = (246, 128, 40)
 LOGO_P = (238, 96, 152)
 PUFF = (252, 252, 254)
@@ -247,6 +252,18 @@ def render_body(lab, wp):
     union = F.sum(0) >= 0.5
     L = F.argmax(0) + 1
     L[~union] = BG
+    # close small notches in the jacket silhouette (between neck and hem)
+    J = np.isin(L, (JACKET, SLEEVE))
+    if J.any():
+        jr = np.nonzero(J.any(1))[0]
+        k = 2 * SS + 1
+        u8 = Image.fromarray((union * 255).astype(np.uint8))
+        closed = np.asarray(u8.filter(ImageFilter.MaxFilter(k)).filter(ImageFilter.MinFilter(k))) > 127
+        band = np.zeros_like(union)
+        band[max(int(S(wp.yn_o + 3)), jr.min()):jr.max() - SS] = True
+        add = closed & ~union & band
+        L[add] = JACKET
+        union |= add
     rgb = np.zeros(X.shape + (3,), np.uint8)
     for k, col in COL.items():
         rgb[L == k] = col
@@ -266,6 +283,154 @@ def render_body(lab, wp):
     sk_out = outline & np.isin(L, (SKIN, HAND))
     rgb[sk_out] = SKIN_LINE
     return L, union, rgb, outline | seam
+
+
+
+# --- adult head (replaces the kid's warped head) ------------------------------------
+def _rbox_sdf(X, Y, cx, cy, hw, hh, r):
+    qx = np.abs(X - cx) - hw + r
+    qy = np.abs(Y - cy) - hh + r
+    return np.hypot(np.maximum(qx, 0), np.maximum(qy, 0)) + np.minimum(np.maximum(qx, qy), 0) - r
+
+
+def rebuild_head(L, rgb, union, direction, wp, eyes_o):
+    """Swap the warped kid head (tall hair peak) for a rounder adult head with
+    short neat hair. Works at SS on L/rgb/union in place; returns the head
+    mask (SS)."""
+    H, W = L.shape
+    Y, X = np.mgrid[0:H, 0:W]
+    Xo, Yo = (X + 0.5) / SS, (Y + 0.5) / SS
+    old = np.isin(L, (HAIR, SKIN)) & (Yo < wp.yn_o)
+    if not old.any():
+        return old
+    widths = old.sum(1)
+    mw = widths.max()
+    rows = np.nonzero(widths >= 0.72 * mw)[0]
+    ys = np.nonzero(old.any(1))[0]
+    top = rows.min() / SS - 1.2
+    bot = ys.max() / SS + 0.3
+    xs = np.nonzero(old[rows].any(0))[0]
+    cxs = [np.nonzero(old[y])[0] for y in rows]
+    cx = float(np.median([(c.min() + c.max() + 1) / 2 for c in cxs])) / SS
+    hw = mw / SS / 2 * 0.97
+    hh = (bot - top) / 2
+    cy = (top + bot) / 2
+    fx = FACE[direction][0]
+    # jaw a touch narrower than the cranium
+    t = np.clip((Yo - cy) / hh, 0, 1)
+    Xs = cx + (Xo - cx) / (1 - 0.13 * t * t)
+    sdf = _rbox_sdf(Xs, Yo, cx, cy, hw, hh, min(hw, hh) * 0.8)
+    head = sdf < 0
+    # erase the old head
+    L[old] = BG
+    union[old] = False
+    if direction in PROFILE:
+        ey = eyes_o[0][1] if eyes_o else top + 0.55 * (bot - top)
+        nose = ((Xo - (cx + fx * (hw + 0.2))) / 1.1) ** 2 + ((Yo - (ey + 2.6)) / 1.4) ** 2 < 1
+        head |= nose
+    hair_cap = _rbox_sdf(Xs, Yo, cx, cy - 0.35, hw + 0.45, hh + 0.65, min(hw, hh) * 0.8) < 0
+    if direction in BACK:
+        hl = top + 0.74 * (bot - top)
+        hair = hair_cap & (Yo < hl + 1.2 * np.cos(np.clip((Xo - cx) / hw, -1, 1) * 1.4))
+        ear_y = top + 0.55 * (bot - top)
+        ears = [(cx - hw - 0.2, ear_y), (cx + hw + 0.2, ear_y)]
+    elif direction in PROFILE:
+        ey = eyes_o[0][1] if eyes_o else top + 0.55 * (bot - top)
+        hl = ey - 4.6
+        back = fx * (Xo - cx) < -hw * 0.15
+        hair = hair_cap & ((Yo < hl + 0.9 * np.clip(-fx * (Xo - cx) / hw, 0, 1)) | (back & (Yo < ey + 3.0)))
+        ears = [(cx - fx * hw * 0.12, ey + 1.0)]
+    else:
+        ey = np.mean([e[1] for e in eyes_o]) if eyes_o else top + 0.55 * (bot - top)
+        hl = ey - 4.7
+        edge = np.clip((np.abs(Xo - (cx + fx * 0.8)) / hw - 0.72) / 0.28, 0, 1)
+        hair = hair_cap & (Yo < hl + 2.6 * edge)
+        ears = [(cx - hw - 0.1, ey + 0.8), (cx + hw + 0.1, ey + 0.8)]
+        if fx:
+            ears = [ears[0] if fx > 0 else ears[1]]  # the far ear is hidden in 3/4
+    ear = np.zeros_like(head)
+    for ex_, ey_ in ears:
+        ear |= ((Xo - ex_) / 1.3) ** 2 + ((Yo - ey_) / 1.9) ** 2 < 1
+    allm = head | hair | ear
+    # do not grow over the body below the chin
+    allm &= Yo < wp.yn_o + 1.0
+    skinm = (head | ear) & ~hair
+    L[allm & skinm] = SKIN
+    L[allm & ~skinm] = HAIR
+    union |= allm
+    rgb[allm & skinm] = COL[SKIN]
+    rgb[allm & ~skinm] = COL[HAIR]
+    # a soft highlight on the hair, inner ear shade
+    hi = hair & (np.abs(Yo - (top + 0.9)) < 0.45) & (np.abs(Xo - cx + fx * 1.5) < hw * 0.45)
+    if direction not in BACK:
+        rgb[hi & allm] = HAIR_HI
+    for ex_, ey_ in ears:
+        inner_e = ((Xo - ex_) / 0.6) ** 2 + ((Yo - ey_) / 1.0) ** 2 < 1
+        rgb[inner_e & allm & ~hair] = SKIN_SHADE
+    # outlines: head silhouette, ear edge, hairline
+    u8 = Image.fromarray((allm * 255).astype(np.uint8))
+    k = int(round(0.8 * SS)) * 2 + 1
+    inner = np.asarray(u8.filter(ImageFilter.MinFilter(k))) > 127
+    out_ = allm & ~inner
+    rgb[out_ & ~skinm] = LINE
+    rgb[out_ & skinm] = SKIN_LINE
+    em = Image.fromarray((ear * 255).astype(np.uint8))
+    ein = np.asarray(em.filter(ImageFilter.MinFilter(k - 2))) > 127
+    rgb[ear & ~ein & ~hair] = SKIN_LINE
+    hs = Image.fromarray((hair * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(3))
+    hline = (np.asarray(hs) > 127) & ~hair & skinm & allm
+    rgb[hline] = LINE
+    # the neck: chin line over the neck top
+    return allm
+
+
+# --- clean profile legs -----------------------------------------------------------------
+def feet_of(lab):
+    sh = lab == SHOE
+    comps = [c for c in components8(sh) if c.sum() >= 3]
+    feet = []
+    for c in comps:
+        ys, xs = np.nonzero(c)
+        if xs.max() - xs.min() + 1 >= 11:
+            mid = np.median(xs)
+            for part in (xs < mid, xs >= mid):
+                feet.append((float(xs[part].mean() + 0.5), float(ys[part].max() + 1)))
+        else:
+            feet.append((float(xs.mean() + 0.5), float(ys.max() + 1)))
+    return feet
+
+
+def leg_layer(hip, foot, fx, back, L_leg):
+    ankle = (foot[0] - fx * 0.8, foot[1] - 2.7)
+    knee = ik(hip, ankle, L_leg * 0.5, L_leg * 0.5, -fx)
+    pc = PANTS_BACK if back else COL[PANTS]
+    toe = (foot[0] + fx * 2.5, foot[1] - 1.5)
+    heel = (foot[0] - fx * 1.4, foot[1] - 1.7)
+    parts = [
+        (capsule_fn(hip, 3.4, knee, 2.9), pc),
+        (capsule_fn(knee, 2.9, ankle, 2.5), pc),
+        (capsule_fn(heel, 1.75, toe, 1.55), COL[SHOE]),
+    ]
+    im = shapes_layer((OH, OW), parts, LINE, 0.75)
+    arr = np.asarray(im).copy()
+    Yi = np.mgrid[0:arr.shape[0], 0:arr.shape[1]][0]
+    Xi = np.mgrid[0:arr.shape[0], 0:arr.shape[1]][1]
+    sole = (arr[..., 3] > 0) & (Yi > S(foot[1] - 1.1)) & (Yi < S(foot[1] - 0.55)) & \
+           (np.abs(Xi - S((heel[0] + toe[0]) / 2)) < S(3.2))
+    arr[sole, :3] = SOLE
+    return Image.fromarray(arr, "RGBA")
+
+
+def lean(f, dx, g):
+    """shear the upper body by dx px at the head (0 at the hem)"""
+    if abs(dx) < 0.5:
+        return f
+    out = np.zeros_like(f)
+    for y in range(f.shape[0]):
+        t = np.clip((g.hem - y) / max(1, g.hem - g.top), 0, 1)
+        sft = int(round(dx * t))
+        out[y] = np.roll(f[y], sft, 0)
+    return out
 
 
 # --- details --------------------------------------------------------------------------
@@ -385,6 +550,9 @@ def torso_details(rgb, L, outline, direction, wp):
         for sd in (-1, 1):
             tline(d, [(cx + sd * (hw - 0.2), top + 1), (cx + sd * hw, bot + 1)], LINE, 0.7)
         tline(d, [(cx, top + 3.5), (cx, bot)], SHIRT_DARK, 0.5)
+        # zip teeth along both jacket edges
+        for sd in (-1, 1):
+            tline(d, [(cx + sd * (hw + 0.55), top + 2), (cx + sd * (hw + 0.75), bot - 0.5)], ZIP, 0.45)
         # hood collar round the neck
         ell(d, cx - fx * 0.5, top + 0.6, 6.6 - abs(fx) * 1.2, 2.4, SHIRT, LINE, 0.6)
         # chest pockets with flaps
@@ -395,7 +563,8 @@ def torso_details(rgb, L, outline, direction, wp):
             pw = 2.6 * k
             d.rectangle([S(pc - pw), S(py - 1.2), S(pc + pw), S(py + 3.2)], outline=POCKET, width=max(1, int(S(0.5))))
             d.rectangle([S(pc - pw), S(py - 1.2), S(pc + pw), S(py + 0.6)], fill=POCKET)
-            ell(d, pc, py + 0.2, 0.4, 0.4, (130, 132, 142))
+            tline(d, [(pc - pw + 0.3, py - 1.0), (pc + pw - 0.3, py - 1.0)], POCKET_HI, 0.45)
+            ell(d, pc, py + 0.2, 0.45, 0.45, ZIP)
     elif direction in BACK:
         ell(d, wp.hcx_o + fx * 1.0, top + 2.6, 6.4, 3.6, SHIRT, LINE, 0.6)
         tline(d, [(wp.hcx_o - 3.5, top + 3.0), (wp.hcx_o + fx * 1.0, top + 5.2), (wp.hcx_o + 3.5, top + 3.0)], SHIRT_DARK, 0.5)
@@ -405,6 +574,11 @@ def torso_details(rgb, L, outline, direction, wp):
     arr = np.asarray(im)
     m = (arr[..., 3] > 127) & J & ~outline
     rgb[m] = arr[m, :3]
+    # ribbed hem band just above the jacket bottom: a clear waistline
+    yy = np.mgrid[0:h, 0:w][0]
+    jb = np.where(J, yy, -1).max(0)
+    hem = J & (yy > jb[None, :] - S(1.6)) & (jb[None, :] > S(wp.yn_o + 12)) & ~outline
+    rgb[hem & (np.asarray(im)[..., 3] < 128)] = HEM
 
 
 def soles(rgb, L, outline):
@@ -422,7 +596,7 @@ CUP_H = 9.0
 CUP_TW, CUP_BW = 3.6, 2.7   # half widths
 
 
-def cup_layer(c, straw_tilt=0.0, shade=1.0):
+def cup_layer(c, straw_tilt=0.0, shade=1.0, sc=1.0):
     """clear iced coffee cup centred at c (out px): tan coffee with ice, dome
     lid, orange straw, small orange/pink logo"""
     im = Image.new("RGBA", (OW * SS, OH * SS), (0, 0, 0, 0))
@@ -431,9 +605,7 @@ def cup_layer(c, straw_tilt=0.0, shade=1.0):
     y0, y1 = cy - CUP_H / 2, cy + CUP_H / 2
     # straw first (behind the lid rim), tilted toward the mouth
     st = (cx + straw_tilt * 0.5, y0 - 1.6)
-    tip = (cx + straw_tilt * 5.5, y0 - 1.6 - math.sqrt(max(0.0, 6.2 ** 2 - (straw_tilt * 5) ** 2)))
-    tline(d, [st, tip], STRAW_LINE, 1.6)
-    tline(d, [st, tip], STRAW, 0.9)
+    tip = (cx + straw_tilt * 5.5, y0 - 1.6 - math.sqrt(max(0.0, 6.8 ** 2 - (straw_tilt * 5) ** 2)))
     body = [(S(cx - CUP_TW), S(y0)), (S(cx + CUP_TW), S(y0)), (S(cx + CUP_BW), S(y1)), (S(cx - CUP_BW), S(y1))]
     d.polygon(body, fill=CUP_LINE)
     ins = 0.55
@@ -456,12 +628,19 @@ def cup_layer(c, straw_tilt=0.0, shade=1.0):
                width=max(1, int(S(0.5))))
     d.rounded_rectangle([S(cx - CUP_TW - 0.5), S(y0 - 0.7), S(cx + CUP_TW + 0.5), S(y0 + 0.6)], radius=S(0.5),
                         fill=LID, outline=CUP_LINE, width=max(1, int(S(0.5))))
+    # orange straw out through the dome (drawn over the lid so it always shows)
+    st = (cx + straw_tilt * 0.3, y0 - 1.2)
+    tline(d, [st, tip], STRAW_LINE, 2.0)
+    tline(d, [st, tip], STRAW, 1.25)
+    if sc != 1.0:
+        a = 1.0 / sc
+        im = im.transform(im.size, Image.AFFINE, (a, 0, S(cx) * (1 - a), 0, a, S(cy) * (1 - a)), Image.BICUBIC)
     return im
 
 
 def straw_tip(c, tilt):
     y0 = c[1] - CUP_H / 2
-    return (c[0] + tilt * 5.5, y0 - 1.6 - math.sqrt(max(0.0, 6.2 ** 2 - (tilt * 5) ** 2)))
+    return (c[0] + tilt * 5.5, y0 - 1.6 - math.sqrt(max(0.0, 6.8 ** 2 - (tilt * 5) ** 2)))
 
 
 def arm_layer(sh, hand, elbow):
@@ -517,6 +696,9 @@ def billyfy(src_f, direction, anim, col, meta, memo, wp, idle_f):
         return np.zeros((OH, OW, 4), np.uint8)
     g = Geometry(f)
     if tag:
+        gi0 = Geometry(idle_f)
+        dx_lean = float(np.clip(g.head_cx - gi0.head_cx, -3, 3))
+        idle_f = lean(idle_f, dx_lean, gi0)
         f = tag_base(idle_f, Geometry(idle_f), direction, side, idle_f)
         # clip the hand stub tag_base leaves just under the removed arm
         fa, ia = f[..., 3] > 0, idle_f[..., 3] > 0
@@ -535,7 +717,35 @@ def billyfy(src_f, direction, anim, col, meta, memo, wp, idle_f):
         f[~keep] = 0
         g = Geometry(f)
     lab = classify(f, g, direction, min(e[1] for e in ey_src) if ey_src else None)
+    legs = []
+    if direction in PROFILE:
+        feet = feet_of(lab)
+        prow = np.nonzero((lab == PANTS).any(1))[0]
+        waist_src = prow.min() if len(prow) else g.hem - 10
+        hip_y = wp.pt((g.hip_cx, waist_src))[1] + 1.5
+        hip_x = wp.pt((g.hip_cx, waist_src))[0]
+        lab = lab.copy()
+        lab[np.isin(lab, (PANTS, SHOE))] = BG
+        if not feet:
+            feet = [(g.hip_cx, SRC_BASE)]
+        fo = [wp.pt(ft) for ft in feet]
+        if len(fo) == 1:
+            fo = [(fo[0][0] - 1.0, fo[0][1]), (fo[0][0] + 1.0, fo[0][1])]
+        fo = sorted(fo[:2], key=lambda p: fx * p[0])
+        lift = OBASE - max(p[1] for p in fo)
+        fo = [(p[0], p[1] + lift) for p in fo]
+        L_leg = (OBASE - 2.7) - hip_y + 0.6
+        for i, ft in enumerate(fo):
+            back = i == 0 if len(fo) == 2 and abs(fo[0][0] - fo[1][0]) > 1.5 else i == 0
+            h_ = (hip_x + fx * (0.9 if not back else -0.9), hip_y)
+            legs.append(pm(leg_layer(h_, (ft[0], min(ft[1], OBASE)), fx, back, L_leg)))
     L, union, rgb, lines = render_body(lab, wp)
+    eyes = eyes_of(src_f if not tag else idle_f, g if not tag else Geometry(idle_f))
+    eyes_o = [wp.pt((x, y)) + (ew,) for x, y, ew in eyes]
+    if direction not in BACK and len(eyes_o) == 0:
+        eyes_o = memo.get((direction, "eyes"), [])
+    memo[(direction, "eyes")] = eyes_o
+    rebuild_head(L, rgb, union, direction, wp, eyes_o)
     torso_details(rgb, L, lines, direction, wp)
     soles(rgb, L, lines)
     body = Image.fromarray(np.dstack([rgb, (union * 255).astype(np.uint8)]), "RGBA")
@@ -543,11 +753,6 @@ def billyfy(src_f, direction, anim, col, meta, memo, wp, idle_f):
     hm = np.isin(L, (HAIR, SKIN)) & (np.mgrid[0:L.shape[0], 0:L.shape[1]][0] < S(wp.yn_o))
     hy, hx = np.nonzero(hm)
     head_box = (hx.min() / SS, hy.min() / SS, hx.max() / SS, hy.max() / SS)
-    eyes = eyes_of(src_f if not tag else idle_f, g if not tag else Geometry(idle_f))
-    eyes_o = [wp.pt((x, y)) + (ew,) for x, y, ew in eyes]
-    if direction not in BACK and len(eyes_o) == 0:
-        eyes_o = memo.get((direction, "eyes"), [])
-    memo[(direction, "eyes")] = eyes_o
     # draw the face clipped to the head
     fl = Image.new("RGBA", body.size, (0, 0, 0, 0))
     mouth = draw_face(fl, L, direction, eyes_o, wp, head_box)
@@ -559,6 +764,11 @@ def billyfy(src_f, direction, anim, col, meta, memo, wp, idle_f):
     memo[(direction, "mouth")] = mouth
 
     out = pm(body)
+    if legs:
+        lg = legs[0]
+        for l2 in legs[1:]:
+            lg = over(lg, l2)
+        out = over(lg, out)
     behind = direction in BACK
     if tag:
         gi = g

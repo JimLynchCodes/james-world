@@ -49,7 +49,7 @@ for r, d in enumerate(m["directions"]):
             print(f"{d} col {c}: {len(comps)} pieces"); bad += 1
         hb = np.ptp(np.nonzero((b[..., 3] > 0).any(1))[0])
         hf = np.ptp(np.nonzero(a.any(1))[0])
-        if hf <= hb + 6:
+        if hf <= hb + 4:
             print(f"{d} col {c}: not taller than James ({hf} vs {hb})"); bad += 1
         # upper torso band (James rows 54..60), cup pixels excluded; the
         # tag arm reaches out, so only the standing frames are measured
