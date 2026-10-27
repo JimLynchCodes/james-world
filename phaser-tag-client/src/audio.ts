@@ -14,7 +14,7 @@
 
 import type { Mood, Settings } from "./settings";
 
-export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "spacemanStep" | "spacemanSwing" | "wizardStep" | "wizardSwing" | "centaurStep" | "centaurSwing" | "click" | "blip" | "secret";
+export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "spacemanStep" | "spacemanSwing" | "wizardStep" | "wizardSwing" | "centaurStep" | "centaurSwing" | "tennisStep" | "tennisSwing" | "click" | "blip" | "secret";
 
 const CROSSFADE_S = 1.5;
 const LOOKAHEAD_S = 0.15;
@@ -804,6 +804,19 @@ export class GameAudio {
       case "centaurSwing": { // Centaur James's tag: arm whoosh plus a short silly whinny
         syn.noise(t, { filter: "bandpass", freq: 420, sweepTo: 2200, q: 1.2, gain: 0.3 * v, attack: 0.03, release: 0.15 });
         syn.tone(t + 0.04, 880, { type: "sawtooth", gain: 0.03 * v, attack: 0.01, hold: 0.16, release: 0.08, filter: 2400, glideTo: 520, vibrato: [22, 60] });
+        break;
+      }
+      case "tennisStep": { // Tennis James: a quick sneaker squeak on the court
+        const p = 0.94 + Math.random() * 0.12;
+        syn.tone(t, 2300 * p, { type: "sine", gain: 0.025 * v, attack: 0.002, release: 0.04, glideTo: 2900 * p });
+        syn.noise(t, { filter: "bandpass", freq: 1700 * p, q: 3, gain: 0.08 * v, attack: 0.001, release: 0.025 });
+        break;
+      }
+      case "tennisSwing": { // Tennis James's tag: racket whoosh, then a hollow strung "thwock"
+        syn.noise(t, { filter: "bandpass", freq: 500, sweepTo: 2600, q: 1.4, gain: 0.26 * v, attack: 0.03, release: 0.1 });
+        syn.noise(t + 0.09, { filter: "bandpass", freq: 1100, q: 4, gain: 0.32 * v, attack: 0.001, release: 0.05 });
+        syn.tone(t + 0.09, 560, { type: "triangle", gain: 0.11 * v, attack: 0.001, release: 0.08, glideTo: 300 });
+        syn.tone(t + 0.09, 1250, { type: "sine", gain: 0.04 * v, attack: 0.001, release: 0.06 });
         break;
       }
       case "pharaohSwing": { // Pharaoh James's tag: cloth whoosh plus a short muted horn (open fifth)

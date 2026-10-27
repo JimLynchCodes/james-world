@@ -116,6 +116,8 @@ export const plPL: Messages = {
   "skin.wizard.note": "Hokus-pokus, gonisz ty!",
   "skin.centaur": "James Centaur",
   "skin.centaur.note": "Cztery nogi, zero luzu!",
+  "skin.tennis": "James Tenisista",
+  "skin.tennis.note": "Forhend – berek!",
   "settings.credits.heading": "Twórcy",
   "credits.bio": "Tę grę zrobił James, inżynier oprogramowania z Nowego Jorku (znany też pod wieloma innymi imionami, jak Jim, Jimbo, Jimothy i Sir Jims-a-lot).",
   "credits.linkedinLead": "Śmiało, połącz się ze mną na LinkedIn:",

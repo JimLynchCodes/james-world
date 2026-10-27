@@ -13,13 +13,14 @@
  *   spaceman - public/assets/kid_spaceman.png (tools/make_spaceman_skin.py)
  *   wizard   - public/assets/kid_wizard.png   (tools/make_wizard_skin.py)
  *   centaur  - public/assets/kid_centaur.png + kid_centaur_b.png  (tools/make_centaur_skin.py)
+ *   tennis   - public/assets/kid_tennis.png   (tools/make_tennis_skin.py)
  *
  * The id is what goes over the wire (`skin` in Join / SetSkin /
  * PlayerSnapshot). The server treats it as an opaque key (1-32 chars of
  * [a-z0-9_-], else "james") and relays it as-is, so a new skin is a
  * client-only change; clients that don't know a key draw the default kid.
  */
-export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate" | "pharaoh" | "spaceman" | "wizard" | "centaur";
+export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate" | "pharaoh" | "spaceman" | "wizard" | "centaur" | "tennis";
 
 export const DEFAULT_SKIN: Skin = "james";
 
@@ -192,6 +193,19 @@ export const SKINS: Record<Skin, SkinSheet> = {
       columns: 14,
       columnStart: 16,
     },
+  },
+  tennis: {
+    id: "tennis",
+    label: "Tennis James",
+    note: "Forehand — you're it!",
+    texture: "kid_tennis",
+    url: `${BASE}assets/kid_tennis.png`,
+    // padded 24px each side and 14px on top so the racket fits through the
+    // whole forehand swing
+    frameWidth: 128,
+    frameHeight: 114,
+    baselineY: 110,
+    artHeight: 90,
   },
 };
 

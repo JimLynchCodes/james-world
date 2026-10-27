@@ -116,6 +116,8 @@ export const viVN: Messages = {
   "skin.wizard.note": "Úm ba la, bạn bị bắt rồi!",
   "skin.centaur": "James Nhân Mã",
   "skin.centaur.note": "Bốn chân, không phanh!",
+  "skin.tennis": "James Quần Vợt",
+  "skin.tennis.note": "Thuận tay một phát, bạn bị bắt rồi!",
   "settings.credits.heading": "Ghi công",
   "credits.bio": "Trò chơi này do James làm, một kỹ sư phần mềm sống ở thành phố New York (còn được biết đến với nhiều tên khác như Jim, Jimbo, Jimothy và Sir Jims-a-lot).",
   "credits.linkedinLead": "Cứ thoải mái kết nối với mình trên LinkedIn:",

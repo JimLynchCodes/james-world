@@ -13,6 +13,7 @@ export const esCO: Partial<Messages> = {
   "skin.spaceman.note": "Un pasito chiquito...",
   "skin.wizard.note": "¡Abracadabra, usted la lleva!",
   "skin.centaur.note": "¡Cuatro patas y cero calma, parce!",
+  "skin.tennis.note": "¡Derechazo, la llevas, parce!",
   "howto.helpKeyboard": "Toca a alguien cerca para que la lleve.",
   "settings.controls.phoneHint":
     "¿Juegas en el celular o en una tableta? Elige <strong>Celular</strong> para una palanca y botones grandes de TOCA y CORRE.",
