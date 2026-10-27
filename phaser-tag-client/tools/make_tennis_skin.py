@@ -57,7 +57,10 @@ BAND = (252, 252, 250)
 R_BLACK = (24, 24, 28)
 R_YELLOW = (238, 214, 30)
 R_GRIP = (40, 40, 44)
-STRING = (236, 236, 222)
+STRING = (150, 154, 150)
+BED = (232, 234, 224)
+BAND_SHADE = (214, 218, 226)
+SKIN_LINE = (120, 70, 50)
 
 
 def S(v):
@@ -134,8 +137,9 @@ def disc_fn(c, r):
 
 # --- racket --------------------------------------------------------------------
 def racket_layer(size, hand, ang):
-    """Black frame with yellow accents, open throat, visible string bed. The
-    handle starts just behind the hand so the fist closes round the grip."""
+    """Black frame with a yellow accent band, yellow throat, black/yellow
+    handle with grip wrap, opaque string bed with a visible string grid.
+    The handle runs through the hand so the fist closes round the grip."""
     h, w = size
     im = Image.new("RGBA", (w * SS, h * SS), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
@@ -145,38 +149,46 @@ def racket_layer(size, hand, ang):
     def P(t, s=0.0):
         return (S(hand[0] + ux * t + nx * s), S(hand[1] + uy * t + ny * s))
 
-    # handle + butt cap
-    d.polygon([P(-2.2, 0.9), P(5.0, 0.8), P(5.0, -0.8), P(-2.2, -0.9)], fill=R_GRIP)
-    d.ellipse([P(-2.4)[0] - S(1.0), P(-2.4)[1] - S(1.0), P(-2.4)[0] + S(1.0), P(-2.4)[1] + S(1.0)], fill=R_BLACK)
-    # throat: two beams opening into the head, yellow inner stripe
-    for s in (1, -1):
-        d.line([P(4.8, s * 0.6), P(8.9, s * 3.4)], fill=R_BLACK, width=int(S(1.1)))
-        d.line([P(5.4, s * 0.6), P(8.6, s * 2.9)], fill=R_YELLOW, width=int(S(0.35)))
-    # head
-    c = (hand[0] + ux * 14.2, hand[1] + uy * 14.2)
-    a, b = 6.2, 4.7
+    def quad(t0, t1, r0, r1, col):
+        d.polygon([P(t0, r0), P(t1, r1), P(t1, -r1), P(t0, -r0)], fill=col)
+
+    # handle: black outline, grip wrap, yellow butt band
+    quad(-4.6, 7.6, 1.45, 1.25, R_BLACK)
+    quad(-3.9, 5.0, 0.95, 0.85, R_GRIP)
+    for t in np.arange(-3.4, 5.0, 1.3):
+        d.line([P(t, -0.9), P(t + 0.7, 0.9)], fill=R_BLACK, width=max(1, int(S(0.3))))
+    quad(-4.4, -3.6, 1.2, 1.2, R_YELLOW)
+    # throat: yellow beams with black edges
+    a, b = 11.2, 8.4
+    c_t = 7.0 + 2.2 + a
+    c = (hand[0] + ux * c_t, hand[1] + uy * c_t)
+    for sg in (1, -1):
+        d.line([P(7.0, sg * 0.7), P(c_t - a + 1.6, sg * 4.6)], fill=R_BLACK, width=int(S(1.9)))
+        d.line([P(7.2, sg * 0.7), P(c_t - a + 1.4, sg * 4.4)], fill=R_YELLOW, width=int(S(0.9)))
+    d.polygon([P(7.4, 0.5), P(c_t - a + 2.2, 3.4), P(c_t - a + 2.2, -3.4), P(7.4, -0.5)], fill=R_BLACK)
     ring = [(S(c[0] + ux * a * math.cos(t) + nx * b * math.sin(t)),
-             S(c[1] + uy * a * math.cos(t) + ny * b * math.sin(t))) for t in np.linspace(0, 2 * math.pi, 48)]
-    # string bed (light, semi-clear) + strings
+             S(c[1] + uy * a * math.cos(t) + ny * b * math.sin(t))) for t in np.linspace(0, 2 * math.pi, 72)]
+    # opaque string bed + string grid, clipped to the head
     bed = Image.new("RGBA", im.size, (0, 0, 0, 0))
     bd = ImageDraw.Draw(bed)
-    bd.polygon(ring, fill=(240, 240, 226, 60))
-    for k in np.arange(-a + 1.2, a, 1.35):
+    bd.polygon(ring, fill=BED + (255,))
+    sw = max(1, int(S(0.32)))
+    for k in np.arange(-a + 1.6, a - 0.8, 1.8):
         bd.line([(S(c[0] + ux * k - nx * b), S(c[1] + uy * k - ny * b)),
-                 (S(c[0] + ux * k + nx * b), S(c[1] + uy * k + ny * b))], fill=STRING + (235,), width=max(1, int(S(0.26))))
-    for k in np.arange(-b + 1.1, b, 1.3):
+                 (S(c[0] + ux * k + nx * b), S(c[1] + uy * k + ny * b))], fill=STRING + (255,), width=sw)
+    for k in np.arange(-b + 1.5, b - 0.7, 1.8):
         bd.line([(S(c[0] - ux * a + nx * k), S(c[1] - uy * a + ny * k)),
-                 (S(c[0] + ux * a + nx * k), S(c[1] + uy * a + ny * k))], fill=STRING + (235,), width=max(1, int(S(0.26))))
+                 (S(c[0] + ux * a + nx * k), S(c[1] + uy * a + ny * k))], fill=STRING + (255,), width=sw)
     clip = Image.new("L", im.size, 0)
     ImageDraw.Draw(clip).polygon(ring, fill=255)
     bed.putalpha(Image.fromarray(np.minimum(np.asarray(bed.split()[3]), np.asarray(clip))))
     im.alpha_composite(bed)
-    d.line(ring + [ring[0]], fill=R_BLACK, width=int(S(1.25)), joint="curve")
-    # yellow accents on both sides of the frame and at the tip
-    for t0, t1 in ((0.9, 1.5), (-1.5, -0.9), (2.6, 3.7)):
-        seg = [(S(c[0] + ux * (a - 0.1) * math.cos(t) + nx * (b - 0.1) * math.sin(t)),
-                S(c[1] + uy * (a - 0.1) * math.cos(t) + ny * (b - 0.1) * math.sin(t))) for t in np.linspace(t0, t1, 10)]
-        d.line(seg, fill=R_YELLOW, width=int(S(0.55)), joint="curve")
+    # bold black frame, yellow accent band along both sides, black tip
+    d.line(ring + [ring[0]], fill=R_BLACK, width=int(S(2.1)), joint="curve")
+    for t0, t1 in ((0.75, 2.0), (-2.0, -0.75)):
+        seg = [(S(c[0] + ux * a * math.cos(t) + nx * b * math.sin(t)),
+                S(c[1] + uy * a * math.cos(t) + ny * b * math.sin(t))) for t in np.linspace(t0, t1, 16)]
+        d.line(seg, fill=R_YELLOW, width=int(S(0.95)), joint="curve")
     return im
 
 
@@ -192,20 +204,27 @@ def ik(sh, hand, L1, L2, bend):
     return (sh[0] + ux * a + px * hh, sh[1] + uy * a + py * hh)
 
 
-def arm_parts(sh, elbow, hand, skin):
+def arm_parts(sh, elbow, hand, skin, sleeve=0.4):
     ex, ey = hand[0] - elbow[0], hand[1] - elbow[1]
     en = math.hypot(ex, ey) or 1.0
     ux, uy = ex / en, ey / en
-    wrist = (hand[0] - ux * 1.6, hand[1] - uy * 1.6)
-    band0 = (hand[0] - ux * 3.6, hand[1] - uy * 3.6)
+    wrist = (hand[0] - ux * 1.7, hand[1] - uy * 1.7)
+    band0 = (hand[0] - ux * 3.9, hand[1] - uy * 3.9)
     sx, sy = elbow[0] - sh[0], elbow[1] - sh[1]
-    sleeve_end = (sh[0] + sx * 0.4, sh[1] + sy * 0.4)
+    sleeve_end = (sh[0] + sx * sleeve, sh[1] + sy * sleeve)
+    # shade the wristband on its lower edge
+    nx, ny = -uy, ux
+    if ny < 0:
+        nx, ny = -nx, -ny
+    sh0 = (band0[0] + nx * 1.0, band0[1] + ny * 1.0)
+    sh1 = (wrist[0] + nx * 1.0, wrist[1] + ny * 1.0)
     return [
-        (capsule_fn(sh, 2.4, elbow, 2.0), skin),
-        (capsule_fn(elbow, 2.0, wrist, 1.7), skin),
-        (capsule_fn(sh, 2.8, sleeve_end, 2.6), WHITE),
-        (capsule_fn(band0, 1.95, wrist, 1.95), BAND),
-        (disc_fn(hand, 2.1), skin),
+        (capsule_fn(sh, 2.7, elbow, 2.35), skin),
+        (capsule_fn(elbow, 2.35, wrist, 2.0), skin),
+        (capsule_fn(sh, 3.1, sleeve_end, 2.9), WHITE),
+        (capsule_fn(band0, 2.35, wrist, 2.35), BAND),
+        (capsule_fn(sh0, 1.3, sh1, 1.3), BAND_SHADE),
+        (disc_fn(hand, 2.45), skin),
     ]
 
 
@@ -318,6 +337,53 @@ def tennify(frame, direction, anim, col, meta, memo, env_memo):
             if len(xs):
                 body[y, xs.min():xs.max() + 1] |= env[y, xs.min():xs.max() + 1]
 
+    else:
+        for _ in range(3):
+            nb = sum(np.roll(np.roll(body, dy, 0), dx, 1).astype(int) for dy in (-1, 0, 1) for dx in (-1, 0, 1)) - body.astype(int)
+            body &= ~((nb < 4) & (yy > g.neck) & (yy < g.hem + 5))
+        for y in range(g.neck + 2, g.hem):
+            xs = np.nonzero(body[y])[0]
+            if len(xs):
+                body[y, xs.min():xs.max() + 1] = True
+
+    # drop thin (<=2 px) outline strands of removed arms: 3x3 opening on the torso rows
+    def _nb_all(m):
+        e = m.copy()
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                e &= np.roll(np.roll(m, dy, 0), dx, 1)
+        return e
+    tz0 = (yy > g.neck + 2) & (yy < g.hem - 1)
+    opened = grow(_nb_all(body), body, 1)
+    body &= ~(tz0 & ~opened)
+    # solid torso: close 1-2 px seams and fill pinholes left by removed arms
+    tz = (yy > g.neck) & (yy < g.hem)
+    for y in range(g.neck + 1, g.hem):
+        row = body[y]
+        for x in range(1, w - 3):
+            if not row[x] and row[x - 1]:
+                for gap in (1, 2):
+                    if row[x + gap] and not row[x:x + gap].any():
+                        row[x:x + gap] = True
+                        break
+    for x in range(w):
+        col_ = body[:, x]
+        for y in range(g.neck + 1, g.hem - 2):
+            if not col_[y] and col_[y - 1]:
+                for gap in (1, 2):
+                    if col_[y + gap] and not col_[y:y + gap].any():
+                        col_[y:y + gap] = True
+                        break
+    outside = np.zeros_like(body)
+    outside[0, :] = outside[-1, :] = True
+    outside[:, 0] = outside[:, -1] = True
+    outside &= ~body
+    while True:
+        nxt = grow(outside, ~body, 1)
+        if nxt.sum() == outside.sum():
+            break
+        outside = nxt
+    body |= ~outside & ~body & tz
     # classes
     navy = body & ~skinlike & (b_ - g_ > 11)
     waist = g.hem - 12
@@ -329,45 +395,61 @@ def tennify(frame, direction, anim, col, meta, memo, env_memo):
     shirt = body & (yy < waist)
     lower = body & (yy >= waist)
     legs_skin = lower & skinlike & (yy >= g.hem - 3)
-    shoes = lower & (yy >= g.hem) & ~skinlike
+    shoes = lower & (yy >= g.hem) & ~skinlike & ~(b_ - g_ > 11)
     top_shoe = np.full(w, 10 ** 6)
     for x in range(w):
         ys = np.nonzero(shoes[:, x])[0]
         if len(ys):
             top_shoe[x] = ys.min()
-    socks = legs_skin & (yy >= top_shoe[None, :] - 2)
+    socks = legs_skin & grow(shoes, legs_skin | shoes, 2) & (yy >= top_shoe[None, :] - 3)
     legs_skin &= ~socks
     shorts = lower & ~legs_skin & ~socks & ~shoes
-    sole = shoes & (yy >= g.bottom - 1)
+    # a clear gap between the legs (front / back views)
+    if direction not in PROFILE:
+        best, gx = -1, None
+        for x in range(int(g.hip_cx) - 4, int(g.hip_cx) + 5):
+            col_ = lower[g.hem:g.bottom - 1, x]
+            dark = ((r_ + g_ + b_)[g.hem:g.bottom - 1, x] < 110) & col_
+            sc = int(dark.sum()) * 2 - int(col_.sum()) // 3
+            if sc > best:
+                best, gx = sc, x
+        if gx is not None and best > 2:
+            cut_ = (xx == gx) & (yy >= g.hem) & (yy <= g.bottom - 1)
+            for m_ in (shoes, socks, legs_skin, lower):
+                m_ &= ~cut_
+    sole = shoes & ((yy >= g.bottom - 1) | ((r_ + g_ + b_) > 450))
     skin_px = f[face][:, :3]
     skin = tuple(int(v) for v in np.median(skin_px, 0)) if len(skin_px) else (240, 180, 130)
     lum = r_ + g_ + b_
-    details = (lower & (yy >= g.hem - 2) & (lum < 70)) | ((shoes | socks) & (lum < 60))
+    details = lower & (yy >= g.hem - 2) & (lum < 45) & ~shoes & ~socks
     body_im = class_layer([(shirt, WHITE), (shorts, SHORTS), (legs_skin, skin), (socks, SOCK),
                            (shoes & ~sole, SHOE), (sole, SOLE)], LINE)
 
     # base arms (non-tag ones): sleeve near the shoulder, skin, wristband, hand
-    arm_classes = []
-    hands_keep = np.zeros_like(a)
+    arm_geo = []
     for comp in components8(arms):
-        if comp.sum() < 4:
+        if comp.sum() < 6:
             continue
+        ys, xs = np.nonzero(comp)
+        if direction in PROFILE:
+            shp = (g.head_cx - PROFILE[direction] * 0.5, g.neck + 4.5)
+        else:
+            sd = 1 if xs.mean() + 0.5 > g.head_cx else -1
+            shp = (g.head_cx + sd * 8.0, g.neck + 4.5)
         hm = hands & comp
-        sk = comp & skinlike & ~hm
-        ys = np.nonzero(comp)[0]
-        sk_rows = np.nonzero(sk.any(1))[0]
-        cut = sk_rows.min() if len(sk_rows) else ys.min() + 6
-        cut = min(max(cut, ys.min() + 3), ys.min() + 8)
-        sleeve = comp & (yy < cut)
-        cuff = comp & ~hm & grow(hm, comp, 2) if hm.any() else np.zeros_like(comp)
-        arm_classes += [(sleeve & ~cuff, WHITE), (comp & ~sleeve & ~cuff, skin), (cuff, BAND)]
-        hands_keep |= hm
-    arm_im = class_layer(arm_classes, LINE, 0.5) if arm_classes else None
+        if hm.any():
+            hy_, hx_ = np.nonzero(hm)
+            hp = (hx_.mean() + 0.5, hy_.mean() + 0.5)
+        else:
+            dd = (xs + 0.5 - shp[0]) ** 2 + (ys + 0.5 - shp[1]) ** 2
+            kk = int(dd.argmax())
+            hp = (xs[kk] + 0.5, ys[kk] - 1.0)
+        arm_geo.append([comp, shp, hp])
 
     # headband: a strip across the head at the hairline
     hb0 = g.top + 12
     hband = head & (yy >= hb0) & (yy <= hb0 + 3)
-    head_band_im = class_layer([(hband, BAND)], LINE, 0.55, seams=False)
+    head_band_im = class_layer([(hband & (yy < hb0 + 3), BAND), (hband & (yy >= hb0 + 3), BAND_SHADE)], LINE, 0.55, seams=False)
 
     # polo collar: coral V trim at the neck (front views), collar line otherwise
     coll = Image.new("RGBA", (w * SS, h * SS), (0, 0, 0, 0))
@@ -397,10 +479,10 @@ def tennify(frame, direction, anim, col, meta, memo, env_memo):
         reach = 15.0
         hand = (sh[0] + math.cos(ai) * reach, sh[1] + math.sin(ai) * reach)
         # elbow droops (down / away from the head)
-        e1 = ik(sh, hand, 8.0, 7.6, 1)
-        e2 = ik(sh, hand, 8.0, 7.6, -1)
+        e1 = ik(sh, hand, 8.3, 7.9, 1)
+        e2 = ik(sh, hand, 8.3, 7.9, -1)
         elbow = e1 if e1[1] >= e2[1] else e2
-        drawn_arm = shapes_layer(size, arm_parts(sh, elbow, hand, skin), LINE, 0.6)
+        drawn_arm = shapes_layer(size, arm_parts(sh, elbow, hand, skin), LINE, 0.55)
         hx, hy = hand
         rang = ri
     else:
@@ -426,6 +508,20 @@ def tennify(frame, direction, anim, col, meta, memo, env_memo):
             rang = math.radians(90 - side * 58)
         behind = direction in BACK
     racket_im = racket_layer(size, (hx, hy), rang)
+    base_arm_ims = []
+    if arm_geo and not tag:
+        kbest = min(range(len(arm_geo)), key=lambda i: (arm_geo[i][2][0] - hx) ** 2 + (arm_geo[i][2][1] - hy) ** 2)
+        arm_geo[kbest][2] = (hx, hy)
+    for comp, shp, hp in arm_geo:
+        ys, xs = np.nonzero(comp)
+        L = math.hypot(hp[0] - shp[0], hp[1] - shp[1]) or 1.0
+        dd = np.hypot(xs + 0.5 - shp[0], ys + 0.5 - shp[1])
+        mid = (dd > 0.35 * L) & (dd < 0.65 * L)
+        if mid.sum() >= 2 and L > 6:
+            el = (xs[mid].mean() + 0.5, ys[mid].mean() + 0.5)
+        else:
+            el = ((shp[0] + hp[0]) / 2, (shp[1] + hp[1]) / 2)
+        base_arm_ims.append(shapes_layer(size, arm_parts(shp, el, hp, skin, 0.45), LINE, 0.55))
     # base hand pixels closing over the grip (non-tag)
     grip = None
     if hand_comp is not None:
@@ -437,8 +533,6 @@ def tennify(frame, direction, anim, col, meta, memo, env_memo):
     if body_im is not None:
         cv.alpha_composite(body_im)
     cv.alpha_composite(coll)
-    if arm_im is not None:
-        cv.alpha_composite(arm_im)
     out = down(cv)
     dl = np.zeros((h, w, 4))
     dl[details] = (*[c / 255 for c in LINE], 1.0)
@@ -448,21 +542,30 @@ def tennify(frame, direction, anim, col, meta, memo, env_memo):
         out = over(out, down(head_band_im))
     if not behind:
         out = over(out, down(racket_im))
-        if grip is not None:
-            hand_only = Image.new("RGBA", (w * SS, h * SS), (0, 0, 0, 0))
-            gl = class_layer([(grip, skin)], LINE, 0.55, seams=False)
-            if gl is not None:
-                out = over(out, down(gl))
+    for im_ in base_arm_ims:
+        out = over(out, down(im_))
     if drawn_arm is not None:
         out = over(out, down(drawn_arm))
     res = to_u8(out)
     res[res[..., 3] < 8] = 0
+    # close 1-2 px seams inside the torso (between body and redrawn arms)
+    al = res[..., 3].astype(int)
+    for y in range(int(g.neck) + 2, int(g.hem) + 1):
+        row = al[y]
+        for x in range(1, w - 2):
+            if row[x] < 200:
+                for gap in (1, 2):
+                    if x + gap < w and row[x - 1] >= 200 and row[x + gap] >= 200 and all(row[x:x + gap] < 200):
+                        for q in range(gap):
+                            res[y, x + q] = res[y, x - 1] if q == 0 else res[y, x + gap]
+                        break
+        al[y] = res[y, :, 3]
     # drop stray specks not attached to the figure
     comps = components8(res[..., 3] > 40)
     if comps:
         big = max(comps, key=lambda c: c.sum())
         for c in comps:
-            if c is not big and c.sum() < 12:
+            if c is not big and c.sum() < 40:
                 res[grow(c, np.ones_like(c), 1) & ~grow(big, np.ones_like(big), 1)] = 0
     return res
 
