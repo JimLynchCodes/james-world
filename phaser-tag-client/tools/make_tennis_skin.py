@@ -31,6 +31,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
 from make_banana_skin import Geometry, alpha_mask, arms_and_hands, components8, grow, skin_mask
+from solid_mask import solidify
 from make_pirate_skin import TAG_SIDE, anim_of, pick_hand
 from make_tuxedo_skin import close_streaks
 from make_wizard_skin import arm_tip, down, over, premul, reach_tip, to_u8, up_mask
@@ -253,6 +254,25 @@ def swing_pose(direction, p_idx):
     return math.radians(a), math.radians(r)
 
 
+
+
+def racket_shoulder(g, direction, side):
+    if direction in PROFILE:
+        return (g.head_cx - PROFILE[direction] * 0.5, g.neck + 4.5)
+    return (g.head_cx + (side or 1) * 8.0, g.neck + 4.5)
+
+
+def pend_hand(sh, direction, side, phi):
+    """hand of a hanging arm swung by phi (rad) about the shoulder"""
+    R = 15.0
+    if direction in PROFILE:
+        fx = PROFILE[direction]
+        return (sh[0] + fx * R * math.sin(phi) + fx * 1.0, sh[1] + R * math.cos(phi))
+    fx = {"SE": 1, "SW": -1, "NE": 1, "NW": -1}.get(direction, 0) * (1 if direction in FRONT else -1)
+    out = (side or 1) * 3.0
+    return (sh[0] + out + fx * 0.5 * R * math.sin(phi), sh[1] + R * (0.96 - 0.12 * abs(math.sin(phi))))
+
+
 # --- per frame ----------------------------------------------------------------------
 def tennify(frame, direction, anim, col, meta, memo, env_memo):
     f = pad_frame(frame)
@@ -346,6 +366,26 @@ def tennify(frame, direction, anim, col, meta, memo, env_memo):
             if len(xs):
                 body[y, xs.min():xs.max() + 1] = True
 
+    # canonical torso: per-row half-widths from the direction's first idle frame
+    # (monotone from the shoulders down), stamped on every frame so removed
+    # arms never leave notches and the torso keeps one shape frame to frame
+    tkey = ("tmpl", direction)
+    if tkey not in env_memo:
+        L, R = [], []
+        for y in range(g.neck + 2, g.hem - 3):
+            xs = np.nonzero(body[y])[0]
+            L.append(g.hip_cx - xs.min() if len(xs) else 0)
+            R.append(xs.max() + 1 - g.hip_cx if len(xs) else 0)
+        L = np.maximum.accumulate(np.array(L, float))
+        R = np.maximum.accumulate(np.array(R, float))
+        env_memo[tkey] = (L, R)
+    L, R = env_memo[tkey]
+    for i in range(len(L)):
+        y = g.neck + 2 + i
+        if y >= g.hem - 3:
+            break
+        x0, x1 = int(round(g.hip_cx - L[i])), int(round(g.hip_cx + R[i]))
+        body[y, max(x0, 0):min(x1, w)] = True
     # drop thin (<=2 px) outline strands of removed arms: 3x3 opening on the torso rows
     def _nb_all(m):
         e = m.copy()
@@ -486,41 +526,35 @@ def tennify(frame, direction, anim, col, meta, memo, env_memo):
         hx, hy = hand
         rang = ri
     else:
-        pick = pick_hand(hands & (yy > g.neck + 1), g, side, a)
-        tip = arm_tip(arms, g, side)
-        ext = reach_tip(a, g, side, waist)
-        if ext is not None and (tip is None or side * (ext[0] - tip[0]) > 4.0):
-            tip = ext
-        if pick is not None and tip is not None and side * (tip[0] - pick[0]) > 4.0:
-            pick = None
-        if pick is not None:
-            hx, hy, hand_comp = pick
-        elif tip is not None:
-            hx, hy = tip
-        elif key in memo:
-            hx, hy = memo[key]
-        else:
-            hx, hy = g.hip_cx + side * 9.0, waist + 2.0
-        memo[key] = (hx, hy)
+        # procedural pendulum hand: no frame-to-frame pops from pixel detection
+        n = rng["count"]
+        amp = {"walk": 26.0, "run": 40.0}.get(anim, 0.0)
+        phi = math.radians(amp) * math.sin(2 * math.pi * k / max(n, 1))
+        sh = racket_shoulder(g, direction, side)
+        hx, hy = pend_hand(sh, direction, side, phi)
         if direction in PROFILE:
-            rang = math.radians(90 - PROFILE[direction] * 62)
+            rang = math.radians(90 - PROFILE[direction] * 62) - PROFILE[direction] * phi * 0.6
         else:
             rang = math.radians(90 - side * 58)
         behind = direction in BACK
     racket_im = racket_layer(size, (hx, hy), rang)
     base_arm_ims = []
-    if arm_geo and not tag:
-        kbest = min(range(len(arm_geo)), key=lambda i: (arm_geo[i][2][0] - hx) ** 2 + (arm_geo[i][2][1] - hy) ** 2)
-        arm_geo[kbest][2] = (hx, hy)
-    for comp, shp, hp in arm_geo:
-        ys, xs = np.nonzero(comp)
-        L = math.hypot(hp[0] - shp[0], hp[1] - shp[1]) or 1.0
-        dd = np.hypot(xs + 0.5 - shp[0], ys + 0.5 - shp[1])
-        mid = (dd > 0.35 * L) & (dd < 0.65 * L)
-        if mid.sum() >= 2 and L > 6:
-            el = (xs[mid].mean() + 0.5, ys[mid].mean() + 0.5)
-        else:
-            el = ((shp[0] + hp[0]) / 2, (shp[1] + hp[1]) / 2)
+    n_ = rng["count"]
+    amp_ = {"walk": 26.0, "run": 40.0}.get(anim, 0.0)
+    phi_ = math.radians(amp_) * math.sin(2 * math.pi * k / max(n_, 1))
+    geo = []
+    if not tag:
+        sh = racket_shoulder(g, direction, side)
+        geo.append((sh, (hx, hy)))
+    if direction not in PROFILE:
+        osd = -side if side else -1
+        sh2 = (g.head_cx + osd * 8.0, g.neck + 4.5)
+        geo.append((sh2, pend_hand(sh2, direction, osd, -phi_)))
+    for shp, hp in geo:
+        e1 = ik(shp, hp, 8.0, 7.6, 1)
+        e2 = ik(shp, hp, 8.0, 7.6, -1)
+        out_sd = 1 if hp[0] >= g.head_cx else -1
+        el = e1 if out_sd * e1[0] >= out_sd * e2[0] else e2
         base_arm_ims.append(shapes_layer(size, arm_parts(shp, el, hp, skin, 0.45), LINE, 0.55))
     # base hand pixels closing over the grip (non-tag)
     grip = None
@@ -567,6 +601,8 @@ def tennify(frame, direction, anim, col, meta, memo, env_memo):
         for c in comps:
             if c is not big and c.sum() < 40:
                 res[grow(c, np.ones_like(c), 1) & ~grow(big, np.ones_like(big), 1)] = 0
+    # every pixel inside the silhouette fully opaque (no see-through holes)
+    res = solidify(res, (int(g.neck), int(g.hem) - 1))
     return res
 
 
