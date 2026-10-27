@@ -549,7 +549,7 @@ def ik_elbow(sh, hand, L1, L2, bend):
     return (sh[0] + ux * a + px * hgt, sh[1] + uy * a + py * hgt), hand
 
 
-def arm_layers(sh, elbow, wrist, out_dir, skin):
+def arm_layers(sh, elbow, wrist, out_dir, skin, fist=None):
     """a muscular arm and the deltoid cap that joins it to the torso"""
     shade = tone(skin, 0.84)
     ux, uy = elbow[0] - sh[0], elbow[1] - sh[1]
@@ -561,6 +561,9 @@ def arm_layers(sh, elbow, wrist, out_dir, skin):
     fore = (elbow[0] + fx * 0.28, elbow[1] + fy * 0.28)
     polys = [capsule(sh, 3.9, elbow, 2.8), circle_pts(bic, 3.9), capsule(elbow, 2.8, wrist, 2.0),
              circle_pts(fore, 3.2)]
+    if fist is not None:
+        # a drawn hand, part of the same silhouette as the arm
+        polys += [capsule(wrist, 2.0, fist, 2.7)]
     m = B(poly_mask(polys))
     sdx, sdy = int(S(1.1)) * (1 if out_dir >= 0 else -1), int(S(0.9))
     arm = paint([(m, skin), (rim(m, sdx, sdy) & m, shade)], SKIN_LINE, 0.7)
@@ -622,8 +625,29 @@ def centaurify(frame, direction, anim, col, meta):
     if direction in PROFILE:
         head &= ~((yy > g.neck - 3) & ~loose_skin(f) & ((xx + 0.5 - g.head_cx) * PROFILE[direction] > -2))
     # any orange t-shirt collar left at the nape
-    head &= ~((yy > g.neck - 4) & ~loose_skin(f) & (r_ - b_ > 70) & (r_ > 150))
+    head &= ~((yy > g.neck - 6) & ~loose_skin(f) & (r_ - b_ > 60) & (r_ > 130))
+    # tagging: the base kid's reaching hand sits up at chin height, so it lands
+    # in the head layer; cut it out (anything sideways past the skull) and use
+    # it as the target for the drawn arm instead
+    reach_all = anim == "tag" and direction in ("E", "W", "NE", "NW")
+    reach_hb = None
+    if reach_all:
+        band = head & (yy >= g.neck - 14) & (yy <= g.neck - 9)
+        bx = np.nonzero(band)[1]
+        if len(bx):
+            lo, hi = bx.min() - 1, bx.max() + 1
+            strip = head & (yy > g.neck - 12) & ((xx < lo) | (xx > hi))
+            if strip.sum() >= 4:
+                sy, sx = np.nonzero(strip)
+                far = sx.max() if sx.mean() > g.head_cx else sx.min()
+                sel = np.abs(sx - far) <= 4
+                reach_hb = (sx[sel].mean() + 0.5, sy[sel].mean() + 0.5)
+            head &= ~strip
+        head &= ~((yy > g.neck - 12) & ~loose_skin(f) & (r_ - b_ > 60) & (r_ > 130) & (g_ < 150))
     comps = [c for c in components8(arms) if c.sum() >= 6]
+    if reach_hb is not None and comps:
+        rc = min(comps, key=lambda c: np.hypot(*(np.array(np.nonzero(c)[::-1]).mean(1) - reach_hb)) - 0.01 * c.sum())
+        comps = [rc] + [c for c in comps if c is not rc]
     if direction in PROFILE and len(comps) > 1:
         biggest = max(comps, key=lambda c: c.sum())
         keep = [biggest]
@@ -633,7 +657,7 @@ def centaurify(frame, direction, anim, col, meta):
             ys, xs = np.nonzero(comp)
             if not ((xs.mean() + 0.5 - g.head_cx) * PROFILE[direction] < -1.0 and ys.min() > g.neck + 3):
                 keep.append(comp)
-        comps = [biggest]
+        comps = [comps[0]] if reach_hb is not None else [biggest]
     skin_px = f[face][:, :3]
     skin = tuple(int(v) for v in np.median(skin_px, 0)) if len(skin_px) else (236, 182, 140)
     tc = (g.head_cx + g.hip_cx) / 2
@@ -646,7 +670,7 @@ def centaurify(frame, direction, anim, col, meta):
     arm_ims = []
     hand_px = np.zeros((OH, OW, 4), np.uint8)
     hand_m = np.zeros((OH, OW), bool)
-    for comp in comps[:2]:
+    for ci, comp in enumerate(comps[:2]):
         ys, xs = np.nonzero(comp)
         hm = hands & comp
         if hm.sum() >= 2:
@@ -655,7 +679,9 @@ def centaurify(frame, direction, anim, col, meta):
             sel = ys >= ys.max() - 2
             hy_, hx_ = ys[sel], xs[sel]
         hb = (hx_.mean() + 0.5, hy_.mean() + 0.5)
-        side = 1 if xs.mean() + 0.5 > tc else -1
+        if reach_hb is not None and ci == 0:
+            hb = reach_hb
+        side = 1 if (hb[0] if reach_hb is not None and ci == 0 else xs.mean() + 0.5) > tc else -1
         if direction in PROFILE:
             sh = shoulders[0]
             sb = (tc, g.neck + 3.0)
@@ -671,10 +697,26 @@ def centaurify(frame, direction, anim, col, meta):
         hand = (hand[0], min(hand[1], y1 + 1.0))
         if direction not in PROFILE and abs(hand[0] - (tc + dx)) < W + 1.5 and hand[1] > y0 + 8:
             hand = ((tc + dx) + side * (W + 1.5), hand[1])
+        reach = reach_all and (ci == 0 or reach_hb is None)
+        if reach:
+            # reaching: point the whole arm at where the kid's hand points,
+            # at full (muscular, not stretched) length
+            vx, vy = hand[0] - sh[0], hand[1] - sh[1]
+            vn = math.hypot(vx, vy) or 1.0
+            ln = min(vn, 17.0)
+            hand = (sh[0] + vx / vn * ln, sh[1] + vy / vn * ln)
         elbow, hand = ik_elbow(sh, hand, 9.5, 9.0, bend)
         wx_, wy_ = hand[0] + (elbow[0] - hand[0]) * 0.16, hand[1] + (elbow[1] - hand[1]) * 0.16
-        arm, delt = arm_layers(sh, elbow, (wx_, wy_), side if direction not in PROFILE else -PROFILE[direction], skin)
+        fist = None
+        if reach:
+            ex, ey = hand[0] - elbow[0], hand[1] - elbow[1]
+            en = math.hypot(ex, ey) or 1.0
+            fist = (hand[0] + ex / en * 1.6, hand[1] + ey / en * 1.6)
+            wx_, wy_ = hand
+        arm, delt = arm_layers(sh, elbow, (wx_, wy_), side if direction not in PROFILE else -PROFILE[direction], skin, fist)
         arm_ims.append((arm, delt))
+        if reach:
+            continue
         # base hand pixels moved onto the new wrist
         if hm.sum() >= 2:
             mdx = int(round(hand[0] - hb[0]))
@@ -734,10 +776,14 @@ def centaurify(frame, direction, anim, col, meta):
     for dep, im in sorted(legs, key=lambda x: x[0]):
         cv.alpha_composite(im)
     cv.alpha_composite(body)
-    if direction in BACK:
+    back_reach = direction in BACK and anim == "tag" and direction != "N"
+    if direction in BACK and not back_reach:
         for arm, delt in arm_ims:
             cv.alpha_composite(arm)
     cv.alpha_composite(torso_im)
+    if back_reach:
+        for arm, delt in arm_ims:
+            cv.alpha_composite(arm)
     cv.alpha_composite(fringe)
     if direction in BACK:
         for arm, delt in arm_ims:
