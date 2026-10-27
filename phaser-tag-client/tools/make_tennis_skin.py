@@ -48,7 +48,9 @@ PROFILE = {"E": 1, "W": -1}
 BACK = {"NW": -1, "N": 0, "NE": 1}
 
 WHITE = (247, 247, 243)
-SHORTS = (238, 238, 235)
+SHORTS = (210, 214, 222)
+WAISTBAND = (140, 148, 164)
+ARM_LINE = (40, 26, 22)
 SOCK = (250, 250, 248)
 SHOE = (244, 244, 246)
 SOLE = (196, 200, 208)
@@ -220,12 +222,12 @@ def arm_parts(sh, elbow, hand, skin, sleeve=0.4):
     sh0 = (band0[0] + nx * 1.0, band0[1] + ny * 1.0)
     sh1 = (wrist[0] + nx * 1.0, wrist[1] + ny * 1.0)
     return [
-        (capsule_fn(sh, 2.7, elbow, 2.35), skin),
-        (capsule_fn(elbow, 2.35, wrist, 2.0), skin),
-        (capsule_fn(sh, 2.6, sleeve_end, 2.45), WHITE),
-        (capsule_fn(band0, 2.35, wrist, 2.35), BAND),
+        (capsule_fn(sh, 3.0, elbow, 2.6), skin),
+        (capsule_fn(elbow, 2.6, wrist, 2.3), skin),
+        (capsule_fn(sh, 3.2, sleeve_end, 3.0), WHITE),
+        (capsule_fn(band0, 2.6, wrist, 2.6), BAND),
         (capsule_fn(sh0, 1.3, sh1, 1.3), BAND_SHADE),
-        (disc_fn(hand, 2.45), skin),
+        (disc_fn(hand, 2.8), skin),
     ]
 
 
@@ -238,10 +240,12 @@ def _arc(a0, a1, l0, l1, n=6):
             [l0 + (l1 - l0) * i / (n - 1) for i in range(n)])
 
 
+# start near the idle hang (racket low in front), wind back, swing through,
+# settle back toward idle so entering / leaving the tag doesn't pop
 SWING = {
-    "profile": _arc(165, 5, -34, -49),
-    "front": _arc(-20, 150, -40, 35),
-    "back": _arc(120, -20, 25, -50),
+    "profile": ([95, 150, 115, 45, 15, 70], [-55, -45, -40, -45, -50, -55]),
+    "front": ([75, 15, -25, 35, 105, 80], [-40, -40, -35, 5, 25, -35]),
+    "back": ([80, 130, 105, 35, -5, 60], [-45, 20, 15, -30, -45, -45]),
 }
 
 
@@ -327,6 +331,11 @@ def recolor(f, g):
 
     paint(shirt, WHITE)
     paint(shorts, SHORTS, 0.82)
+    # waistband: the top row of the shorts in every column, a darker grey line
+    if shorts.any():
+        top = shorts & ~np.roll(shorts, 1, 0)
+        top &= yy <= waist + 1
+        out[top, :3] = WAISTBAND
     # sneakers: white uppers, the bottom 1-2 rows of each shoe grey sole
     sole = np.zeros_like(shoes)
     for x in range(w):
@@ -510,6 +519,8 @@ def tennify(frame, direction, anim, col, meta, memo, env_memo):
         px_ = f[sk_all][:, :3].astype(int)
         px_ = px_[px_.sum(1) >= np.percentile(px_.sum(1), 50)]
         skin_rgb = tuple(int(v) for v in np.median(px_, 0))
+        # a touch deeper than the lit face so the arm reads on the white shirt
+        skin_rgb = tuple(int(v * k) for v, k in zip(skin_rgb, (0.95, 0.84, 0.78)))
     else:
         skin_rgb = (246, 182, 132)
 
@@ -526,7 +537,7 @@ def tennify(frame, direction, anim, col, meta, memo, env_memo):
         e1 = ik(sh, hand, 8.3, 7.9, 1)
         e2 = ik(sh, hand, 8.3, 7.9, -1)
         elbow = e1 if e1[1] >= e2[1] else e2
-        drawn = shapes_layer(size, arm_parts(sh, elbow, hand, skin_rgb, 0.3), LINE, 0.55)
+        drawn = shapes_layer(size, arm_parts(sh, elbow, hand, skin_rgb, 0.3), ARM_LINE, 1.2)
         hx, hy = hand
         rang = ri
     else:
