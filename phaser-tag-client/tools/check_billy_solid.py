@@ -19,5 +19,21 @@ for r in range(im.shape[0] // fh):
         if n:
             print(f"row {r} col {c}: {n} interior non-opaque px")
             bad += 1
+            continue
+        # side views (rows 0=E, 4=W): the back of the jacket below the neck
+        # must not slant/notch inward 2 px or more from the torso back line
+        if r in (0, 4):
+            a = al >= 200
+            rows = np.nonzero(a.any(1))[0]
+            t, h = rows.min(), rows.max() - rows.min()
+            wid = {y: np.count_nonzero(a[y]) for y in rows}
+            neck = min(range(int(t + 0.25 * h), int(t + 0.5 * h)), key=lambda y: wid.get(y, 999))
+            back = {y: (np.nonzero(a[y])[0].min() if r == 0 else -np.nonzero(a[y])[0].max())
+                    for y in range(neck + 4, neck + 14) if a[y].any()}
+            ref = min(back.values())
+            worst = max(back.values()) - ref
+            if worst >= 2:
+                print(f"row {r} col {c}: upper-back notch {worst} px")
+                bad += 1
 print("billy solid: bad frames =", bad)
 raise SystemExit(1 if bad else 0)

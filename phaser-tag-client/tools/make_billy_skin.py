@@ -66,12 +66,13 @@ COL = {
     HAIR: (46, 40, 40),
     SKIN: (206, 152, 122),
     HAND: (206, 152, 122),
-    SLEEVE: (76, 78, 90),
+    SLEEVE: (96, 99, 114),
     JACKET: (76, 78, 90),
     PANTS: (24, 24, 28),
     SHOE: (30, 30, 34),
 }
 LINE = (10, 10, 13)
+SLEEVE_LINE = (28, 28, 36)
 SKIN_LINE = (96, 58, 40)
 SKIN_SHADE = (184, 128, 100)
 SOLE = (240, 240, 234)
@@ -85,7 +86,7 @@ PANTS_BACK = (16, 16, 19)
 HAIR_HI = (100, 86, 78)
 GLASS = (14, 14, 17)
 BROW = (22, 18, 18)
-STACHE = (40, 30, 28)
+STACHE = (22, 16, 14)
 TEETH = (250, 248, 240)
 EYE = (30, 24, 26)
 # cup
@@ -236,7 +237,7 @@ def grid():
     return _GRID
 
 
-def render_body(lab, wp):
+def render_body(lab, wp, back_fx=0):
     """warped class map at SS -> (label SS, union SS, rgb SS, outline SS)"""
     X, Y = grid()
     xs, ys = wp.inv(X, Y)
@@ -265,6 +266,33 @@ def render_body(lab, wp):
         add = closed & ~union & band
         L[add] = JACKET
         union |= add
+        if back_fx:
+            # side view: square the jacket back off to the torso's back line
+            # (the warp slants the shoulder and the removed far arm notches it)
+            y0, y1 = int(S(wp.yn_o - 0.5)), jr.max() - SS
+            wrows = range(int(S(wp.yn_o - 4)), int(S(wp.yn_o + 4)))
+            wid = [(union[y].sum() if union[y].any() else 10 ** 6, y) for y in wrows]
+            if wid:
+                y0 = min(y0, min(wid)[1] + SS // 2)
+            J = np.isin(L, (JACKET, SLEEVE))
+            xs_ = np.arange(L.shape[1])
+            edges = {y: (xs_[J[y]].min() if back_fx > 0 else xs_[J[y]].max())
+                     for y in range(y0, y1) if J[y].any()}
+            if edges:
+                lower = [v for y, v in edges.items() if y > (y0 + y1) / 2]
+                ref = np.percentile(lower or list(edges.values()), 20 if back_fx > 0 else 80)
+                for y, e in edges.items():
+                    rb = max(0.0, 3.0 * SS - (y - y0)) * 0.8
+                    bx = int(round(ref + back_fx * rb))
+                    if back_fx > 0 and e > bx:
+                        sl = slice(bx, e)
+                    elif back_fx < 0 and e < bx:
+                        sl = slice(e + 1, bx + 1)
+                    else:
+                        continue
+                    seg = ~union[y, sl] | (L[y, sl] == JACKET)
+                    L[y, sl][seg] = JACKET
+                    union[y, sl] = True
     rgb = np.zeros(X.shape + (3,), np.uint8)
     for k, col in COL.items():
         rgb[L == k] = col
@@ -620,9 +648,9 @@ def draw_face(img, L, direction, eyes_o, wp, head_box):
         d.polygon([(S(x), S(y)) for x, y in top_c + bot_c[::-1]], fill=MOUTH)
         d.polygon([(S(x), S(y)) for x, y in top_c + mid_c[::-1]], fill=TEETH)
         tline(d, bot_c[1:-1], SKIN_LINE, 0.4)
-        # thin dark mustache, a small chin patch
-        st_c = [(x, y - 0.75) for x, y in curve(-1.05, 0.0, 11)[1:-1]]
-        tline(d, st_c, STACHE, 1.3)
+        # thick dark mustache with a skin gap above the teeth
+        st_c = [(x, y - 2.0) for x, y in curve(-1.05, 0.0, 11)[1:-1]]
+        tline(d, st_c, STACHE, 1.8)
         return (mx, my)
     # profile
     if not eyes_o:
@@ -654,7 +682,7 @@ def draw_face(img, L, direction, eyes_o, wp, head_box):
     d.chord([S(a0 + 0.3), S(my - 1.3), S(a1 - 0.2), S(my + 1.2)], 0, 180, fill=TEETH)
     # upturned smile corner at the cheek
     tline(d, [(mx - fx * 3.6, my + 0.6), (mx - fx * 4.3, my - 0.4)], SKIN_LINE, 0.45)
-    tline(d, [(mx - fx * 3.9, my - 0.9), (mx - fx * 1.8, my - 1.35), (mx + fx * 0.3, my - 1.1)], STACHE, 1.25)
+    tline(d, [(mx - fx * 4.0, my - 1.6), (mx - fx * 1.8, my - 2.15), (mx + fx * 0.4, my - 1.9)], STACHE, 1.7)
     return (mx, my)
 
 
@@ -780,7 +808,7 @@ def arm_layer(sh, hand, elbow):
         (capsule_fn(sh, 2.7, elbow, 2.35), COL[SLEEVE]),
         (capsule_fn(elbow, 2.35, cuff, 2.1), COL[SLEEVE]),
     ]
-    return shapes_layer((OH, OW), parts, LINE, 0.7)
+    return shapes_layer((OH, OW), parts, SLEEVE_LINE, 0.8)
 
 
 def hand_layer(hand):
@@ -898,6 +926,20 @@ def billyfy(src_f, direction, anim, col, meta, memo, wp, idle_f):
     if comps_:
         keep_ = max(comps_, key=lambda c_: c_.sum())
         lab[(lab > 0) & ~keep_] = BG
+    if direction in PROFILE:
+        # side view: the removed far arm leaves a slanted notch in the upper
+        # back; square the back of the jacket off to the torso's back line
+        jk2 = lab == JACKET
+        back = int(round(np.percentile(los, 15) if fx > 0 else np.percentile(his, 85))) if los else int(round(tlo if fx > 0 else thi))
+        for y in range(g.neck, g.hem):
+            if not jk2[y].any():
+                continue
+            b_ = back + fx * max(0, 2 - (y - g.neck))
+            xs_j = xs_all[jk2[y]]
+            if fx > 0 and xs_j.min() > b_:
+                lab[y, b_:xs_j.min()] = JACKET
+            elif fx < 0 and xs_j.max() < b_:
+                lab[y, xs_j.max() + 1:b_ + 1] = JACKET
     free = []  # (shoulder_out, hand_out, outward_x, side)
     sides = [0] if direction in PROFILE else [-1, 1]
     for s_ in sides:
@@ -951,7 +993,7 @@ def billyfy(src_f, direction, anim, col, meta, memo, wp, idle_f):
             res.append((s_, pm(arm_layer(sh_o, hand_o, el)), pm(hand_layer(hand_o)), hand_o))
         return res
 
-    L, union, rgb, lines = render_body(lab, wp)
+    L, union, rgb, lines = render_body(lab, wp, fx if direction in PROFILE else 0)
     eyes = eyes_of(src_f if not tag else idle_f, g if not tag else Geometry(idle_f))
     eyes_o = [wp.pt((x, y)) + (ew,) for x, y, ew in eyes]
     if direction not in BACK and len(eyes_o) == 0:
