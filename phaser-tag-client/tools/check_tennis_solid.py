@@ -29,6 +29,7 @@ base = np.asarray(Image.open(A / bm["image"]).convert("RGBA"))
 bw, bh = bm["frameWidth"], bm["frameHeight"]
 px, py = (fw - bw) // 2, fh - bh
 t0 = bm["animations"]["tag"]["start"]
+ARMLESS = ("E", "W", "NE", "NW")
 SIDE = {"E": 1, "SE": 1, "S": 1, "SW": -1, "W": -1, "NW": -1, "N": 1, "NE": 1}
 for r, d in enumerate(bm["directions"]):
     B = np.zeros((fh, fw), bool)
@@ -46,6 +47,8 @@ for r, d in enumerate(bm["directions"]):
             for x in np.nonzero(B[y] & ~T[y])[0]:
                 st = 1 if x >= hx else -1
                 far_side = st != SIDE[d]
+                if d in ARMLESS:
+                    continue  # judged against the arm-less idle body in check_tennis_body
                 if far_side or abs(x - hx) <= core:
                     n += 1
                     if "-v" in sys.argv: print(d, c, x, y)

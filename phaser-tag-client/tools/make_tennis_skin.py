@@ -414,6 +414,34 @@ def shift(img, dx, dy):
     return o
 
 
+def torso_hull(keep, rm, gi):
+    """torso mask without the arm: per row, left/right body edges where the
+    arm doesn't stick out past them, linearly interpolated over arm rows"""
+    h, w = keep.shape
+    y0, y1 = int(gi.neck) + 2, int(gi.hem)
+    out = np.zeros_like(keep)
+    L = np.full(h, np.nan)
+    R = np.full(h, np.nan)
+    for y in range(y0, y1 + 1):
+        xs = np.nonzero(keep[y])[0]
+        if not len(xs):
+            continue
+        ar = np.nonzero(rm[y])[0]
+        if not (len(ar) and ar.min() < xs.min()):
+            L[y] = xs.min()
+        if not (len(ar) and ar.max() > xs.max()):
+            R[y] = xs.max()
+    ys = np.arange(h)
+    for E in (L, R):
+        ok = ~np.isnan(E)
+        if ok.sum() >= 2:
+            E[y0:y1 + 1] = np.interp(ys[y0:y1 + 1], ys[ok], E[ok])
+    for y in range(y0, y1 + 1):
+        if not (np.isnan(L[y]) or np.isnan(R[y])):
+            out[y, int(round(L[y])):int(round(R[y])) + 1] = True
+    return out
+
+
 def tag_base(f, g, direction, side, idle_f):
     """tag body: the direction's idle frame (head, torso, legs: steady, no
     pops), its swing-side arm removed / painted over and the notches closed,
@@ -442,7 +470,11 @@ def tag_base(f, g, direction, side, idle_f):
     if direction in PROFILE or direction in ("NE", "NW"):
         # the hanging arm lies over the body here: repaint all of it so the
         # idle silhouette is kept whole (no chunk out of chest / back)
-        over_t = rm & ai
+        # ...but only up to the torso's own outline: on rows the arm covers,
+        # the torso edge is interpolated from the arm-free rows above/below,
+        # and arm pixels beyond it are cut (else the hanging arm + hand turn
+        # into a white belly / hip bulge)
+        over_t = rm & ai & torso_hull(ai & ~rm, rm, gi)
     # arm pixels inside the torso core (hip centre +- half hem width - 3)
     # are always torso: repaint, never cut (no chunk out of the body)
     ys = np.nonzero(ai.any(1))[0]
