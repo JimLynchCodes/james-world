@@ -116,6 +116,8 @@ export const idID: Messages = {
   "skin.wizard.note": "Simsalabim, kamu jaga!",
   "skin.centaur": "James Centaurus",
   "skin.centaur.note": "Empat kaki, nol santai!",
+  "skin.tennis": "James Petenis",
+  "skin.tennis.note": "Forehand, kamu jaga!",
   "settings.credits.heading": "Kredit",
   "credits.bio": "Game ini dibuat oleh James, seorang software engineer yang tinggal di New York City (juga dikenal dengan banyak nama lain seperti Jim, Jimbo, Jimothy, dan Sir Jims-a-lot).",
   "credits.linkedinLead": "Yuk, terhubung sama aku di LinkedIn:",

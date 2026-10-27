@@ -116,6 +116,8 @@ export const ruRU: Messages = {
   "skin.wizard.note": "Крибле-крабле-бумс, ты водишь!",
   "skin.centaur": "James-Кентавр",
   "skin.centaur.note": "Четыре ноги, ноль спокойствия!",
+  "skin.tennis": "James-Теннисист",
+  "skin.tennis.note": "Форхенд — ты водишь!",
   "settings.credits.heading": "Авторы",
   "credits.bio": "Эту игру сделал James, программист из Нью-Йорка (ещё известный под кучей других имён: Jim, Jimbo, Jimothy и Sir Jims-a-lot).",
   "credits.linkedinLead": "Добавляйся ко мне в LinkedIn:",

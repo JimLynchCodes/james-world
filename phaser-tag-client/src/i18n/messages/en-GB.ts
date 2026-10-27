@@ -9,6 +9,7 @@ export const enGB: Partial<Messages> = {
   "skin.spaceman.note": "One small step…",
   "skin.wizard.note": "Tag-ulus Totalus!",
   "skin.centaur.note": "Four legs, zero chill!",
+  "skin.tennis.note": "Forehand — you're it!",
   "settings.sound.moodHelp": "The mood chooses the background music.",
   "mood.chillin.blurb": "Lo-fi hip-hop loop",
   "credits.githubLead": "Have a look at the source code for this game, fork it, and give it a star! 😉",

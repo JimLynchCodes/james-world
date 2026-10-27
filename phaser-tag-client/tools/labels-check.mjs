@@ -10,7 +10,7 @@
 const { default: pkg } = await import(process.env.PLAYWRIGHT ?? "playwright");
 const { chromium } = pkg;
 const SHOTS = process.env.SHOTS ?? "/tmp";
-const SKINS = ["james", "banana", "trex", "tuxedo", "pirate", "wizard", "centaur"];
+const SKINS = ["james", "banana", "trex", "tuxedo", "pirate", "wizard", "centaur", "tennis"];
 const TIGHTEN = 5, IT_GAP = 4, EPS = 0.6;
 const browser = await chromium.launch({ headless: true });
 let failures = 0;

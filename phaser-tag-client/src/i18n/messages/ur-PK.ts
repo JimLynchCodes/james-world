@@ -133,6 +133,8 @@ export const urPK: Messages = {
   "skin.wizard.note": "چھو منتر، اب تمہاری باری!",
   "skin.centaur": "سینٹور James",
   "skin.centaur.note": "چار ٹانگیں، صفر سکون!",
+  "skin.tennis": "ٹینس James",
+  "skin.tennis.note": "فور ہینڈ — اب تمہاری باری!",
 
   "settings.credits.heading": "کریڈٹ",
   "credits.bio":

@@ -455,7 +455,7 @@ fn skins_are_opaque_validated_keys_with_a_james_fallback() {
     // Every existing skin name stays wire-compatible, and new keys the
     // server has never heard of are stored and relayed as-is.
     for name in [
-        "james", "banana", "trex", "tuxedo", "pirate", "pharaoh", "spaceman", "wizard", "centaur",
+        "james", "banana", "trex", "tuxedo", "pirate", "pharaoh", "spaceman", "wizard", "centaur", "tennis",
         "future_skin-2",
     ] {
         let skin = Skin::parse(name);

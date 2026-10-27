@@ -131,6 +131,8 @@ export const enUS = {
   "skin.wizard.note": "Tag-ulus Totalus!",
   "skin.centaur": "Centaur James",
   "skin.centaur.note": "Four legs, zero chill!",
+  "skin.tennis": "Tennis James",
+  "skin.tennis.note": "Forehand — you're it!",
 
   "settings.credits.heading": "Credits",
   "credits.bio":

@@ -133,6 +133,8 @@ export const hiIN: Messages = {
   "skin.wizard.note": "छू मंतर, अब तुम्हारी बारी!",
   "skin.centaur": "सेंटौर James",
   "skin.centaur.note": "चार टांगें, ज़ीरो आराम!",
+  "skin.tennis": "टेनिस James",
+  "skin.tennis.note": "फोरहैंड — अब तुम्हारी बारी!",
 
   "settings.credits.heading": "श्रेय",
   "credits.bio":

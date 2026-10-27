@@ -133,6 +133,8 @@ export const zhCN: Messages = {
   "skin.wizard.note": "变变变，你被抓到啦！",
   "skin.centaur": "半人马 James",
   "skin.centaur.note": "四条腿，停不下来！",
+  "skin.tennis": "网球 James",
+  "skin.tennis.note": "正手一拍，你被抓到啦！",
 
   "settings.credits.heading": "制作",
   "credits.bio":
