@@ -114,6 +114,8 @@ export const arSA: Messages = {
   "skin.spaceman.note": "خطوة صغيرة...",
   "skin.wizard": "الساحر James",
   "skin.wizard.note": "أبرا كادابرا... أنت الممسوك!",
+  "skin.centaur": "القنطور James",
+  "skin.centaur.note": "أربع أرجل ولا هدوء أبداً!",
   "settings.credits.heading": "الشكر",
   "credits.bio": "صنع هذه اللعبة James، مهندس برمجيات يعيش في مدينة نيويورك (ويُعرف أيضًا بأسماء أخرى كثيرة مثل Jim وJimbo وJimothy وSir Jims-a-lot).",
   "credits.linkedinLead": "تواصل معي على LinkedIn:",

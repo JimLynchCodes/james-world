@@ -114,6 +114,8 @@ export const itIT: Messages = {
   "skin.spaceman.note": "Un piccolo passo...",
   "skin.wizard": "James Mago",
   "skin.wizard.note": "Abracadabra, ce l'hai tu!",
+  "skin.centaur": "James Centauro",
+  "skin.centaur.note": "Quattro zampe, zero calma!",
   "settings.credits.heading": "Crediti",
   "credits.bio": "Questo gioco è stato creato da James, un ingegnere del software che vive a New York (conosciuto anche con tanti altri nomi come Jim, Jimbo, Jimothy e Sir Jims-a-lot).",
   "credits.linkedinLead": "Collegati pure con me su LinkedIn:",

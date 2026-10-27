@@ -129,6 +129,8 @@ export const enUS = {
   "skin.spaceman.note": "One small step...",
   "skin.wizard": "Wizard James",
   "skin.wizard.note": "Tag-ulus Totalus!",
+  "skin.centaur": "Centaur James",
+  "skin.centaur.note": "Four legs, zero chill!",
 
   "settings.credits.heading": "Credits",
   "credits.bio":

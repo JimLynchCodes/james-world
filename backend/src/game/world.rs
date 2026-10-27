@@ -133,7 +133,7 @@ impl World {
     pub fn skin_of(&self, id: &Uuid) -> Skin {
         self.players
             .get(id)
-            .map(|p| p.skin)
+            .map(|p| p.skin.clone())
             .unwrap_or_default()
     }
 
@@ -754,7 +754,7 @@ impl World {
                 crate::ws::protocol::PlayerSnapshot {
                     id: player.id,
                     name: player.name.clone(),
-                    skin: player.skin,
+                    skin: player.skin.clone(),
                     x: player.position.x,
                     y: player.position.y,
                     energy: player.energy,

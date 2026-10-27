@@ -61,7 +61,7 @@ impl RoomManager {
             let existing = world
                 .players
                 .values()
-                .map(|p| (p.id, p.name.clone(), p.skin, p.position.x, p.position.y))
+                .map(|p| (p.id, p.name.clone(), p.skin.clone(), p.position.x, p.position.y))
                 .collect::<Vec<_>>();
             let spawned_bots = world
                 .add_spectator()
@@ -71,7 +71,7 @@ impl RoomManager {
                     (
                         id,
                         player.name.clone(),
-                        player.skin,
+                        player.skin.clone(),
                         player.position.x,
                         player.position.y,
                     )
@@ -150,7 +150,7 @@ impl RoomManager {
                     (
                         id,
                         player.name.clone(),
-                        player.skin,
+                        player.skin.clone(),
                         player.position.x,
                         player.position.y,
                     )
@@ -162,7 +162,7 @@ impl RoomManager {
             let player = &world.players[&player_id];
             (
                 player.name.clone(),
-                player.skin,
+                player.skin.clone(),
                 player.position.x,
                 player.position.y,
                 spawned,

@@ -3,7 +3,7 @@ import type { Skin } from "./skins";
 export type { Skin } from "./skins";
 
 export type ClientMessage =
-  /** `skin` is optional on the server (older clients); unknown values become "james". */
+  /** `skin` is optional on the server (older clients); it is an opaque key relayed as-is (invalid ones become "james"). */
   | { type: "Join"; data: { room_id: string; skin?: Skin } }
   /** Change skin mid-game (Settings > Skins). */
   | { type: "SetSkin"; data: { skin: Skin } }

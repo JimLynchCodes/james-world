@@ -12,11 +12,14 @@
  *   pharaoh - public/assets/kid_pharaoh.png (tools/make_pharaoh_skin.py)
  *   spaceman - public/assets/kid_spaceman.png (tools/make_spaceman_skin.py)
  *   wizard   - public/assets/kid_wizard.png   (tools/make_wizard_skin.py)
+ *   centaur  - public/assets/kid_centaur.png + kid_centaur_b.png  (tools/make_centaur_skin.py)
  *
  * The id is what goes over the wire (`skin` in Join / SetSkin /
- * PlayerSnapshot); the server falls back to "james" for unknown values.
+ * PlayerSnapshot). The server treats it as an opaque key (1-32 chars of
+ * [a-z0-9_-], else "james") and relays it as-is, so a new skin is a
+ * client-only change; clients that don't know a key draw the default kid.
  */
-export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate" | "pharaoh" | "spaceman" | "wizard";
+export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate" | "pharaoh" | "spaceman" | "wizard" | "centaur";
 
 export const DEFAULT_SKIN: Skin = "james";
 
@@ -90,7 +93,7 @@ export const SKINS: Record<Skin, SkinSheet> = {
     frameHeight: 122,
     baselineY: 112,
     // crest + spikes sit ~108px above the feet; padded sides hold the tail
-    artHeight: 108,
+    artHeight: 118,
   },
   tuxedo: {
     id: "tuxedo",
@@ -166,6 +169,29 @@ export const SKINS: Record<Skin, SkinSheet> = {
     baselineY: 108,
     // same head as James: hair top ~90px above the feet
     artHeight: 90,
+  },
+  centaur: {
+    id: "centaur",
+    label: "Centaur James",
+    note: "Four legs, zero chill!",
+    texture: "kid_centaur",
+    url: `${BASE}assets/kid_centaur.png`,
+    // a whole horse under him: wide frames for the body and the tail, the
+    // anchor is the middle of the horse on the ground
+    frameWidth: 152,
+    frameHeight: 150,
+    baselineY: 134,
+    // James's head rides on a horse: hair top ~118px above the hooves
+    artHeight: 118,
+    // two textures so neither side passes 4096px (mobile WebGL): idle, walk
+    // and breathe here, tag and run in kid_centaur_b.png
+    columns: 16,
+    extra: {
+      texture: "kid_centaur_b",
+      url: `${BASE}assets/kid_centaur_b.png`,
+      columns: 14,
+      columnStart: 16,
+    },
   },
 };
 

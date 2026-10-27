@@ -1,57 +1,56 @@
 //! Player skins (cosmetic only: how other clients draw the kid).
+//!
+//! The server doesn't know the list of skins. A skin is an opaque, validated
+//! key ("james", "banana", "wizard", ...) that is stored per player and
+//! relayed to other clients as-is; the client maps it to a sprite sheet and
+//! falls back to the default kid for keys it doesn't know. So adding a new
+//! skin is a client-only change - no backend redeploy.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
-/// The outfit a player's kid wears. Sent to clients as a lowercase string
-/// ("james", "banana", "trex", "tuxedo", "pirate", "pharaoh", "spaceman", "wizard"); mirrored by `Skin` in phaser-tag-client/src/protocol.ts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Skin {
-    /// The normal kid (default; bots always wear it).
-    #[default]
-    James,
-    /// Banana James: the same kid in a banana costume.
-    Banana,
-    /// T-rex James: the same kid in a T-rex onesie.
-    Trex,
-    /// Tuxedo James: the same kid in a black tie tuxedo.
-    Tuxedo,
-    /// Pirate James: tricorn hat, striped breeches and a cutlass.
-    Pirate,
-    /// Pharaoh James: striped nemes, gold cape, shendyt and sandals.
-    Pharaoh,
-    /// Spaceman James: white suit, helmet, and a booster pack.
-    Spaceman,
-    /// Wizard James: hooded black robe, striped tie, sunglasses and a wand.
-    Wizard,
+/// Longest accepted skin key.
+pub const MAX_SKIN_LEN: usize = 32;
+
+/// The outfit a player's kid wears: a lowercase key of 1-32 characters from
+/// `[a-z0-9_-]`. Serialised as a plain string (wire-compatible with the old
+/// enum names).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
+pub struct Skin(String);
+
+impl Default for Skin {
+    /// The normal kid (bots always wear it).
+    fn default() -> Self {
+        Skin(Skin::DEFAULT.to_string())
+    }
 }
 
 impl Skin {
-    /// Parse a client-supplied skin name. Anything unknown falls back to
-    /// the default, so an old or tampered client can't break the game.
+    pub const DEFAULT: &'static str = "james";
+
+    /// Parse a client-supplied skin key (trimmed, lowercased). Anything
+    /// invalid falls back to the default, so an old or tampered client can't
+    /// break the game.
     pub fn parse(value: &str) -> Self {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "banana" => Skin::Banana,
-            "trex" => Skin::Trex,
-            "tuxedo" => Skin::Tuxedo,
-            "pirate" => Skin::Pirate,
-            "pharaoh" => Skin::Pharaoh,
-            "spaceman" => Skin::Spaceman,
-            "wizard" => Skin::Wizard,
-            _ => Skin::James,
+        let v = value.trim().to_ascii_lowercase();
+        let ok = !v.is_empty()
+            && v.len() <= MAX_SKIN_LEN
+            && v.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-');
+        if ok {
+            Skin(v)
+        } else {
+            Skin::default()
         }
     }
 
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Skin::James => "james",
-            Skin::Banana => "banana",
-            Skin::Trex => "trex",
-            Skin::Tuxedo => "tuxedo",
-            Skin::Pirate => "pirate",
-            Skin::Pharaoh => "pharaoh",
-            Skin::Spaceman => "spaceman",
-            Skin::Wizard => "wizard",
-        }
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for Skin {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        Ok(Skin::parse(&s))
     }
 }

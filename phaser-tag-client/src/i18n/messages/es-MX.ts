@@ -134,6 +134,8 @@ export const esMX: Messages = {
   "skin.spaceman.note": "Un pequeño paso...",
   "skin.wizard": "James Mago",
   "skin.wizard.note": "¡Abracadabra, la traes!",
+  "skin.centaur": "James Centauro",
+  "skin.centaur.note": "¡Cuatro patas y cero calma!",
 
   "settings.credits.heading": "Créditos",
   "credits.bio":
