@@ -140,6 +140,8 @@ export const esMX: Messages = {
   "skin.tennis.note": "¡Derechazo, la traes!",
   "skin.cobra": "James Cobra",
   "skin.cobra.note": "¡Sss-úper rápido! ¡Te toca!",
+  "skin.billy": "Billy",
+  "skin.billy.note": "Amigo de James",
 
   "settings.credits.heading": "Créditos",
   "credits.bio":

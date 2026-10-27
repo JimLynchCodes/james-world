@@ -15,13 +15,14 @@
  *   centaur  - public/assets/kid_centaur.png + kid_centaur_b.png  (tools/make_centaur_skin.py)
  *   tennis   - public/assets/kid_tennis.png   (tools/make_tennis_skin.py)
  *   cobra    - public/assets/kid_cobra.png    (tools/make_cobra_skin.py)
+ *   billy    - public/assets/kid_billy.png    (tools/make_billy_skin.py) - James's friend
  *
  * The id is what goes over the wire (`skin` in Join / SetSkin /
  * PlayerSnapshot). The server treats it as an opaque key (1-32 chars of
  * [a-z0-9_-], else "james") and relays it as-is, so a new skin is a
  * client-only change; clients that don't know a key draw the default kid.
  */
-export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate" | "pharaoh" | "spaceman" | "wizard" | "centaur" | "tennis" | "cobra";
+export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate" | "pharaoh" | "spaceman" | "wizard" | "centaur" | "tennis" | "cobra" | "billy";
 
 export const DEFAULT_SKIN: Skin = "james";
 
@@ -219,6 +220,18 @@ export const SKINS: Record<Skin, SkinSheet> = {
     frameHeight: 124,
     baselineY: 110,
     artHeight: 90,
+  },
+  billy: {
+    id: "billy",
+    label: "Billy",
+    note: "James's Friend",
+    texture: "kid_billy",
+    url: `${BASE}assets/kid_billy.png`,
+    // a grown-up on the kid rig: taller frame, iced coffee in hand
+    frameWidth: 128,
+    frameHeight: 124,
+    baselineY: 118,
+    artHeight: 103,
   },
 };
 

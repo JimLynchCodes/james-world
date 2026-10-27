@@ -135,6 +135,8 @@ export const enUS = {
   "skin.tennis.note": "Forehand — you're it!",
   "skin.cobra": "Cobra James",
   "skin.cobra.note": "Hiss-terically fast. You're it!",
+  "skin.billy": "Billy",
+  "skin.billy.note": "James's Friend",
 
   "settings.credits.heading": "Credits",
   "credits.bio":

@@ -137,6 +137,8 @@ export const zhCN: Messages = {
   "skin.tennis.note": "正手一拍，你被抓到啦！",
   "skin.cobra": "眼镜蛇詹姆斯",
   "skin.cobra.note": "嘶嘶——快如闪电，你被抓啦！",
+  "skin.billy": "Billy",
+  "skin.billy.note": "詹姆斯的朋友",
 
   "settings.credits.heading": "制作",
   "credits.bio":

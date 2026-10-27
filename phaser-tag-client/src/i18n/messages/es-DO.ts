@@ -13,6 +13,8 @@ export const esDO: Partial<Messages> = {
   "skin.centaur.note": "¡Cuatro patas y cero calma, manito!",
   "skin.tennis.note": "¡Derechazo, te tocó a ti, manito!",
   "skin.cobra.note": "¡Sss-úper rápido! ¡Te toca!",
+  "skin.billy": "Billy",
+  "skin.billy.note": "Amigo de James",
   "howto.helpKeyboard": "Tócalo si lo tienes cerca para que la lleve.",
   "howto.tag": "¡Toca!",
   "credits.bio":
