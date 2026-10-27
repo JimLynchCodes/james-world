@@ -36,7 +36,7 @@ for r, d in enumerate(DIRS):
                     continue
                 eq = (np.abs(f[ys, xs, :3] - head[hy, hx, :3]).max(1) <= 2).mean()
                 best = max(best, eq)
-        need = 0.2 if d in ("N", "NE", "NW") else 0.95
+        need = 0.2 if d in ("N", "NE", "NW") else (0.9 if c in (18, 19, 20) else 0.95)  # fangs cover part of the face
         if best < need:
             print(f"{d} col {c}: base head match {best:.3f}"); bad += 1
         # neck width a little above the coils: the opaque run nearest the centre

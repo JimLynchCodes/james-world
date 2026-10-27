@@ -183,7 +183,9 @@ def mouth_of(head_rgba, d):
         row = np.nonzero(a[int(my)])[0]
         mx = (row.max() - 2.5) if fx > 0 else (row.min() + 2.5)
     else:
-        mx = float(xx.mean())
+        # smile centre measured on the base faces (zoomed kid.png rows 42-45)
+        mx = {"S": 39.0, "SE": 45.0, "SW": 32.0}.get(d, float(xx.mean()))
+        my = 44.5
     return float(mx), my
 
 
@@ -397,17 +399,17 @@ def render(base, d, col, mouths):
         fc = Canvas()
         fc.rgb[:] = 0
         prof = abs(fx) > 0.9
-        mw = 2.2 if prof else 3.2
+        mw = 3.0 if prof else 4.6
         if prof:
             mx += 0.5 * fx
-        o = ellipse(mx, my + 0.6, mw, 1.7)
+        o = ellipse(mx, my + 0.9, mw, 2.4)
         fc.paint(dilate(o, 2), LINE)
         fc.paint(o, MOUTH)
-        offs = [0.0] if prof else [-1.6, 1.6]
-        fl = 4.2 if k == 3 else 3.4
+        offs = [0.0] if prof else [-2.4, 2.4]
+        fl = 7.5 if k == 3 else 6.2
         for ox in offs:
             fx0 = mx + ox + (-0.6 * fx if prof else 0)
-            tri = poly([(fx0 - 0.9, my - 0.2), (fx0 + 0.9, my - 0.2), (fx0 + (0.3 * fx if prof else 0), my + fl)])
+            tri = poly([(fx0 - 1.5, my - 0.2), (fx0 + 1.5, my - 0.2), (fx0 + (0.3 * fx if prof else 0), my + fl)])
             fc.paint(dilate(tri, 2), LINE)
             fc.paint(tri, FANG)
         fd = fc.down()
