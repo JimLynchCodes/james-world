@@ -31,7 +31,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
 from make_banana_skin import Geometry, alpha_mask, arms_and_hands, components8, grow, skin_mask
-from solid_mask import solidify
+from solid_mask import base_center, solidify, torso_span
 from make_pirate_skin import TAG_SIDE, anim_of, pick_hand
 from make_tuxedo_skin import close_streaks
 from make_wizard_skin import arm_tip, down, over, premul, reach_tip, to_u8, up_mask
@@ -232,7 +232,7 @@ def arm_parts(sh, elbow, hand, skin, sleeve=0.4):
 # swing: shoulder->hand angle (deg, screen, y down) over the 6 tag frames, for
 # a right-hand-side (+1) arm; racket angle = arm angle + lag
 SWING = {
-    "profile": ([205, 165, 115, 62, 18, -12], [-35, -30, -25, -30, -38, -55]),
+    "profile": ([168, 142, 108, 66, 28, 6], [-35, -32, -26, -30, -38, -48]),
     "front": ([-20, 15, 55, 95, 128, 150], [-40, -25, -5, 15, 30, 35]),
     "back": ([120, 88, 55, 22, -2, -18], [25, 0, -20, -35, -45, -50]),
 }
@@ -256,10 +256,13 @@ def swing_pose(direction, p_idx):
 
 
 
+ARM_X = 9.5
+
+
 def racket_shoulder(g, direction, side):
     if direction in PROFILE:
         return (g.head_cx - PROFILE[direction] * 0.5, g.neck + 4.5)
-    return (g.head_cx + (side or 1) * 8.0, g.neck + 4.5)
+    return (g.head_cx + (side or 1) * ARM_X, g.neck + 4.5)
 
 
 def pend_hand(sh, direction, side, phi):
@@ -269,8 +272,8 @@ def pend_hand(sh, direction, side, phi):
         fx = PROFILE[direction]
         return (sh[0] + fx * R * math.sin(phi) + fx * 1.0, sh[1] + R * math.cos(phi))
     fx = {"SE": 1, "SW": -1, "NE": 1, "NW": -1}.get(direction, 0) * (1 if direction in FRONT else -1)
-    out = (side or 1) * 3.0
-    return (sh[0] + out + fx * 0.5 * R * math.sin(phi), sh[1] + R * (0.96 - 0.12 * abs(math.sin(phi))))
+    out = (side or 1) * 4.5
+    return (sh[0] + out + fx * 0.3 * R * math.sin(phi), sh[1] + R * (0.96 - 0.12 * abs(math.sin(phi))))
 
 
 # --- per frame ----------------------------------------------------------------------
@@ -366,26 +369,40 @@ def tennify(frame, direction, anim, col, meta, memo, env_memo):
             if len(xs):
                 body[y, xs.min():xs.max() + 1] = True
 
-    # canonical torso: per-row half-widths from the direction's first idle frame
-    # (monotone from the shoulders down), stamped on every frame so removed
-    # arms never leave notches and the torso keeps one shape frame to frame
-    tkey = ("tmpl", direction)
-    if tkey not in env_memo:
-        L, R = [], []
+    if direction not in PROFILE:
+        # torso = the base idle shirt between its own outline columns (arms
+        # excluded); one width per direction so it never jitters
+        if ("tw", direction) not in env_memo:
+            b0 = meta["_base_idle"][direction]
+            env_memo[("tw", direction)] = torso_span(b0, range(58, 70), base_center(b0)) + (base_center(b0),)
+        Lm, Rm, bcx = env_memo[("tw", direction)]
+        cx0 = int(round(g.hip_cx))
+        x0, x1 = cx0 - int(round(Lm)), cx0 + int(round(Rm)) + 1
         for y in range(g.neck + 2, g.hem - 3):
-            xs = np.nonzero(body[y])[0]
-            L.append(g.hip_cx - xs.min() if len(xs) else 0)
-            R.append(xs.max() + 1 - g.hip_cx if len(xs) else 0)
-        L = np.maximum.accumulate(np.array(L, float))
-        R = np.maximum.accumulate(np.array(R, float))
-        env_memo[tkey] = (L, R)
-    L, R = env_memo[tkey]
-    for i in range(len(L)):
-        y = g.neck + 2 + i
-        if y >= g.hem - 3:
-            break
-        x0, x1 = int(round(g.hip_cx - L[i])), int(round(g.hip_cx + R[i]))
-        body[y, max(x0, 0):min(x1, w)] = True
+            body[y, :] = False
+            body[y, max(x0, 0):min(x1, w)] = True
+        env_memo[("tspan", direction)] = (x0, x1)
+    else:
+        # canonical torso: per-row half-widths from the direction's first idle frame
+        # (monotone from the shoulders down), stamped on every frame so removed
+        # arms never leave notches and the torso keeps one shape frame to frame
+        tkey = ("tmpl", direction)
+        if tkey not in env_memo:
+            L, R = [], []
+            for y in range(g.neck + 2, g.hem - 3):
+                xs = np.nonzero(body[y])[0]
+                L.append(g.hip_cx - xs.min() if len(xs) else 0)
+                R.append(xs.max() + 1 - g.hip_cx if len(xs) else 0)
+            L = np.maximum.accumulate(np.array(L, float))
+            R = np.maximum.accumulate(np.array(R, float))
+            env_memo[tkey] = (L, R)
+        L, R = env_memo[tkey]
+        for i in range(len(L)):
+            y = g.neck + 2 + i
+            if y >= g.hem - 3:
+                break
+            x0, x1 = int(round(g.hip_cx - L[i])), int(round(g.hip_cx + R[i]))
+            body[y, max(x0, 0):min(x1, w)] = True
     # drop thin (<=2 px) outline strands of removed arms: 3x3 opening on the torso rows
     def _nb_all(m):
         e = m.copy()
@@ -515,7 +532,7 @@ def tennify(frame, direction, anim, col, meta, memo, env_memo):
         if direction in PROFILE:
             sh = (g.head_cx - PROFILE[direction] * 0.5, g.neck + 4.5)
         else:
-            sh = (g.head_cx + side * 8.0, g.neck + 4.5)
+            sh = (g.head_cx + side * ARM_X, g.neck + 4.5)
         reach = 15.0
         hand = (sh[0] + math.cos(ai) * reach, sh[1] + math.sin(ai) * reach)
         # elbow droops (down / away from the head)
@@ -548,7 +565,7 @@ def tennify(frame, direction, anim, col, meta, memo, env_memo):
         geo.append((sh, (hx, hy)))
     if direction not in PROFILE:
         osd = -side if side else -1
-        sh2 = (g.head_cx + osd * 8.0, g.neck + 4.5)
+        sh2 = (g.head_cx + osd * ARM_X, g.neck + 4.5)
         geo.append((sh2, pend_hand(sh2, direction, osd, -phi_)))
     for shp, hp in geo:
         e1 = ik(shp, hp, 8.0, 7.6, 1)
@@ -618,6 +635,7 @@ def main():
     src = np.asarray(Image.open(ASSETS / meta["image"]).convert("RGBA"))
     ofw, ofh = fw + 2 * PAD_SIDE, fh + PAD_TOP
     out = np.zeros((len(dirs) * ofh, cols * ofw, 4), dtype=np.uint8)
+    meta["_base_idle"] = {d: src[r * fh:(r + 1) * fh, 0:fw] for r, d in enumerate(dirs)}
     for r, direction in enumerate(dirs):
         memo: dict = {}
         env_memo: dict = {}
@@ -628,6 +646,7 @@ def main():
     assert max(out.shape[:2]) <= 4096, out.shape
     Image.fromarray(out).save(ASSETS / "kid_tennis.png", optimize=True)
     pm = dict(meta)
+    pm.pop("_base_idle", None)
     pm["image"] = "kid_tennis.png"
     pm["frameWidth"], pm["frameHeight"] = ofw, ofh
     pm["baselineY"] = meta["baselineY"] + PAD_TOP

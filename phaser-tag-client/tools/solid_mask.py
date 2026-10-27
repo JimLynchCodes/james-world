@@ -71,3 +71,35 @@ def solidify(res, close_rows=None):
     res[todo, :3] = np.clip(col[todo], 0, 255).astype(np.uint8)
     res[todo, 3] = 255
     return res
+
+
+def torso_span(f, rows, cx, thr=120):
+    """median left/right torso extent from cx: scan outward to the first dark
+    outline pixel (after >=3 lit ones) or the silhouette edge"""
+    c = f[..., :3].astype(int)
+    lum = c.sum(-1)
+    # racket string bed / strings (slightly yellow-green, b < g) count as an edge
+    lum = np.where((c[..., 1] - c[..., 2] >= 6) & (lum > 300), 0, lum)
+    al = f[..., 3] >= 128
+    Ls, Rs = [], []
+    for y in rows:
+        def scan(dx):
+            x, seen = cx, 0
+            while 0 < x < f.shape[1] - 1:
+                x += dx
+                if not al[y, x]:
+                    return x - dx
+                if lum[y, x] < thr:
+                    if seen >= 3:
+                        return x
+                else:
+                    seen += 1
+            return x
+        Ls.append(cx - scan(-1))
+        Rs.append(scan(1) - cx)
+    return float(np.median(Ls)), float(np.median(Rs))
+
+
+def base_center(b):
+    ys, xs = np.nonzero(b[..., 3][60:72] >= 128)
+    return int(round((xs.min() + xs.max()) / 2))
