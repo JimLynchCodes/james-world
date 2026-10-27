@@ -135,6 +135,8 @@ export const hiIN: Messages = {
   "skin.centaur.note": "चार टांगें, ज़ीरो आराम!",
   "skin.tennis": "टेनिस James",
   "skin.tennis.note": "फोरहैंड — अब तुम्हारी बारी!",
+  "skin.cobra": "कोबरा जेम्स",
+  "skin.cobra.note": "सस्स… बिजली जैसा तेज़। अब तुम्हारी बारी!",
 
   "settings.credits.heading": "श्रेय",
   "credits.bio":

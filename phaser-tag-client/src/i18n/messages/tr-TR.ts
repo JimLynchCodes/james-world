@@ -118,6 +118,8 @@ export const trTR: Messages = {
   "skin.centaur.note": "Dört bacak, sıfır sakinlik!",
   "skin.tennis": "Tenisçi James",
   "skin.tennis.note": "Forehand, ebe sensin!",
+  "skin.cobra": "Kobra James",
+  "skin.cobra.note": "Tıss diye hızlı. Ebe sensin!",
   "settings.credits.heading": "Emeği Geçenler",
   "credits.bio": "Bu oyunu New York City'de yaşayan yazılım mühendisi James yaptı (Jim, Jimbo, Jimothy ve Sir Jims-a-lot gibi başka birçok isimle de bilinir).",
   "credits.linkedinLead": "LinkedIn'de bağlantı kurmaktan çekinme:",

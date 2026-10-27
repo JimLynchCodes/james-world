@@ -118,6 +118,8 @@ export const koKR: Messages = {
   "skin.centaur.note": "다리 넷, 침착함 제로!",
   "skin.tennis": "테니스 James",
   "skin.tennis.note": "포핸드! 네가 술래야!",
+  "skin.cobra": "코브라 제임스",
+  "skin.cobra.note": "쉬익~ 순식간에! 네가 술래!",
   "settings.credits.heading": "만든 사람",
   "credits.bio": "이 게임은 뉴욕에 사는 소프트웨어 엔지니어 James가 만들었어 (Jim, Jimbo, Jimothy, Sir Jims-a-lot 같은 다른 이름으로도 불려).",
   "credits.linkedinLead": "LinkedIn에서 편하게 연결하자:",

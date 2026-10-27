@@ -14,13 +14,14 @@
  *   wizard   - public/assets/kid_wizard.png   (tools/make_wizard_skin.py)
  *   centaur  - public/assets/kid_centaur.png + kid_centaur_b.png  (tools/make_centaur_skin.py)
  *   tennis   - public/assets/kid_tennis.png   (tools/make_tennis_skin.py)
+ *   cobra    - public/assets/kid_cobra.png    (tools/make_cobra_skin.py)
  *
  * The id is what goes over the wire (`skin` in Join / SetSkin /
  * PlayerSnapshot). The server treats it as an opaque key (1-32 chars of
  * [a-z0-9_-], else "james") and relays it as-is, so a new skin is a
  * client-only change; clients that don't know a key draw the default kid.
  */
-export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate" | "pharaoh" | "spaceman" | "wizard" | "centaur" | "tennis";
+export type Skin = "james" | "banana" | "trex" | "tuxedo" | "pirate" | "pharaoh" | "spaceman" | "wizard" | "centaur" | "tennis" | "cobra";
 
 export const DEFAULT_SKIN: Skin = "james";
 
@@ -204,6 +205,18 @@ export const SKINS: Record<Skin, SkinSheet> = {
     // whole forehand swing
     frameWidth: 128,
     frameHeight: 114,
+    baselineY: 110,
+    artHeight: 90,
+  },
+  cobra: {
+    id: "cobra",
+    label: "Cobra James",
+    note: "Hiss-terically fast. You're it!",
+    texture: "kid_cobra",
+    url: `${BASE}assets/kid_cobra.png`,
+    // wide frame for the hood, the trailing coils and the tag strike
+    frameWidth: 136,
+    frameHeight: 124,
     baselineY: 110,
     artHeight: 90,
   },
