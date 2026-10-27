@@ -118,6 +118,8 @@ export const deDE: Messages = {
   "skin.centaur.note": "Vier Beine, null Gelassenheit!",
   "skin.tennis": "Tennis-James",
   "skin.tennis.note": "Vorhand – du bist dran!",
+  "skin.cobra": "Kobra-James",
+  "skin.cobra.note": "Zischend schnell. Du bist dran!",
   "settings.credits.heading": "Credits",
   "credits.bio": "Dieses Spiel hat James gemacht, ein Softwareentwickler aus New York City (auch bekannt unter vielen anderen Namen wie Jim, Jimbo, Jimothy und Sir Jims-a-lot).",
   "credits.linkedinLead": "Vernetz dich gern mit mir auf LinkedIn:",

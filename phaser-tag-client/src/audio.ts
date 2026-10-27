@@ -14,7 +14,7 @@
 
 import type { Mood, Settings } from "./settings";
 
-export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "spacemanStep" | "spacemanSwing" | "wizardStep" | "wizardSwing" | "centaurStep" | "centaurSwing" | "tennisStep" | "tennisSwing" | "click" | "blip" | "secret";
+export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "spacemanStep" | "spacemanSwing" | "wizardStep" | "wizardSwing" | "centaurStep" | "centaurSwing" | "tennisStep" | "tennisSwing" | "cobraStep" | "cobraSwing" | "click" | "blip" | "secret";
 
 const CROSSFADE_S = 1.5;
 const LOOKAHEAD_S = 0.15;
@@ -817,6 +817,17 @@ export class GameAudio {
         syn.noise(t + 0.09, { filter: "bandpass", freq: 1100, q: 4, gain: 0.32 * v, attack: 0.001, release: 0.05 });
         syn.tone(t + 0.09, 560, { type: "triangle", gain: 0.11 * v, attack: 0.001, release: 0.08, glideTo: 300 });
         syn.tone(t + 0.09, 1250, { type: "sine", gain: 0.04 * v, attack: 0.001, release: 0.06 });
+        break;
+      }
+      case "cobraStep": { // Cobra James: a soft scaly slither over the ground
+        const p = 0.9 + Math.random() * 0.2;
+        syn.noise(t, { filter: "bandpass", freq: 2600 * p, sweepTo: 1800 * p, q: 1.2, gain: 0.05 * v, attack: 0.03, release: 0.12 });
+        break;
+      }
+      case "cobraSwing": { // Cobra James's tag: a long airy snake hiss, then a quick strike snap
+        syn.noise(t, { filter: "highpass", freq: 4200, q: 0.7, gain: 0.2 * v, attack: 0.06, release: 0.45 });
+        syn.noise(t, { filter: "bandpass", freq: 6500, sweepTo: 5200, q: 2, gain: 0.12 * v, attack: 0.05, release: 0.42 });
+        syn.noise(t + 0.12, { filter: "bandpass", freq: 1500, q: 3, gain: 0.14 * v, attack: 0.001, release: 0.04 });
         break;
       }
       case "pharaohSwing": { // Pharaoh James's tag: cloth whoosh plus a short muted horn (open fifth)

@@ -133,6 +133,8 @@ export const enUS = {
   "skin.centaur.note": "Four legs, zero chill!",
   "skin.tennis": "Tennis James",
   "skin.tennis.note": "Forehand — you're it!",
+  "skin.cobra": "Cobra James",
+  "skin.cobra.note": "Hiss-terically fast. You're it!",
 
   "settings.credits.heading": "Credits",
   "credits.bio":

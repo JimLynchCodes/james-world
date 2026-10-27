@@ -118,6 +118,8 @@ export const thTH: Messages = {
   "skin.centaur.note": "สี่ขา ไม่มีเบรก!",
   "skin.tennis": "James นักเทนนิส",
   "skin.tennis.note": "โฟร์แฮนด์! เธอเป็นคนไล่แล้ว!",
+  "skin.cobra": "เจมส์งูเห่า",
+  "skin.cobra.note": "ฟู่ๆ เร็วปานสายฟ้า เธอเป็นคนไล่!",
   "settings.credits.heading": "เครดิต",
   "credits.bio": "เกมนี้สร้างโดย James วิศวกรซอฟต์แวร์ที่อาศัยอยู่ในนิวยอร์ก (มีชื่อเรียกอื่นๆ อีกเพียบ เช่น Jim, Jimbo, Jimothy และ Sir Jims-a-lot)",
   "credits.linkedinLead": "มาเชื่อมต่อกันบน LinkedIn ได้เลย:",
