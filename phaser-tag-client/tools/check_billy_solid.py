@@ -30,7 +30,10 @@ for r in range(im.shape[0] // fh):
             neck = min(range(int(t + 0.25 * h), int(t + 0.5 * h)), key=lambda y: wid.get(y, 999))
             back = {y: (np.nonzero(a[y])[0].min() if r == 0 else -np.nonzero(a[y])[0].max())
                     for y in range(neck + 4, neck + 12) if a[y].any()}
-            ref = min(back.values())
+            # inward = further from the back than the line just below the
+            # neck; an arm swinging out behind the back is not a notch
+            ys_ = sorted(back)
+            ref = min(back[y] for y in ys_[:3])
             worst = max(back.values()) - ref
             if worst >= 2:
                 print(f"row {r} col {c}: upper-back notch {worst} px")

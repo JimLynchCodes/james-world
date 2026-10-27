@@ -47,16 +47,16 @@ ASSETS = HERE.parent / "public" / "assets"
 
 SS = 4
 OW, OH = 128, 124          # output frame
-HEAD_SCALE = 1.45
+HEAD_SCALE = 1.50
 ARM_R = 3.5
-BACK_D = 12.0
+BACK_D = 12.5
 TORSO_D = 15.0
 OBASE = 118                # feet line in the output frame
 SRC_BASE = 96              # feet line in kid.png
 SRC_CX = 40
 HS = 0.82                  # head scale
-BSY = 1.42                 # body: taller ...
-BSX = 1.2                  # ... and stocky
+BSY = 1.10                 # body: taller ...
+BSX = 1.4                  # ... and stocky
 
 FRONT = {"SE": 1, "S": 0, "SW": -1}
 PROFILE = {"E": 1, "W": -1}
@@ -319,6 +319,22 @@ def render_body(lab, wp, back_fx=0):
                     seg = ~union[y, sl] | (L[y, sl] == JACKET)
                     L[y, sl][seg] = JACKET
                     union[y, sl] = True
+            # chubby: a soft rounded belly out front, lower half of the jacket
+            Jf = L == JACKET
+            for y in range(y0, y1):
+                tt = (y - y0) / max(1, (y1 - y0))
+                bul = 2.6 * SS * max(0.0, math.sin(math.pi * min(1.0, max(0.0, (tt - 0.2) / 0.85))))
+                if bul < 1 or not Jf[y].any():
+                    continue
+                jx_ = xs_[Jf[y]]
+                f_ = jx_.max() if back_fx > 0 else jx_.min()
+                if back_fx > 0:
+                    sl = slice(f_ + 1, int(f_ + 1 + bul))
+                else:
+                    sl = slice(max(0, int(f_ - bul)), f_)
+                seg = ~union[y, sl]
+                L[y, sl][seg] = JACKET
+                union[y, sl] = True
             cps = components8(union)
             if cps:
                 big_ = max(cps, key=lambda c_: c_.sum())
@@ -385,7 +401,9 @@ def rebuild_head(L, rgb, union, direction, wp, eyes_o):
     fx = FACE[direction][0]
     # jaw a touch narrower than the cranium
     t = np.clip((Yo - cy) / hh, 0, 1)
-    Xs = cx + (Xo - cx) / (1 - 0.3 * t * t)
+    # chubby cheeks: barely narrower jaw plus a soft bulge at cheek height
+    bulge = np.exp(-(((Yo - (cy + 0.38 * hh)) / (0.32 * hh)) ** 2))
+    Xs = cx + (Xo - cx) / ((1 - 0.16 * t * t) * (1 + 0.07 * bulge))
     sdf = _rbox_sdf(Xs, Yo, cx, cy, hw, hh, hw * 0.96)
     head = sdf < 0
     # erase the old head
@@ -410,7 +428,7 @@ def rebuild_head(L, rgb, union, direction, wp, eyes_o):
     else:
         ey = np.mean([e[1] for e in eyes_o]) if eyes_o else top + 0.55 * (bot - top)
         ph_ = ((Xo - cx + 0.6 * fx) / 2.6) % 1
-        hl = ey - 8.3 + 0.8 * np.clip((Xo - (cx - 0.3 * hw)) / hw, -1, 1) + 1.8 * (1 - ph_) ** 1.6
+        hl = ey - 8.3 + 0.8 * np.clip((Xo - (cx - 0.3 * hw)) / hw, -1, 1) + 2.4 * (1 - np.abs(2 * ph_ - 1))
         edge = np.clip((np.abs(Xo - (cx + fx * 0.8)) / hw - 0.74) / 0.26, 0, 1)
         hair = hair_cap & (Yo < hl + 3.4 * edge)
         ears = [(cx - hw - 0.1, ey + 0.8), (cx + hw + 0.1, ey + 0.8)]
@@ -418,12 +436,19 @@ def rebuild_head(L, rgb, union, direction, wp, eyes_o):
             ears = [ears[0] if fx > 0 else ears[1]]  # the far ear is hidden in 3/4
     # messy tufts sticking up along the crown (a fixed pattern per view)
     rng = np.random.RandomState(7 + len(direction) * 3 + (fx > 0))
-    tuft = np.zeros_like(head)
-    for i in range(7):
-        tx = cx + (i - 3) * hw * 0.3 + rng.uniform(-0.4, 0.4)
-        ty = top + 0.25 + 0.9 * ((i - 3) / 3.0) ** 2 * hh * 0.35
-        rx_, ry_ = rng.uniform(1.3, 1.9), rng.uniform(1.1, 1.6)
-        tuft |= ((Xo - tx) / rx_) ** 2 + ((Yo - ty) / ry_) ** 2 < 1
+    # a few clean, pointed (almost anime) spikes along the crown
+    sp_im = Image.new("L", (W, H), 0)
+    sp_d = ImageDraw.Draw(sp_im)
+    for i in range(5):
+        u = (i - 2) / 2.0
+        bx_ = cx + u * hw * 0.78 + rng.uniform(-0.2, 0.2)
+        by_ = top + 2.4 + 2.6 * u * u * hh / 10
+        ln = 6.6 - 2.0 * abs(u) + rng.uniform(-0.3, 0.3)
+        tipx = bx_ + u * 2.2 + (0.6 if direction in PROFILE and fx < 0 else -0.6 if direction in PROFILE else 0)
+        tipy = by_ - ln * (1 - 0.35 * abs(u))
+        bw_ = 2.7
+        sp_d.polygon([(S(bx_ - bw_), S(by_ + 1.0)), (S(tipx), S(tipy)), (S(bx_ + bw_), S(by_ + 1.0))], fill=255)
+    tuft = np.asarray(sp_im) > 127
     hair |= tuft & (Yo < top + hh * 0.7)
     ear = np.zeros_like(head)
     for ex_, ey_ in ears:
@@ -537,10 +562,10 @@ def leg_layer(hip, foot, fx, back, L_leg):
     toe = (foot[0] + fx * 2.5, foot[1] - 1.5)
     heel = (foot[0] - fx * 1.4, foot[1] - 1.7)
     parts = [
-        (capsule_fn(hip, 5.0, knee, 4.8), pc),
-        (capsule_fn(knee, 4.8, ankle, 4.7), pc),
+        (capsule_fn(hip, 6.0, knee, 5.8), pc),
+        (capsule_fn(knee, 5.8, ankle, 5.6), pc),
         # loose hem bunched over the sneaker
-        (capsule_fn((ankle[0] - fx * 0.4, ankle[1] - 1.6), 5.1, (ankle[0] + fx * 0.6, ankle[1] + 0.2), 5.0), pc),
+        (capsule_fn((ankle[0] - fx * 0.4, ankle[1] - 1.6), 6.0, (ankle[0] + fx * 0.6, ankle[1] + 0.2), 5.8), pc),
         (capsule_fn(heel, 1.75, toe, 1.55), COL[SHOE]),
     ]
     im = shapes_layer((OH, OW), parts, LINE, 0.75)
@@ -661,7 +686,7 @@ def draw_face(img, L, direction, eyes_o, wp, head_box):
         my = ey + 7.2
         # full rounded cheeks: soft flat shade
         for ex, hw in ((lx, hw_l), (rx, hw_r)):
-            ell(d, ex + (ex - mid) * 0.15, ey + 4.4, hw * 0.55, 1.1, CHEEK)
+            ell(d, ex + (ex - mid) * 0.2, ey + 4.6, hw * 0.72, 1.5, CHEEK)
         # broad nose
         ell(d, mx, ey + 3.9, 1.5, 1.0, SKIN_SHADE)
         ell(d, mx, ey + 3.3, 0.8, 0.6, COL[SKIN])
@@ -683,11 +708,11 @@ def draw_face(img, L, direction, eyes_o, wp, head_box):
         tline(d, [(lx - hw_l, ey - 1.2), (max(x0 + 0.4, lx - hw_l - 2.4), ey - 1.5)], GLASS, 1.1)
         tline(d, [(rx + hw_r, ey - 1.2), (min(x1 - 0.4, rx + hw_r + 2.4), ey - 1.5)], GLASS, 1.1)
         # wide toothy smile
-        mw = 5.0 if fx == 0 else 4.3
+        mw = 5.8 if fx == 0 else 5.0
         def curve(y_end, y_mid, n=9):
             return [(mx + mw * t, my + y_end + (y_mid - y_end) * (1 - t * t)) for t in np.linspace(-1, 1, n)]
-        top_c = curve(-1.2, 0.0)
-        bot_c = curve(-1.2, 3.0)
+        top_c = curve(-1.4, 0.0)
+        bot_c = curve(-1.4, 3.7)
         mid_c = curve(-1.0, 1.3)
         d.polygon([(S(x), S(y)) for x, y in top_c + bot_c[::-1]], fill=MOUTH)
         d.polygon([(S(x), S(y)) for x, y in top_c + mid_c[::-1]], fill=TEETH)
@@ -707,7 +732,7 @@ def draw_face(img, L, direction, eyes_o, wp, head_box):
     front = ((row.max() if fx > 0 else row.min()) / SS) if len(row) else ex + fx * 4
     mx = front - fx * 1.7
     # cheek and nose shade
-    ell(d, ex - fx * 0.6, ey + 4.2, 2.0, 1.5, CHEEK)
+    ell(d, ex - fx * 0.6, ey + 4.4, 2.5, 1.9, CHEEK)
     ell(d, ex + fx * 2.6, ey + 3.3, 1.2, 0.9, SKIN_SHADE)
     ell(d, ex + fx * 2.4, ey + 3.7, 0.35, 0.28, SKIN_LINE)
     lx0, lx1 = sorted((ex - fx * 1.6, ex + fx * 1.4))
@@ -721,8 +746,8 @@ def draw_face(img, L, direction, eyes_o, wp, head_box):
     # glasses arm back to the ear
     tline(d, [(ex - fx * 1.6, ey - 1.0), (wp.hcx_o + fx * 0.2, ey - 1.5)], GLASS, 0.9)
     # smile, mustache, chin patch
-    a0, a1 = sorted((mx + fx * 0.2, mx - fx * 4.0))
-    d.chord([S(a0), S(my - 1.4), S(a1), S(my + 2.6)], 0, 180, fill=MOUTH)
+    a0, a1 = sorted((mx + fx * 0.2, mx - fx * 4.6))
+    d.chord([S(a0), S(my - 1.4), S(a1), S(my + 3.2)], 0, 180, fill=MOUTH)
     d.chord([S(a0 + 0.3), S(my - 1.3), S(a1 - 0.2), S(my + 1.2)], 0, 180, fill=TEETH)
     # upturned smile corner at the cheek
     tline(d, [(mx - fx * 3.6, my + 0.6), (mx - fx * 4.3, my - 0.4)], SKIN_LINE, 0.45)
@@ -1092,7 +1117,7 @@ def billyfy(src_f, direction, anim, col, meta, memo, wp, idle_f):
     cyb = hy.max()
     ax = float(np.median(hx[hy >= cyb - 2 * SS]))
     ay = float(cyb)
-    k_ = HEAD_SCALE
+    k_ = HEAD_SCALE * (0.94 if direction in BACK else 1.0)
     big = Image.fromarray(hl_, "RGBA").transform(
         body.size, Image.AFFINE, (1 / k_, 0, ax - ax / k_, 0, 1 / k_, ay - ay / k_), resample=Image.NEAREST)
     body = Image.alpha_composite(body, big)
