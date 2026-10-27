@@ -494,22 +494,41 @@ def ell(d, cx, cy, rx, ry, col, outline=None, width=0.5):
 
 
 CHEEK = (200, 142, 112)
-LENS = (214, 166, 138)
-MOUTH = (96, 34, 34)
+LENS = (222, 176, 150)
+MOUTH = (82, 38, 36)
 
 
 def _blend(c, k, t):
     return tuple(int(round(a * (1 - t) + b * t)) for a, b in zip(c, k))
 
 
-def smile_eye(d, ex, ey, hw):
-    """a natural open eye: white, dark-brown iris with a pupil and catchlight,
-    and a soft upper lid line"""
-    ell(d, ex, ey, hw * 1.05, 1.0, (250, 248, 244))
-    ell(d, ex, ey + 0.05, 0.62, 0.72, (60, 38, 28))
-    ell(d, ex, ey + 0.05, 0.3, 0.34, (18, 14, 14))
-    ell(d, ex - 0.25, ey - 0.3, 0.2, 0.2, (255, 255, 255))
-    d.arc([S(ex - hw - 0.1), S(ey - 1.05), S(ex + hw + 0.1), S(ey + 1.0)], 190, 350, fill=EYE, width=max(1, int(S(0.5))))
+def smile_eye(d, ex, ey, hw, side=0, ry=1.9, half=False, fx=0):
+    """big friendly cartoon eye (James's scale) with a gentle almond shape:
+    white, brown iris, pupil, catchlight, a bold soft upper lid. side tilts
+    the outer corner up a little. half: profile eye (front half only)."""
+    img = d._image
+    n = 15
+    ts = np.linspace(-1, 1, n)
+    up = [(ex + hw * t, ey - ry * (1 - t * t) ** 0.6 - 0.25 * side * t) for t in ts]
+    lo = [(ex + hw * t, ey + ry * 0.85 * (1 - t * t) ** 0.8 - 0.1 * side * t) for t in ts]
+    poly = [(S(x), S(y)) for x, y in up + lo[::-1]]
+    m = Image.new("L", img.size, 0)
+    ImageDraw.Draw(m).polygon(poly, fill=255)
+    lay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ld = ImageDraw.Draw(lay)
+    ld.polygon(poly, fill=(250, 248, 244, 255))
+    ix = ex + (0.35 * fx if half else 0.15 * fx)
+    r = ry * 0.62
+    ld.ellipse([S(ix - r), S(ey - r + 0.1), S(ix + r), S(ey + r + 0.1)], fill=(84, 52, 34, 255))
+    ld.ellipse([S(ix - r * 0.55), S(ey - r * 0.55 + 0.1), S(ix + r * 0.55), S(ey + r * 0.55 + 0.1)], fill=(16, 12, 12, 255))
+    ld.ellipse([S(ix - r * 0.55 - 0.15), S(ey - r * 0.6), S(ix - r * 0.55 + 0.45), S(ey - r * 0.6 + 0.6)], fill=(255, 255, 255, 255))
+    la = np.asarray(lay).copy()
+    la[..., 3] = np.minimum(la[..., 3], np.asarray(m))
+    img.alpha_composite(Image.fromarray(la, "RGBA"))
+    d2 = ImageDraw.Draw(img)
+    # bold soft upper lid, thin lower line
+    d2.line([(S(x), S(y - 0.15)) for x, y in up], fill=EYE, width=max(1, int(S(0.75))), joint="curve")
+    d2.line([(S(x), S(y)) for x, y in lo[3:-3]], fill=SKIN_LINE, width=max(1, int(S(0.35))), joint="curve")
 
 
 def draw_face(img, L, direction, eyes_o, wp, head_box):
@@ -529,11 +548,11 @@ def draw_face(img, L, direction, eyes_o, wp, head_box):
         else:
             return None
         ey = (ly + ry) / 2
-        sp = float(np.clip(rx - lx, 6.2, 6.6))
+        sp = float(np.clip(rx - lx, 7.0, 7.2))
         mid = (lx + rx) / 2 + fx * 0.3
         lx, rx = mid - sp / 2, mid + sp / 2
-        hw_l = 2.4 * (0.8 if fx > 0 else 1.0)
-        hw_r = 2.4 * (0.8 if fx < 0 else 1.0)
+        hw_l = 2.9 * (0.8 if fx > 0 else 1.0)
+        hw_r = 2.9 * (0.8 if fx < 0 else 1.0)
         mx = mid + fx * 0.9
         my = ey + 6.4
         # full rounded cheeks: soft flat shade
@@ -546,33 +565,33 @@ def draw_face(img, L, direction, eyes_o, wp, head_box):
             ell(d, mx + k * 0.8, ey + 3.95, 0.38, 0.3, SKIN_LINE)
         # lenses (warm tint) with the smiling eyes behind them
         for ex, hw in ((lx, hw_l), (rx, hw_r)):
-            d.rounded_rectangle([S(ex - hw), S(ey - 1.9), S(ex + hw), S(ey + 1.8)], radius=S(0.6), fill=LENS)
-            smile_eye(d, ex + fx * 0.3, ey + 0.1, hw * 0.62)
+            d.rounded_rectangle([S(ex - hw), S(ey - 2.75), S(ex + hw), S(ey + 2.45)], radius=S(0.8), fill=LENS)
+            smile_eye(d, ex + fx * 0.3, ey + 0.1, hw * 0.86, side=(1 if ex > mid else -1), fx=fx)
         # defined dark eyebrows, slightly arched
         for ex, hw, sg in ((lx, hw_l, -1), (rx, hw_r, 1)):
-            tline(d, [(ex - sg * hw * 0.8, ey - 3.75), (ex + sg * hw * 0.1, ey - 4.15), (ex + sg * hw * 0.95, ey - 3.55)], BROW, 1.2)
+            tline(d, [(ex - sg * hw * 0.8, ey - 4.3), (ex + sg * hw * 0.1, ey - 4.75), (ex + sg * hw * 0.95, ey - 4.2)], BROW, 1.15)
         # thick black rectangular frames + bridge + temples
         for ex, hw in ((lx, hw_l), (rx, hw_r)):
-            d.rounded_rectangle([S(ex - hw), S(ey - 1.9), S(ex + hw), S(ey + 1.8)], radius=S(0.6), outline=GLASS, width=W_(0.8))
+            d.rounded_rectangle([S(ex - hw), S(ey - 2.75), S(ex + hw), S(ey + 2.45)], radius=S(0.8), outline=GLASS, width=W_(0.6))
             # glint
-            tline(d, [(ex + hw * 0.35, ey - 1.0), (ex + hw * 0.62, ey - 1.0)], (235, 240, 245), 0.5)
+            tline(d, [(ex + hw * 0.55, ey - 1.9), (ex + hw * 0.8, ey - 1.6)], (235, 240, 245), 0.45)
         tline(d, [(lx + hw_l - 0.2, ey - 1.0), (mid, ey - 1.35), (rx - hw_r + 0.2, ey - 1.0)], GLASS, 1.2)
         tline(d, [(lx - hw_l, ey - 1.2), (max(x0 + 0.4, lx - hw_l - 2.4), ey - 1.5)], GLASS, 1.1)
         tline(d, [(rx + hw_r, ey - 1.2), (min(x1 - 0.4, rx + hw_r + 2.4), ey - 1.5)], GLASS, 1.1)
         # wide toothy smile
-        mw = 3.3 if fx == 0 else 2.9
+        mw = 4.2 if fx == 0 else 3.6
         def curve(y_end, y_mid, n=9):
             return [(mx + mw * t, my + y_end + (y_mid - y_end) * (1 - t * t)) for t in np.linspace(-1, 1, n)]
-        top_c = curve(-0.55, 0.05)
-        bot_c = curve(-0.55, 1.45)
-        mid_c = curve(-0.45, 0.75)
+        top_c = curve(-0.8, 0.1)
+        bot_c = curve(-0.8, 2.2)
+        mid_c = curve(-0.65, 1.05)
         d.polygon([(S(x), S(y)) for x, y in top_c + bot_c[::-1]], fill=MOUTH)
         d.polygon([(S(x), S(y)) for x, y in top_c + mid_c[::-1]], fill=TEETH)
         tline(d, bot_c[1:-1], SKIN_LINE, 0.4)
         # thin dark mustache, a small chin patch
-        tline(d, [(mx - mw * 0.95, my - 0.75), (mx - mw * 0.5, my - 1.15), (mx, my - 1.05),
-                  (mx + mw * 0.5, my - 1.15), (mx + mw * 0.95, my - 0.75)], STACHE, 0.85)
-        ell(d, mx, my + 3.7, 0.8, 0.6, STACHE)
+        tline(d, [(mx - mw * 1.0, my - 0.75), (mx - mw * 0.55, my - 1.35), (mx, my - 1.2),
+                  (mx + mw * 0.55, my - 1.35), (mx + mw * 1.0, my - 0.75)], STACHE, 1.35)
+        ell(d, mx, my + 3.5, 0.95, 0.65, STACHE)
         return (mx, my)
     # profile
     if not eyes_o:
@@ -589,19 +608,21 @@ def draw_face(img, L, direction, eyes_o, wp, head_box):
     ell(d, ex + fx * 2.6, ey + 3.3, 1.2, 0.9, SKIN_SHADE)
     ell(d, ex + fx * 2.4, ey + 3.7, 0.35, 0.28, SKIN_LINE)
     lx0, lx1 = sorted((ex - fx * 1.6, ex + fx * 1.4))
-    d.rounded_rectangle([S(lx0), S(ey - 2.0), S(lx1), S(ey + 1.9)], radius=S(0.5), fill=LENS)
-    smile_eye(d, ex + fx * 0.3, ey + 0.1, 0.8)
+    ex -= fx * 1.2
+    lx0, lx1 = sorted((ex - fx * 2.2, ex + fx * 1.5))
+    d.rounded_rectangle([S(lx0), S(ey - 2.75), S(lx1), S(ey + 2.45)], radius=S(0.6), fill=LENS)
+    smile_eye(d, ex, ey + 0.1, 1.5, side=fx, half=True, fx=fx)
     tline(d, [(ex - fx * 1.7, ey - 3.1), (ex, ey - 3.7), (ex + fx * 1.6, ey - 3.4)], BROW, 1.25)
-    d.rounded_rectangle([S(lx0), S(ey - 2.0), S(lx1), S(ey + 1.9)], radius=S(0.5), outline=GLASS, width=W_(0.95))
+    d.rounded_rectangle([S(lx0), S(ey - 2.75), S(lx1), S(ey + 2.45)], radius=S(0.6), outline=GLASS, width=W_(0.6))
     tline(d, [(ex + fx * 0.3, ey - 1.15), (ex + fx * 0.9, ey - 1.15)], (255, 255, 255), 0.45)
     # glasses arm back to the ear
     tline(d, [(ex - fx * 1.6, ey - 1.0), (wp.hcx_o + fx * 0.2, ey - 1.5)], GLASS, 0.9)
     # smile, mustache, chin patch
-    a0, a1 = sorted((mx, mx - fx * 2.6))
-    d.chord([S(a0), S(my - 1.0), S(a1), S(my + 1.3)], 0, 180, fill=MOUTH)
-    d.chord([S(a0 + 0.3), S(my - 0.9), S(a1 - 0.3), S(my + 0.6)], 0, 180, fill=TEETH)
+    a0, a1 = sorted((mx, mx - fx * 3.4))
+    d.chord([S(a0), S(my - 1.3), S(a1), S(my + 2.0)], 0, 180, fill=MOUTH)
+    d.chord([S(a0 + 0.3), S(my - 1.2), S(a1 - 0.2), S(my + 1.0)], 0, 180, fill=TEETH)
     tline(d, [(mx - fx * 3.0, my + 0.4), (mx - fx * 3.2, my - 0.1)], SKIN_LINE, 0.45)
-    tline(d, [(mx - fx * 3.0, my - 0.3), (mx - fx * 1.3, my - 1.15), (mx + fx * 0.4, my - 0.85)], STACHE, 0.85)
+    tline(d, [(mx - fx * 3.6, my - 0.2), (mx - fx * 1.6, my - 1.3), (mx + fx * 0.4, my - 1.0)], STACHE, 1.3)
     ell(d, mx - fx * 1.1, my + 3.2, 0.9, 0.72, STACHE)
     return (mx, my)
 
