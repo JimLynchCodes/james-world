@@ -222,7 +222,7 @@ def arm_parts(sh, elbow, hand, skin, sleeve=0.4):
     return [
         (capsule_fn(sh, 2.7, elbow, 2.35), skin),
         (capsule_fn(elbow, 2.35, wrist, 2.0), skin),
-        (capsule_fn(sh, 3.1, sleeve_end, 2.9), WHITE),
+        (capsule_fn(sh, 2.6, sleeve_end, 2.45), WHITE),
         (capsule_fn(band0, 2.35, wrist, 2.35), BAND),
         (capsule_fn(sh0, 1.3, sh1, 1.3), BAND_SHADE),
         (disc_fn(hand, 2.45), skin),
@@ -231,10 +231,17 @@ def arm_parts(sh, elbow, hand, skin, sleeve=0.4):
 
 # swing: shoulder->hand angle (deg, screen, y down) over the 6 tag frames, for
 # a right-hand-side (+1) arm; racket angle = arm angle + lag
+def _arc(a0, a1, l0, l1, n=6):
+    """n evenly spaced poses on one arc: equal arm steps, linearly changing
+    racket lag (so the racket angle changes monotonically)"""
+    return ([a0 + (a1 - a0) * i / (n - 1) for i in range(n)],
+            [l0 + (l1 - l0) * i / (n - 1) for i in range(n)])
+
+
 SWING = {
-    "profile": ([168, 142, 108, 66, 28, 6], [-35, -32, -26, -30, -38, -48]),
-    "front": ([-20, 15, 55, 95, 128, 150], [-40, -25, -5, 15, 30, 35]),
-    "back": ([120, 88, 55, 22, -2, -18], [25, 0, -20, -35, -45, -50]),
+    "profile": _arc(165, 5, -34, -49),
+    "front": _arc(-20, 150, -40, 35),
+    "back": _arc(120, -20, 25, -50),
 }
 
 
@@ -399,12 +406,12 @@ def shift(img, dx, dy):
 
 
 def tag_base(f, g, direction, side, idle_f):
-    """base tag frame with its tagging arm removed: head + legs from the tag
-    frame, torso from the direction's idle frame (aligned), idle's tag-side
-    arm removed too, so the drawn swing arm is the only arm on that side"""
+    """tag body: the direction's idle frame (head, torso, legs: steady, no
+    pops), its swing-side arm removed / painted over and the notches closed,
+    so the drawn swing arm is the only arm on that side"""
     gi = Geometry(idle_f)
-    dx, dy = int(round(g.hip_cx - gi.hip_cx)), int(g.neck - gi.neck)
-    idl = shift(idle_f, dx, dy)
+    # the whole body comes from idle (no shift): steady head/torso/legs
+    idl = idle_f.copy()
     gi = Geometry(idl) if alpha_mask(idl).any() else gi
     h, w = f.shape[:2]
     yy, xx = np.mgrid[0:h, 0:w]
@@ -423,6 +430,19 @@ def tag_base(f, g, direction, side, idle_f):
         if len(xs) >= 2:
             over_t[y, xs.min() + 1:xs.max()] = True
     over_t &= rm
+    if direction in PROFILE or direction in ("NE", "NW"):
+        # the hanging arm lies over the body here: repaint all of it so the
+        # idle silhouette is kept whole (no chunk out of chest / back)
+        over_t = rm & ai
+    # arm pixels inside the torso core (hip centre +- half hem width - 3)
+    # are always torso: repaint, never cut (no chunk out of the body)
+    ys = np.nonzero(ai.any(1))[0]
+    hb = ys.max() - 6
+    hem = np.nonzero(ai[hb - 8:hb])[1]
+    if len(hem):
+        hx = int(np.median(hem))
+        core = (hem.max() - hem.min()) // 2 - 3
+        over_t |= rm & ai & (np.abs(xx - hx) <= core)
     inner = ai.copy()
     for sy, sx in ((0, 1), (0, -1), (1, 0), (-1, 0)):
         inner &= np.roll(ai & (keep | over_t), (sy, sx), (0, 1))
@@ -439,24 +459,25 @@ def tag_base(f, g, direction, side, idle_f):
         idl[over_t & inner & m, :3] = col
     idl[over_t & ~inner, :3] = (22, 24, 30)
     idl[rm & ~over_t] = 0
-    out = np.zeros_like(f)
-    top = yy <= g.neck + 1
-    # head of the tag frame, limited to the idle head silhouette (+2px) so a
-    # raised hand / arm above the shoulder never stays
-    ih = grow(alpha_mask(idl) & (yy <= gi.neck + 1), np.ones_like(top), 2)
-    out[top & ih] = f[top & ih]
-    mid = (yy > g.neck + 1) & (yy <= g.hem)
-    out[mid] = idl[mid]
-    low = yy > g.hem
-    face = (yy <= g.neck + 1) & skin_mask(f)
-    arms_t, _ = arms_and_hands(f, g, face)
-    leg = f.copy()
-    leg[arm_comps_on(arms_t, g, direction, side)] = 0
-    out[low] = leg[low]
-    if direction in PROFILE:
-        # side view head: only what the idle head shows (no far ear / hand)
-        out[top & ~ih] = 0
-    return out
+    # close notches the arm removal left (armpit / chest / back): every
+    # transparent pixel between body pixels of a torso row becomes tee/shorts
+    ai = alpha_mask(idl)
+    for y in range(int(gi.neck) + 2, int(gi.hem) + 1):
+        xs = np.nonzero(ai[y])[0]
+        if len(xs) < 2:
+            continue
+        hole = np.zeros(w, bool)
+        hole[xs.min():xs.max() + 1] = True
+        hole &= ~ai[y]
+        if hole.any():
+            idl[y, hole, :3] = tee_c if y < waist else sh_c
+            idl[y, hole, 3] = 255
+    # the outer edge where the arm was cut off gets an outline pixel
+    ai = alpha_mask(idl)
+    edge = ai & ~np.roll(ai, 1, 1) | ai & ~np.roll(ai, -1, 1)
+    cut = edge & grow(rm & ~over_t, np.ones_like(ai), 1) & (yy > gi.neck + 1)
+    idl[cut, :3] = (22, 24, 30)
+    return idl
 
 
 def tennify(frame, direction, anim, col, meta, memo, env_memo):
@@ -483,7 +504,14 @@ def tennify(frame, direction, anim, col, meta, memo, env_memo):
     head = a & (yy <= g.neck + 1)
     rc = headband(rc, g, head)
     rc = wrist_bands(rc, g, hands, None, skin)
-    skin_rgb = tuple(int(v) for v in np.median(f[skin & ~face][:, :3], 0)) if (skin & ~face).any() else (240, 180, 130)
+    # arm skin colour: the base's own lit skin (face + limbs), never shadows
+    sk_all = skin_mask(f)
+    if sk_all.any():
+        px_ = f[sk_all][:, :3].astype(int)
+        px_ = px_[px_.sum(1) >= np.percentile(px_.sum(1), 50)]
+        skin_rgb = tuple(int(v) for v in np.median(px_, 0))
+    else:
+        skin_rgb = (246, 182, 132)
 
     behind = False
     drawn = None

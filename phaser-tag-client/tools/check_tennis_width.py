@@ -120,11 +120,11 @@ for r, d in enumerate(bm["directions"]):
         else:
             # tag: the swing arm sits on one side, so compare the torso's
             # far-side half width (and the profile back edge) with idle,
-            # centred on the hips of each frame
+            # centred on the idle hips
             sd = TAG_SIDE.get(d, 1) or 1
             gb0, gb = Geometry(pad(b0)), Geometry(pad(b))
             h0 = cx0
-            ht = cx0 + int(round(gb.hip_cx - gb0.hip_cx))
+            ht = h0  # tag body is the idle body (unshifted, steady)
             for nm, rows in (("shoulder", SH), ("waist", WA)):
                 rr = [y + py for y in rows]
                 fi, ft = far(t0, rr, h0, -sd), far(t, rr, ht, -sd, True)
