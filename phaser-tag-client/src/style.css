@@ -1616,7 +1616,7 @@ html[dir="rtl"] .settings-title {
 /* Centaur frames have room under the hooves (galloping legs): sit him on
    the same ground line as everyone else */
 .skin-card[data-skin="centaur"] .skin-preview {
-  bottom: calc(var(--draw) * -6px);
+  bottom: calc(var(--draw) * -12px);
   /* the card uses the first of the two sheets (16 columns) */
   background-size: calc(var(--fw) * var(--draw) * 16px) calc(var(--fh) * var(--draw) * 8px);
 }

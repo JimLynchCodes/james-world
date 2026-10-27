@@ -42,7 +42,7 @@ from make_tuxedo_skin import close_streaks
 HERE = Path(__file__).resolve().parent
 ASSETS = HERE.parent / "public" / "assets"
 
-OW, OH = 152, 144          # output frame
+OW, OH = 152, 150          # output frame
 BASE_Y = 134               # ground line (baselineY)
 ANCHOR_X = OW // 2
 SS = 4
@@ -55,7 +55,7 @@ PROFILE = {"E": 1, "W": -1}
 BACK = {"NW": -1, "N": 0, "NE": 1}
 
 COAT = (156, 86, 42)
-COAT_LIGHT = (178, 106, 58)
+COAT_LIGHT = (192, 120, 68)
 COAT_DARK = (70, 38, 22)
 COAT_SHADE = (126, 66, 32)
 HOOF = (34, 26, 22)
@@ -68,15 +68,16 @@ BODY_L = 42.0              # chest to rump
 BODY_R = 11.5
 BODY_Z = 30.0
 HIP_Z = 28.0
-LEG_SIDE = 5.5
-HIND_SIDE = 7.0
+LEG_SIDE = 5.6
+HIND_SIDE = 6.6
 # the horse sits a little behind the anchor (and the rider a little in front)
 # so turning round doesn't throw the rider a whole body length
 CENTER_BACK = 7.0
+HS = 1.3                  # the horse model is drawn this much bigger
 LIFT = 6                  # rider's chest is this much taller than the kid's
 LEAD_COLS = 16            # columns 0-15 in kid_centaur.png, 16-29 in kid_centaur_b.png
 WAIST_Z = 37.0
-WAIST_FWD = 16.0
+WAIST_FWD = 18.0
 
 
 def S(v):
@@ -172,6 +173,7 @@ class Horse:
         return ANCHOR_X + gx, BASE_Y + gy * PROJ - z
 
     def pt(self, along, side, z):
+        along, side, z = along * HS, side * HS, z * HS
         gx, gy = self.g(along, side)
         return self.scr(gx, gy, z)
 
@@ -180,183 +182,254 @@ class Horse:
 
 
 
-def barrel_layer(h: Horse, split_depth, withers):
-    """The horse body: a barrel of spheres with a breast in front, shoulders
-    and haunches either side, and a withers mound that the rider's waist
-    sinks into. Returns the full body and the part in front of split_depth
-    (the full silhouette cut by a mask, so there are no inner outlines)."""
-    im, d = layer()
-    blobs = []          # (along, side, z, r)
-    n = 16
-    for i in range(n + 1):
-        t = i / n
-        along = BODY_L / 2 - t * BODY_L
-        r = (10.0 + 2.4 * math.exp(-((t - 0.14) / 0.16) ** 2) + 2.2 * math.exp(-((t - 0.86) / 0.15) ** 2))
-        z = (BODY_Z + h.bob + 1.2 * math.exp(-((t - 0.12) / 0.16) ** 2)
-             + 1.6 * math.exp(-((t - 0.86) / 0.15) ** 2) + 0.8 * (t - 0.5))
-        blobs.append((along, 0.0, z, r))
-    for sd in (-1, 1):
-        blobs.append((BODY_L / 2 + 1.8, sd * 4.0, BODY_Z - 3.5 + h.bob, 8.0))   # breast, two lobes
-    for sd in (-1, 1):
-        blobs.append((BODY_L / 2 - 5.0, sd * 7.0, BODY_Z - 3.0 + h.bob, 8.0))  # shoulders
-        blobs.append((-BODY_L / 2 + 5.0, sd * 7.5, BODY_Z - 1.0 + h.bob, 8.8))  # haunches
-    wx, wy, wrx, wry = withers
-    for col, extra, lift in ((LINE, 0.75, 0.0), (COAT_SHADE, 0.0, 0.0), (COAT, -1.6, 1.6)):
-        for along, sd, z, r in blobs:
-            x, y = h.pt(along, sd, z)
-            y -= lift
-            rr = r + extra
-            d.ellipse([S(x - rr), S(y - rr), S(x + rr), S(y + rr)], fill=col)
-        e = extra if extra > 0 else 0.0
-        c2 = COAT if col == COAT_SHADE else col
-        d.ellipse([S(wx - wrx - e), S(wy - wry - e), S(wx + wrx + e), S(wy + wry * 2.5 + e)], fill=c2)
-    m = Image.new("L", im.size, 0)
-    md = ImageDraw.Draw(m)
-    for along, sd, z, r in blobs:
-        if h.depth(along, sd) >= split_depth - 0.5:
-            x, y = h.pt(along, sd, z)
-            rr = r + 0.8
-            md.ellipse([S(x - rr), S(y - rr), S(x + rr), S(y + rr)], fill=255)
-    md.ellipse([S(wx - wrx - 0.8), S(wy - wry - 0.8), S(wx + wrx + 0.8), S(wy + wry * 2.5 + 0.8)], fill=255)
-    front = Image.new("RGBA", im.size, (0, 0, 0, 0))
-    front.paste(im, (0, 0), m)
-    return im, front
+# --- drawing helpers ---------------------------------------------------------------
+def hull(pts):
+    pts = sorted(set((round(x, 3), round(y, 3)) for x, y in pts))
+    if len(pts) < 3:
+        return pts
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    lo, hi = [], []
+    for p in pts:
+        while len(lo) >= 2 and cross(lo[-2], lo[-1], p) <= 0:
+            lo.pop()
+        lo.append(p)
+    for p in reversed(pts):
+        while len(hi) >= 2 and cross(hi[-2], hi[-1], p) <= 0:
+            hi.pop()
+        hi.append(p)
+    return lo[:-1] + hi[:-1]
 
 
-def torso_layer(direction, c, y0, y1, skin):
-    """A broad, muscular bare torso (SS RGBA) from the neck (y0) to just
-    below the waist (y1): flat skin, flat shade shapes, a few muscle lines."""
-    shade = tuple(int(v * 0.86) for v in skin)
-    dark = tuple(int(v * 0.7) for v in skin)
-    light = tuple(min(255, int(v * 1.06)) for v in skin)
-    th = max(8.0, y1 - y0)
-    py = y0 + th * 0.42          # bottom of the pecs
-    yb = y1 + 4.0
-    if direction in PROFILE:
-        fc = PROFILE[direction]
-        back = bez((c - fc * 2.6, y0 - 1.0), (c - fc * 6.6, y0 + 1.5), (c - fc * 5.6, y0 + th * 0.45), 8)
-        back += bez((c - fc * 5.6, y0 + th * 0.45), (c - fc * 4.4, y0 + th * 0.8), (c - fc * 4.2, yb), 6)[1:]
-        front = bez((c + fc * 4.4, yb), (c + fc * 4.0, py + 2.0), (c + fc * 5.4, py + 1.0), 6)
-        front += bez((c + fc * 5.4, py + 1.0), (c + fc * 7.6, y0 + 2.5), (c + fc * 2.4, y0 - 0.4), 8)[1:]
-        outline = back + front
-    else:
-        lean = FRONT.get(direction, BACK.get(direction, 0))
-        W = 12.0 if lean == 0 else 10.5
-        c += lean * 0.8
-        wl, wr = (W * (0.9 if lean > 0 else 1.0), W * (0.9 if lean < 0 else 1.0))
-        R = [(c + 3.0, y0 - 1.0), (c + wr - 2.6, y0 + 0.4)]
-        R += bez((c + wr - 2.6, y0 + 0.4), (c + wr + 1.0, y0 + 0.9), (c + wr + 0.2, y0 + 5.0), 7)[1:]
-        R += bez((c + wr + 0.2, y0 + 5.0), (c + wr - 0.6, y0 + th * 0.65), (c + 5.8, yb), 7)[1:]
-        L = [(2 * c - x, y) for x, y in R]
-        L = [(c - (x - c) * wl / wr, y) for x, y in R]
-        outline = R + L[::-1]
-    im, d = layer()
-    P = lambda pts: [(S(x), S(y)) for x, y in pts]
-    d.polygon(P(outline), fill=skin)
-    lw = int(S(0.55))
-    if direction in FRONT:
-        lean = FRONT[direction]
-        cc = c + lean * 0.6
-        # side shade (light from the upper left), under-pec shadows, abs
-        d.polygon(P([(cc + W * 0.62, y0 + 3), (cc + W + 2, y0 + 3), (cc + W + 2, yb), (cc + 4.2, yb), (cc + W * 0.5, py + 2)]), fill=shade)
-        for sg in (-1, 1):
-            pec = bez((cc + sg * (W - 1.8), py - 3.0), (cc + sg * 4.0, py + 1.8), (cc + sg * 0.3, py - 0.2), 8)
-            d.polygon(P(pec + [(cc + sg * 0.3, py + 1.1), (cc + sg * 4.0, py + 2.6), (cc + sg * (W - 2.2), py - 1.4)]), fill=shade)
-            d.line(P(pec), fill=dark, width=lw, joint="curve")
-            # a highlight on the upper pec
-            d.line(P(bez((cc + sg * 2.0, y0 + 2.2), (cc + sg * 4.5, y0 + 1.6), (cc + sg * 6.5, y0 + 2.8), 6)), fill=light, width=lw)
-        d.line(P([(cc, py), (cc, yb - 3.0)]), fill=dark, width=lw)
-        rows = [py + (yb - 3.0 - py) * q for q in (0.33, 0.66)]
-        for yq in rows:
-            for sg in (-1, 1):
-                d.line(P([(cc + sg * 0.6, yq + 0.3), (cc + sg * 3.0, yq - 0.2)]), fill=dark, width=lw)
-        # obliques
-        for sg in (-1, 1):
-            d.line(P(bez((cc + sg * (W - 2.0), py + 1.5), (cc + sg * 4.6, py + 5.0), (cc + sg * 4.4, yb - 1.0), 6)), fill=shade, width=lw)
-    elif direction in BACK:
-        lean = BACK[direction]
-        cc = c + lean * 0.6
-        d.polygon(P([(cc + W * 0.6, y0 + 3), (cc + W + 2, y0 + 3), (cc + W + 2, yb), (cc + 4.2, yb), (cc + W * 0.5, py + 2)]), fill=shade)
-        d.line(P([(cc, y0 + 1.5), (cc, yb - 2.0)]), fill=dark, width=lw)
-        for sg in (-1, 1):
-            blade = bez((cc + sg * 2.0, y0 + 2.5), (cc + sg * 2.6, py + 2.5), (cc + sg * 6.4, py + 0.6), 7)
-            d.line(P(blade), fill=dark, width=lw)
-            d.line(P(bez((cc + sg * 6.6, py + 3.0), (cc + sg * 4.4, py + 5.5), (cc + sg * 3.2, yb - 1.5), 6)), fill=shade, width=lw)
-    else:
-        fc = PROFILE[direction]
-        d.polygon(P([(c - fc * 6, y0 + 3), (c - fc * 2.6, y0 + 3), (c - fc * 2.2, yb), (c - fc * 6, yb)]), fill=shade)
-        pec = bez((c + fc * 1.0, y0 + 2.5), (c + fc * 2.6, py + 1.8), (c + fc * 5.4, py + 1.0), 7)
-        d.polygon(P(pec + [(c + fc * 5.0, py + 2.4), (c + fc * 2.2, py + 2.8)]), fill=shade)
-        d.line(P(pec), fill=dark, width=lw)
-        for q in (0.35, 0.7):
-            yq = py + (yb - 3 - py) * q
-            d.line(P([(c + fc * 3.0, yq), (c + fc * 4.4, yq + 0.2)]), fill=dark, width=lw)
-    m = Image.new("L", im.size, 0)
-    ImageDraw.Draw(m).polygon(P(outline), fill=255)
-    out = Image.new("RGBA", im.size, (0, 0, 0, 0))
-    out.paste(im, (0, 0), m)
-    od = ImageDraw.Draw(out)
-    pts = P(outline)
-    od.line(pts + [pts[0]], fill=SKIN_LINE, width=int(S(0.75)), joint="curve")
+def circle_pts(c, r, n=16):
+    return [(c[0] + r * math.cos(a), c[1] + r * math.sin(a)) for a in np.linspace(0, 2 * math.pi, n, endpoint=False)]
+
+
+def capsule(p1, r1, p2, r2):
+    return hull(circle_pts(p1, r1) + circle_pts(p2, r2))
+
+
+def new_mask():
+    return Image.new("L", (OW * SS, OH * SS), 0)
+
+
+def poly_mask(polys, m=None):
+    m = m or new_mask()
+    d = ImageDraw.Draw(m)
+    for p in polys:
+        if len(p) >= 3:
+            d.polygon([(S(x), S(y)) for x, y in p], fill=255)
+    return m
+
+
+def ell_mask(cx, cy, rx, ry, m=None):
+    m = m or new_mask()
+    ImageDraw.Draw(m).ellipse([S(cx - rx), S(cy - ry), S(cx + rx), S(cy + ry)], fill=255)
+    return m
+
+
+def B(m):
+    return np.asarray(m) > 127
+
+
+def nshift(a, dx, dy):
+    out = np.zeros_like(a)
+    h, w = a.shape[:2]
+    ys, ye = max(0, dy), min(h, h + dy)
+    xs, xe = max(0, dx), min(w, w + dx)
+    out[ys:ye, xs:xe] = a[ys - dy:ye - dy, xs - dx:xe - dx]
     return out
 
 
-def leg_layer(h: Horse, along, side, swing, lift, hind, run):
-    im, d = layer()
-    fwd = 1 if not hind else -1
-    hip = (along, side, HIP_Z + h.bob)
-    foot = (along + swing, side, lift)
-    knee_z = 13.5 + lift * 0.4
-    k_al = (hip[0] + foot[0]) / 2 + (1.2 if not hind else -1.8) + fwd * lift * 0.5
-    knee = (k_al, side, knee_z)
-    if hind:
-        # gaskin bulge: thigh goes back first
-        thigh = (along - 2.0, side, HIP_Z - 7 + h.bob)
-        upper = [hip, thigh, knee]
+def rim(mask, dx, dy):
+    """the band of mask that faces (dx, dy) in SS pixels: flat form shadow"""
+    return mask & ~nshift(mask, -dx, -dy)
+
+
+def paint(regions, line, line_w=0.75, outline=True):
+    """regions: [(bool mask, colour)], later wins. Outline the union."""
+    union = np.zeros((OH * SS, OW * SS), bool)
+    rgb = np.zeros((OH * SS, OW * SS, 3), np.uint8)
+    for m, col in regions:
+        union |= m
+        rgb[m] = col
+    if outline:
+        k = int(round(line_w * SS)) * 2 + 1
+        inner = B(Image.fromarray((union * 255).astype(np.uint8)).filter(ImageFilter.MinFilter(k)))
+        rgb[union & ~inner] = line
+    return Image.fromarray(np.dstack([rgb, (union * 255).astype(np.uint8)]), "RGBA")
+
+
+def strokes(im, lines, width=0.6):
+    """draw detail lines, clipped to im's alpha"""
+    tmp = im.copy()
+    d = ImageDraw.Draw(tmp)
+    for pts, col in lines:
+        d.line([(S(x), S(y)) for x, y in pts], fill=col, width=max(1, int(S(width))), joint="curve")
+    out = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    out.paste(tmp, (0, 0), im.getchannel("A"))
+    return out
+
+
+def catmull(rows, n):
+    """resample a list of tuples (first item = along) smoothly to n rows"""
+    rows = [rows[0]] + rows + [rows[-1]]
+    out = []
+    segs = len(rows) - 3
+    for i in range(n):
+        u = i / (n - 1) * segs
+        j = min(int(u), segs - 1)
+        t = u - j
+        p0, p1, p2, p3 = rows[j], rows[j + 1], rows[j + 2], rows[j + 3]
+        out.append(tuple(0.5 * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t
+                               + (-a + 3 * b - 3 * c + d) * t ** 3) for a, b, c, d in zip(p0, p1, p2, p3)))
+    return out
+
+
+# --- horse body ---------------------------------------------------------------------
+# (along, top z, bottom z, half width). Arched chest in front, withers under
+# the rider, a gently sloping back, a high round croup and buttocks, and a
+# belly that tucks up towards the flank.
+SECTIONS = [
+    (25.0, 30.5, 24.5, 3.0),
+    (23.6, 34.6, 20.8, 7.0),
+    (21.0, 37.0, 17.6, 9.6),
+    (16.0, 38.0, 15.6, 11.0),
+    (9.0, 36.6, 15.2, 11.4),
+    (1.0, 35.4, 16.4, 11.0),
+    (-7.0, 35.4, 19.0, 10.6),
+    (-14.0, 37.0, 20.0, 11.4),
+    (-19.5, 37.4, 20.4, 11.6),
+    (-23.4, 35.4, 21.6, 9.6),
+    (-25.8, 31.6, 24.4, 5.0),
+    (-26.6, 28.6, 26.0, 1.6),
+]
+TAIL_ROOT = (-24.6, 0.0, 35.6)
+FRONT_LEG = 16.0
+HIND_LEG = -18.0
+
+
+def body_rings(h):
+    secs = catmull(SECTIONS, 34)
+    rings = []
+    for al, top, bot, w in secs:
+        zc, hz = (top + bot) / 2 + h.bob, (top - bot) / 2
+        rings.append((al, [(th, h.pt(al, w * math.cos(th), zc + hz * math.sin(th)))
+                           for th in np.linspace(0, 2 * math.pi, 28, endpoint=False)]))
+    return secs, rings
+
+
+def body_masks(h, rings, keep=lambda al: True, smin=-1.1, smax=1.1):
+    polys = []
+    for (a1, r1), (a2, r2) in zip(rings, rings[1:]):
+        if not (keep(a1) or keep(a2)):
+            continue
+        pts = [p for th, p in r1 + r2 if smin <= math.sin(th) <= smax]
+        polys.append(hull(pts))
+    return B(poly_mask(polys))
+
+
+def near_side(h):
+    d = h.depth(0, 1) - h.depth(0, -1)
+    return 0 if abs(d) < 0.3 else (1 if d > 0 else -1)
+
+
+def surf(h, secs, al, z, ns):
+    """a point on the near flank of the body at (along, z)"""
+    al_list = [s[0] for s in secs][::-1]
+    top = np.interp(al, al_list, [s[1] for s in secs][::-1])
+    bot = np.interp(al, al_list, [s[2] for s in secs][::-1])
+    w = np.interp(al, al_list, [s[3] for s in secs][::-1])
+    zc, hz = (top + bot) / 2, (top - bot) / 2
+    q = max(-0.98, min(0.98, (z - zc) / hz))
+    return h.pt(al, ns * w * math.sqrt(1 - q * q), z + h.bob)
+
+
+def body_layer(h, split_depth):
+    secs, rings = body_rings(h)
+    full = body_masks(h, rings)
+    upper = body_masks(h, rings, smin=-0.3)
+    band = body_masks(h, rings, keep=lambda al: -25 < al < 14, smin=0.68)
+    regions = [(full, COAT_SHADE), (upper, COAT), (band & full, COAT_LIGHT)]
+    im = paint(regions, LINE)
+    ns = near_side(h)
+    lines = []
+    if ns:
+        # shoulder blade, elbow, stifle and the hamstring groove
+        lines.append(([surf(h, secs, a, z, ns) for a, z in bez((12.5, 35.5), (12.0, 26.0), (17.0, 19.5), 9)], COAT_SHADE))
+        lines.append(([surf(h, secs, a, z, ns) for a, z in bez((-10.0, 33.5), (-12.5, 25.0), (-9.5, 21.5), 9)], COAT_SHADE))
+        lines.append(([surf(h, secs, a, z, ns) for a, z in bez((-20.0, 34.0), (-24.0, 28.0), (-22.0, 22.5), 9)], COAT_SHADE))
+        lines.append(([surf(h, secs, a, z, ns) for a, z in bez((-4.0, 21.0), (2.0, 19.0), (9.0, 19.0), 7)], COAT_SHADE))
+    elif h.f[1] > 0:
+        # facing us: the cleft between the two halves of the chest
+        lines.append(([h.pt(a, 0, z + h.bob) for a, z in bez((24.4, 33.5), (25.4, 27.0), (23.8, 21.5), 7)], COAT_SHADE))
     else:
-        upper = [hip, knee]
-    P = lambda p: h.pt(*p)
-    up = [P(p) for p in upper]
-    lo = [P(knee), P((foot[0], side, foot[2] + 1.6))]
-    wu, wl = (6.6 if hind else 5.4), 3.4
-    for col, ex in ((LINE, 1.5), (None, 0)):
-        c1 = COAT if col is None else col
-        c2 = COAT_DARK if col is None else col
-        d.line([(S(x), S(y)) for x, y in up], fill=c1, width=int(S(wu + ex)), joint="curve")
-        for x, y in up:
-            r = (wu + ex) / 2
-            d.ellipse([S(x - r), S(y - r), S(x + r), S(y + r)], fill=c1)
-        d.line([(S(x), S(y)) for x, y in lo], fill=c2, width=int(S(wl + ex)), joint="curve")
-        for x, y in lo:
-            r = (wl + ex) / 2
-            d.ellipse([S(x - r), S(y - r), S(x + r), S(y + r)], fill=c2)
-        # hoof
-        hx, hy = P((foot[0] + 0.3 * fwd, side, foot[2] + 0.7))
-        rx, ry = 2.4 + ex / 2, 1.5 + ex / 2
-        d.ellipse([S(hx - rx), S(hy - ry), S(hx + rx), S(hy + ry)], fill=HOOF if col is None else col)
-    # redraw the joint so the coat reaches down over the dark sock top
-    kx, ky = P(knee)
-    r = wl / 2 + 0.3
-    d.ellipse([S(kx - r), S(ky - r - 0.6), S(kx + r), S(ky + r - 0.6)], fill=COAT)
+        # from behind: the cleft between the buttocks
+        lines.append(([h.pt(a, 0, z + h.bob) for a, z in bez((-25.6, 33.0), (-26.6, 27.0), (-24.4, 21.5), 7)], COAT_SHADE))
+    if lines:
+        im = Image.alpha_composite(im, strokes(im, lines, 0.65))
+    # the part of the body in front of the rider (covers his waist)
+    fm = body_masks(h, rings, keep=lambda al: h.depth(al) >= split_depth + 3.0)
+    k = int(round(1.2 * SS)) * 2 + 1
+    fm = B(Image.fromarray((fm * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(k)))
+    front = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    front.paste(im, (0, 0), Image.fromarray((fm * 255).astype(np.uint8)))
+    return im, front
+
+
+def leg_layer(h: Horse, along, side, swing, lift, hind, run, far):
+    """A slender leg: forearm/gaskin in coat, knee or hock, dark cannon,
+    fetlock, pastern and a hoof."""
+    P = lambda a, z: h.pt(a, side, z)
+    fwd = -1 if hind else 1
+    foot_a, foot_z = along + swing, lift
+    if hind:
+        top = P(along + 1.0, 30 + h.bob)
+        stifle = P(along + 3.0, 21 + h.bob)
+        hock = P(along - 3.2 + swing * 0.45 - lift * 0.35, 13.5 + lift * 0.55)
+        fet = P(foot_a - 0.6 - lift * 0.45, 4.6 + lift)
+        pieces = [(top, 7.0, stifle, 5.8), (stifle, 5.4, hock, 2.4)]
+        joint = hock
+    else:
+        top = P(along, 26 + h.bob)
+        elbow = P(along - 1.0, 19 + h.bob)
+        knee = P(along + swing * 0.5 + lift * 0.55, 11.5 + lift * 0.5)
+        fet = P(foot_a - lift * 0.6, 4.4 + lift)
+        pieces = [(top, 5.8, elbow, 5.0), (elbow, 4.4, knee, 2.6)]
+        joint = knee
+    hoof_c = P(foot_a + 0.25 * fwd * 0 + 0.2, foot_z + 1.3)
+    coat = [capsule(a, r1, b, r2) for a, r1, b, r2 in pieces]
+    dark = [capsule(joint, 2.3, fet, 1.75), circle_pts(fet, 2.25)]
+    pastern = [capsule(fet, 1.9, (hoof_c[0], hoof_c[1] - 0.8), 1.8)]
+    tx = 0.0
+    hx, hy = hoof_c
+    toe = 0.8 * (h.f[0] if not hind else h.f[0])
+    hoof = [[(hx - 2.0, hy - 1.5), (hx + 2.0, hy - 1.5), (hx + 2.5 + toe, hy + 1.5), (hx - 2.5 + min(0, toe), hy + 1.5)]]
+    cm = B(poly_mask(coat))
+    dm = B(poly_mask(dark + pastern))
+    hm = B(poly_mask(hoof))
+    c1 = COAT_SHADE if far else COAT
+    regions = [(cm, c1), (dm, COAT_DARK), (hm, HOOF)]
+    regions.append((rim(cm, int(S(1.2)), 0) & cm & ~dm, COAT_SHADE if not far else COAT_DARK))
+    im = paint(regions, LINE)
     return im
 
 
 def tail_layer(h: Horse, sway, run, k_phase):
     im, d = layer()
-    root = (-BODY_L / 2 - 1.5, 0.0, BODY_Z + BODY_R * 0.75 + h.bob)
+    root = (TAIL_ROOT[0], 0.0, TAIL_ROOT[2] + h.bob)
     if run:
-        mid = (-BODY_L / 2 - 10, sway * 2.0, BODY_Z + 4 + h.bob)
-        tip = (-BODY_L / 2 - 22, sway * 3.5, BODY_Z - 4 + 2 * math.sin(k_phase) + h.bob)
+        mid = (root[0] - 9, sway * 2.0, root[2] + 2.0)
+        tip = (root[0] - 17, sway * 3.5, root[2] - 8 + 2 * math.sin(k_phase))
     else:
-        mid = (-BODY_L / 2 - 6, sway * 1.5, BODY_Z - 2 + h.bob)
-        tip = (-BODY_L / 2 - 9, sway * 3.0, 7.0)
+        mid = (root[0] - 6.5, sway * 1.5, root[2] - 4.0)
+        tip = (root[0] - 6.0, sway * 3.0, 8.5)
     P = lambda p: h.pt(*p)
-    c = bez(P(root), P(mid), P(tip), 14)
-    # perpendicular widths along the curve
+    c = bez(P(root), P(mid), P(tip), 16)
     left, right = [], []
     for i, (x, y) in enumerate(c):
         t = i / (len(c) - 1)
-        wdt = 1.6 + 3.4 * math.sin(math.pi * min(1.0, t * 1.15)) + 0.6 * t
+        wdt = 1.4 + 3.0 * math.sin(math.pi * min(1.0, t * 1.1)) + 0.5 * t
         x2, y2 = c[min(i + 1, len(c) - 1)]
         x1, y1 = c[max(i - 1, 0)]
         tx, ty = x2 - x1, y2 - y1
@@ -364,16 +437,144 @@ def tail_layer(h: Horse, sway, run, k_phase):
         nx, ny = -ty / tn, tx / tn
         left.append((x + nx * wdt, y + ny * wdt))
         right.append((x - nx * wdt, y - ny * wdt))
-    shape = left + bez(left[-1], (c[-1][0] + (c[-1][0] - c[-2][0]) * 2, c[-1][1] + (c[-1][1] - c[-2][1]) * 2), right[-1], 6)[1:-1] + right[::-1]
+    end = (c[-1][0] + (c[-1][0] - c[-2][0]) * 2.5, c[-1][1] + (c[-1][1] - c[-2][1]) * 2.5)
+    shape = left + bez(left[-1], end, right[-1], 6)[1:-1] + right[::-1]
     pts = [(S(x), S(y)) for x, y in shape]
     d.polygon(pts, fill=TAIL)
     d.line(pts + [pts[0]], fill=LINE, width=int(S(0.75)), joint="curve")
-    # two strand highlights
-    for off in (-0.35, 0.3):
-        strand = [(x + (l[0] - x) * off * 1.6, y + (l[1] - y) * off * 1.6)
-                  for (x, y), l in zip(c[2:-2], left[2:-2])]
+    for off in (-0.4, 0.05, 0.45):
+        strand = [(x + (l[0] - x) * off * 1.5, y + (l[1] - y) * off * 1.5)
+                  for (x, y), l in zip(c[2:-1], left[2:-1])]
         d.line([(S(x), S(y)) for x, y in strand], fill=TAIL_HI, width=int(S(0.5)), joint="curve")
     return im
+
+
+# --- rider ---------------------------------------------------------------------------
+def tone(c, k):
+    return tuple(max(0, min(255, int(v * k))) for v in c)
+
+
+def torso_shape(direction, c, y0, y1):
+    """outline of neck + torso, shoulder points, torso half width"""
+    th = max(8.0, y1 - y0)
+    yb = y1 + 4.0
+    if direction in PROFILE:
+        fc = PROFILE[direction]
+        back = [(c - fc * 1.6, y0 - 7.0)]
+        back += bez((c - fc * 1.8, y0 - 3.0), (c - fc * 3.6, y0 + 0.2), (c - fc * 7.2, y0 + 3.0), 7)
+        back += bez((c - fc * 7.2, y0 + 3.0), (c - fc * 7.4, y0 + th * 0.5), (c - fc * 5.2, yb), 7)[1:]
+        front = bez((c + fc * 5.0, yb), (c + fc * 4.8, y0 + th * 0.62), (c + fc * 6.6, y0 + th * 0.42), 6)
+        front += bez((c + fc * 6.6, y0 + th * 0.42), (c + fc * 8.4, y0 + 2.6), (c + fc * 2.8, y0 - 0.6), 7)[1:]
+        front += [(c + fc * 2.6, y0 - 7.0)]
+        return back + front, [(c - fc * 0.8, y0 + 3.2)], 5.5
+    lean = FRONT.get(direction, BACK.get(direction, 0))
+    W = 12.0 if lean == 0 else 10.6
+    c += lean * 0.8
+    wl, wr = (W * (0.9 if lean > 0 else 1.0), W * (0.9 if lean < 0 else 1.0))
+    def side(sg, ww):
+        pts = [(c + sg * 3.3, y0 - 7.0), (c + sg * 3.4, y0 - 3.0)]
+        pts += bez((c + sg * 3.4, y0 - 3.0), (c + sg * 4.6, y0 + 0.4), (c + sg * (ww - 2.8), y0 + 1.3), 7)[1:]
+        pts += bez((c + sg * (ww - 2.8), y0 + 1.3), (c + sg * (ww + 0.8), y0 + 1.8), (c + sg * (ww - 0.2), y0 + 6.0), 6)[1:]
+        pts += bez((c + sg * (ww - 0.2), y0 + 6.0), (c + sg * (ww - 1.0), y0 + th * 0.66), (c + sg * 5.8, yb), 7)[1:]
+        return pts
+    R, L = side(1, wr), side(-1, wl)
+    return R + L[::-1], [(c + wr - 2.4, y0 + 3.2), (c - wl + 2.4, y0 + 3.2)], W
+
+
+def torso_layer(direction, c, y0, y1, skin):
+    shade, dark, light = tone(skin, 0.84), tone(skin, 0.68), tone(skin, 1.07)
+    outline, shoulders, W = torso_shape(direction, c, y0, y1)
+    th = max(8.0, y1 - y0)
+    py = y0 + th * 0.40
+    yb = y1 + 4.0
+    m = B(poly_mask([outline]))
+    regions = [(m, skin)]
+    lines = []
+    if direction in PROFILE:
+        fc = PROFILE[direction]
+        regions.append((m & B(poly_mask([[(c - fc * 9, y0 - 8), (c - fc * 2.4, y0 - 8), (c - fc * 1.8, yb), (c - fc * 9, yb)]])), shade))
+        pec = bez((c + fc * 0.8, y0 + 2.4), (c + fc * 2.2, py + 2.2), (c + fc * 5.8, py + 0.6), 8)
+        regions.append((m & B(poly_mask([pec + [(c + fc * 5.2, py + 2.6), (c + fc * 2.0, py + 3.0)]])), shade))
+        lines += [(pec, dark), ([(c + fc * 1.6, y0 - 0.5), (c + fc * 4.2, y0 + 0.6)], shade)]
+        for q in (0.3, 0.55, 0.8):
+            yq = py + (yb - 3 - py) * q
+            lines.append(([(c + fc * 2.8, yq), (c + fc * 4.6, yq + 0.2)], dark))
+        lines.append((bez((c - fc * 1.8, y0 - 6.5), (c - fc * 1.6, y0 - 2.0), (c - fc * 3.0, y0 + 0.4), 5), shade))
+    else:
+        lean = FRONT.get(direction, BACK.get(direction, 0))
+        cc = c + lean * 1.4
+        # light from the upper left: right flank and right half of the neck in shade
+        regions.append((m & B(poly_mask([[(cc + W * 0.6, y0 + 4), (cc + W + 3, y0 + 4), (cc + W + 3, yb + 1), (cc + 4.4, yb + 1), (cc + W * 0.5, py + 2.5)]])), shade))
+        regions.append((m & B(poly_mask([[(cc + 1.2, y0 - 8), (cc + 4.5, y0 - 8), (cc + 4.5, y0 + 0.2), (cc + 1.4, y0 - 0.4)]])), shade))
+        if direction in FRONT:
+            for sg in (-1, 1):
+                pec = bez((cc + sg * (W - 2.0), py - 3.2), (cc + sg * 4.4, py + 2.0), (cc + sg * 0.6, py - 0.2), 9)
+                regions.append((m & B(poly_mask([pec + [(cc + sg * 0.6, py + 1.3), (cc + sg * 4.4, py + 3.0), (cc + sg * (W - 2.4), py - 1.2)]])), shade))
+                lines.append((pec, dark))
+                lines.append((bez((cc + sg * 0.8, y0 + 0.4), (cc + sg * 3.4, y0 + 0.2), (cc + sg * 6.4, y0 - 0.6), 6), shade))   # collarbone
+                lines.append((bez((cc + sg * 2.0, y0 + 2.6), (cc + sg * 4.5, y0 + 1.8), (cc + sg * 7.0, y0 + 3.0), 6), light))     # top of pec
+                lines.append((bez((cc + sg * (W - 2.2), py + 1.4), (cc + sg * 5.0, py + 5.0), (cc + sg * 4.6, yb - 0.8), 7), shade))  # obliques
+                nx, ny = cc + sg * 4.6, py - 1.4
+                lines.append(([(nx - 0.25, ny), (nx + 0.25, ny)], dark))                                                         # nipple
+            lines.append(([(cc, y0 + 1.2), (cc, py + 0.4)], shade))                                                            # sternum
+            lines.append(([(cc, py + 0.6), (cc, yb - 2.6)], dark))                                                              # linea alba
+            for q in (0.0, 0.33, 0.66):
+                yq = py + 1.4 + (yb - 4.0 - py) * q
+                for sg in (-1, 1):
+                    lines.append(([(cc + sg * 0.5, yq + 0.4), (cc + sg * 3.2, yq - 0.1)], dark))
+        else:
+            lines.append(([(cc, y0 + 0.4), (cc, yb - 2.0)], dark))                                                               # spine
+            for sg in (-1, 1):
+                lines.append((bez((cc + sg * 3.4, y0 - 4.0), (cc + sg * 4.0, y0 + 0.8), (cc + sg * (W - 2.6), y0 + 2.0), 6), shade))  # trapezius
+                lines.append((bez((cc + sg * 1.6, y0 + 2.0), (cc + sg * 2.2, py + 2.6), (cc + sg * 6.6, py + 1.0), 8), dark))   # shoulder blade
+                lines.append((bez((cc + sg * 6.8, y0 + 4.2), (cc + sg * 5.0, py - 1.0), (cc + sg * 3.0, py + 0.4), 6), shade))
+                lines.append((bez((cc + sg * 6.8, py + 3.0), (cc + sg * 4.6, py + 5.5), (cc + sg * 3.4, yb - 1.5), 6), shade))  # lats
+    im = paint(regions, SKIN_LINE)
+    return Image.alpha_composite(im, strokes(im, lines, 0.55)), shoulders, W
+
+
+def ik_elbow(sh, hand, L1, L2, bend):
+    dx, dy = hand[0] - sh[0], hand[1] - sh[1]
+    d = math.hypot(dx, dy) or 1e-3
+    if d > L1 + L2 - 0.3:
+        k = (L1 + L2 - 0.3) / d
+        hand = (sh[0] + dx * k, sh[1] + dy * k)
+        dx, dy, d = dx * k, dy * k, L1 + L2 - 0.3
+    a = (L1 * L1 - L2 * L2 + d * d) / (2 * d)
+    hgt = math.sqrt(max(0.0, L1 * L1 - a * a))
+    ux, uy = dx / d, dy / d
+    px, py = -uy, ux
+    if px * bend[0] + py * bend[1] < 0:
+        px, py = -px, -py
+    return (sh[0] + ux * a + px * hgt, sh[1] + uy * a + py * hgt), hand
+
+
+def arm_layers(sh, elbow, wrist, out_dir, skin):
+    """a muscular arm and the deltoid cap that joins it to the torso"""
+    shade = tone(skin, 0.84)
+    ux, uy = elbow[0] - sh[0], elbow[1] - sh[1]
+    n = math.hypot(ux, uy) or 1
+    ux, uy = ux / n, uy / n
+    bic = (sh[0] + ux * n * 0.45, sh[1] + uy * n * 0.45)
+    fx, fy = wrist[0] - elbow[0], wrist[1] - elbow[1]
+    fn = math.hypot(fx, fy) or 1
+    fore = (elbow[0] + fx * 0.28, elbow[1] + fy * 0.28)
+    polys = [capsule(sh, 3.9, elbow, 2.8), circle_pts(bic, 3.9), capsule(elbow, 2.8, wrist, 2.0),
+             circle_pts(fore, 3.2)]
+    m = B(poly_mask(polys))
+    sdx, sdy = int(S(1.1)) * (1 if out_dir >= 0 else -1), int(S(0.9))
+    arm = paint([(m, skin), (rim(m, sdx, sdy) & m, shade)], SKIN_LINE, 0.7)
+    # deltoid: rounds over the top of the shoulder and flows into the arm
+    dc = (sh[0] + ux * 1.6 + out_dir * 0.3, sh[1] + uy * 1.6)
+    dm = B(poly_mask([capsule((sh[0], sh[1] - 1.0), 4.3, dc, 3.9)]))
+    delt = paint([(dm, skin), (rim(dm, sdx, sdy) & dm, shade)], SKIN_LINE, 0.7)
+    # no line where the deltoid runs into the arm: the cap's lower end is open
+    cut = B(poly_mask([capsule(dc, 3.2, (dc[0] + ux * 5, dc[1] + uy * 5), 3.0)]))
+    da = np.asarray(delt).copy()
+    lo = cut & (np.asarray(arm)[..., 3] > 0)
+    da[lo, :3] = np.asarray(arm)[lo, :3]
+    da[lo, 3] = 255
+    return arm, Image.fromarray(da, "RGBA")
 
 
 def gait(anim, k, n):
@@ -390,15 +591,6 @@ def gait(anim, k, n):
 
 
 # --- per frame ----------------------------------------------------------------------
-def move(m, dx, dy):
-    out = np.zeros_like(m)
-    h, w = m.shape[:2]
-    ys, ye = max(0, dy), min(h, h + dy)
-    xs, xe = max(0, dx), min(w, w + dx)
-    out[ys:ye, xs:xe] = m[ys - dy:ye - dy, xs - dx:xe - dx]
-    return out
-
-
 def centaurify(frame, direction, anim, col, meta):
     a0 = alpha_mask(frame)
     if not a0.any():
@@ -423,69 +615,83 @@ def centaurify(frame, direction, anim, col, meta):
     hands = grow(hands, loose_skin(f) & arms, 1)
     head = a & (yy <= g.neck + 1)
     head &= ~(arms & (yy > g.neck - 4))
-    # the t-shirt collar at the bottom of the head box is torso, not head
     r_, g_, b_ = (f[..., i].astype(np.int32) for i in range(3))
     head &= ~((yy > g.neck - 5) & ~loose_skin(f) & (np.abs(r_ - b_) < 30))
     if direction in FRONT:
-        # facing us nothing but skin reaches the bottom rows of the head box
         head &= ~((yy > g.neck - 3) & ~loose_skin(f))
     if direction in PROFILE:
-        # only the near arm: drop arm blobs on the back side, but never the
-        # biggest one (in E/W idle the near arm hangs at the back)
-        comps = [c for c in components8(arms) if c.sum() >= 6]
-        if len(comps) > 1:
-            biggest = max(comps, key=lambda c: c.sum())
-            far = np.zeros_like(arms)
-            for comp in comps:
-                if comp is biggest:
-                    continue
-                ys, xs = np.nonzero(comp)
-                if (xs.mean() + 0.5 - g.head_cx) * PROFILE[direction] < -1.0 and ys.min() > g.neck + 3:
-                    far |= comp
-            arms &= ~far
-            hands &= ~far
-    body = a & ~head & ~arms
-    # thicker arms: take in the t-shirt sleeve and a pixel or two of the side
-    arms_x = grow(arms, (body & (yy <= waist + 2) & (yy > g.neck + 1)) | arms, 3) | arms
-    if direction in PROFILE:
-        arms_x = grow(arms, (body & (yy <= waist + 2) & (yy > g.neck + 1)) | arms, 1) | arms
+        head &= ~((yy > g.neck - 3) & ~loose_skin(f) & ((xx + 0.5 - g.head_cx) * PROFILE[direction] > -2))
+    # any orange t-shirt collar left at the nape
+    head &= ~((yy > g.neck - 4) & ~loose_skin(f) & (r_ - b_ > 70) & (r_ > 150))
+    comps = [c for c in components8(arms) if c.sum() >= 6]
+    if direction in PROFILE and len(comps) > 1:
+        biggest = max(comps, key=lambda c: c.sum())
+        keep = [biggest]
+        for comp in comps:
+            if comp is biggest:
+                continue
+            ys, xs = np.nonzero(comp)
+            if not ((xs.mean() + 0.5 - g.head_cx) * PROFILE[direction] < -1.0 and ys.min() > g.neck + 3):
+                keep.append(comp)
+        comps = [biggest]
     skin_px = f[face][:, :3]
     skin = tuple(int(v) for v in np.median(skin_px, 0)) if len(skin_px) else (236, 182, 140)
     tc = (g.head_cx + g.hip_cx) / 2
 
-    # broaden the shoulders: arms move out a little in front/back views; on
-    # run they're pumped up a little so the hands don't sit on the horse
-    moved_arms = np.zeros_like(arms_x)
-    moved_hands = np.zeros_like(hands)
-    hand_px = np.zeros_like(f)
-    out_px = 2 if direction in ("S", "N") else (1 if direction not in PROFILE else 0)
-    up = -LIFT - (2 if run else 0)
-    for comp in components8(arms_x):
-        if comp.sum() < 4:
-            continue
+    # torso, then a drawn arm per base arm, from the torso's shoulder to
+    # where the kid's hand is (scaled for the longer arms)
+    y0 = g.neck + 1 + dy - LIFT
+    y1 = waist + dy
+    torso_im, shoulders, W = torso_layer(direction, tc + dx, y0, y1, skin)
+    arm_ims = []
+    hand_px = np.zeros((OH, OW, 4), np.uint8)
+    hand_m = np.zeros((OH, OW), bool)
+    for comp in comps[:2]:
         ys, xs = np.nonzero(comp)
-        side = 1 if xs.mean() + 0.5 > tc else -1
-        mdx = side * out_px
-        if run and direction in PROFILE:
-            mdx += PROFILE[direction]
-        moved_arms |= move(comp, mdx, up)
         hm = hands & comp
-        moved_hands |= move(hm, mdx, up)
-        hand_px = np.where(move(hm, mdx, up)[..., None], move(f, mdx, up), hand_px)
+        if hm.sum() >= 2:
+            hy_, hx_ = np.nonzero(hm)
+        else:
+            sel = ys >= ys.max() - 2
+            hy_, hx_ = ys[sel], xs[sel]
+        hb = (hx_.mean() + 0.5, hy_.mean() + 0.5)
+        side = 1 if xs.mean() + 0.5 > tc else -1
+        if direction in PROFILE:
+            sh = shoulders[0]
+            sb = (tc, g.neck + 3.0)
+            bend = (-PROFILE[direction], 0.3)
+        else:
+            sh = shoulders[0] if side > 0 or len(shoulders) == 1 else shoulders[1]
+            if side < 0:
+                sh = shoulders[1]
+            sb = (tc + side * 6.0, g.neck + 3.0)
+            bend = (side, 0.2) if direction not in BACK else (side, 0.2)
+        hand = (sh[0] + 1.25 * (hb[0] - sb[0]), sh[1] + 1.3 * (hb[1] - sb[1]))
+        # hands never rest on the horse: at most down at the hip
+        hand = (hand[0], min(hand[1], y1 + 1.0))
+        if direction not in PROFILE and abs(hand[0] - (tc + dx)) < W + 1.5 and hand[1] > y0 + 8:
+            hand = ((tc + dx) + side * (W + 1.5), hand[1])
+        elbow, hand = ik_elbow(sh, hand, 9.5, 9.0, bend)
+        wx_, wy_ = hand[0] + (elbow[0] - hand[0]) * 0.16, hand[1] + (elbow[1] - hand[1]) * 0.16
+        arm, delt = arm_layers(sh, elbow, (wx_, wy_), side if direction not in PROFILE else -PROFILE[direction], skin)
+        arm_ims.append((arm, delt))
+        # base hand pixels moved onto the new wrist
+        if hm.sum() >= 2:
+            mdx = int(round(hand[0] - hb[0]))
+            mdy = int(round(hand[1] - hb[1]))
+            moved = shift(hm, mdx, mdy)
+            px = shift(f, mdx, mdy)
+            hand_px[moved] = px[moved]
+            hand_m |= moved
 
-    sh = lambda m: shift(m, dx, dy)
-    F = shift(f, dx, dy)
-    Fh = shift(hand_px, dx, dy)
-    arms_o, hands_o = sh(moved_arms), sh(moved_hands)
     head_o = shift(head, dx, dy - LIFT)
     Fhead = shift(f, dx, dy - LIFT)
-    torso_im = torso_layer(direction, tc + dx, g.neck + 1 + dy - LIFT, waist + dy, skin)
-    arm_im = class_layer([(arms_o & ~hands_o | (arms_o & hands_o), skin)], SKIN_LINE, 0.65) if arms_o.any() else None
 
     # legs
+    ns = near_side(h)
     legs = []
-    for name, al, sd in (("LF", BODY_L / 2 - 4, LEG_SIDE), ("RF", BODY_L / 2 - 4, -LEG_SIDE),
-                         ("LH", -BODY_L / 2 + 4.5, HIND_SIDE), ("RH", -BODY_L / 2 + 4.5, -HIND_SIDE)):
+    for name, al, sd in (("LF", FRONT_LEG, LEG_SIDE), ("RF", FRONT_LEG, -LEG_SIDE),
+                         ("LH", HIND_LEG, HIND_SIDE), ("RH", HIND_LEG, -HIND_SIDE)):
         hind = name[1] == "H"
         if t is None:
             swing, lift = 0.0, 0.0
@@ -498,37 +704,60 @@ def centaurify(frame, direction, anim, col, meta):
             lift = lift_amp * max(0.0, math.cos(ph))
             if run and hind:
                 swing *= 0.85
-        legs.append((h.depth(al + swing * 0.5, sd), leg_layer(h, al, sd, swing, lift, hind, run)))
+        far = ns != 0 and sd * ns < 0
+        legs.append((h.depth(al + swing * 0.5, sd), leg_layer(h, al, sd, swing, lift, hind, run, far)))
     sway = math.sin(2 * math.pi * (k / max(n, 1))) * (1.0 if t is not None else 0.4)
     tail = tail_layer(h, sway, run, 2 * math.pi * k / max(n, 1))
-    wx, wy = h.pt(WAIST_FWD - 0.5, 0, WAIST_Z + bob - 1.0)
-    wrx = 6.0 if direction in PROFILE else 7.4
-    barrel, barrel_front = barrel_layer(h, h.depth(WAIST_FWD), (wx, wy, wrx, 2.6))
+    body, body_front = body_layer(h, h.depth(WAIST_FWD))
+
+    # coat fringe where the rider's waist goes into the horse
+    wx, wy = h.pt(WAIST_FWD, 0, WAIST_Z + bob)
+    fw_ = 5.4 if direction in PROFILE else 6.8
+    top = []
+    xs_ = np.linspace(wx - fw_, wx + fw_, 11)
+    for i, x in enumerate(xs_):
+        top.append((x, y1 + (1.2 if i % 2 else 3.0) - (0.8 if 2 < i < 8 else 0)))
+    fringe_poly = top + [(wx + fw_ + 0.6, y1 + 7.5), (wx - fw_ - 0.6, y1 + 7.5)]
+    fr = B(poly_mask([fringe_poly])) & B(poly_mask([[(wx - 30, y1 - 2), (wx + 30, y1 - 2), (wx + 30, OH), (wx - 30, OH)]]))
+    fringe = paint([(fr, COAT)], LINE, 0.6)
+    # keep only the top (zigzag) line of the fringe: below the horse's top it melts into the coat
+    bm = np.asarray(body)[..., 3] > 0
+    fa = np.asarray(fringe).copy()
+    inner = bm & B(poly_mask([[(x, y + 1.6) for x, y in top] + [(wx + fw_ + 4, y1 + 9), (wx - fw_ - 4, y1 + 9)]]))
+    fa[inner & (fa[..., 3] > 0), :3] = COAT
+    fringe = Image.fromarray(fa, "RGBA")
 
     cv = Image.new("RGBA", (OW * SS, OH * SS), (0, 0, 0, 0))
-    behind_tail = h.f[1] >= -0.01     # rump away from the viewer (or side view)
+    behind_tail = h.f[1] >= -0.01
     if behind_tail:
         cv.alpha_composite(tail)
-    # every leg hangs from under the barrel: far ones first, all behind it
     for dep, im in sorted(legs, key=lambda x: x[0]):
         cv.alpha_composite(im)
-    cv.alpha_composite(barrel)
-    if direction in BACK and arm_im is not None:
-        cv.alpha_composite(arm_im)
+    cv.alpha_composite(body)
+    if direction in BACK:
+        for arm, delt in arm_ims:
+            cv.alpha_composite(arm)
     cv.alpha_composite(torso_im)
+    cv.alpha_composite(fringe)
+    if direction in BACK:
+        for arm, delt in arm_ims:
+            cv.alpha_composite(delt)
     out = down(cv)
     out = over(out, premul(Fhead, head_o.astype(np.float64)))
     if direction in BACK:
-        out = over(out, premul(Fh, hands_o.astype(np.float64)))
-    top, _ = layer()
-    top.alpha_composite(barrel_front)
+        out = over(out, premul(hand_px, hand_m.astype(np.float64)))
+    top_l, _ = layer()
+    top_l.alpha_composite(body_front)
     if not behind_tail:
-        top.alpha_composite(tail)
-    out = over(out, down(top))
+        top_l.alpha_composite(tail)
+    out = over(out, down(top_l))
     if direction not in BACK:
-        if arm_im is not None:
-            out = over(out, down(arm_im))
-        out = over(out, premul(Fh, hands_o.astype(np.float64)))
+        al, _ = layer()
+        for arm, delt in arm_ims:
+            al.alpha_composite(arm)
+            al.alpha_composite(delt)
+        out = over(out, down(al))
+        out = over(out, premul(hand_px, hand_m.astype(np.float64)))
     res = to_u8(out)
     res[res[..., 3] < 8] = 0
     return res

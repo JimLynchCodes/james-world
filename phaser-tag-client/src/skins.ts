@@ -93,7 +93,7 @@ export const SKINS: Record<Skin, SkinSheet> = {
     frameHeight: 122,
     baselineY: 112,
     // crest + spikes sit ~108px above the feet; padded sides hold the tail
-    artHeight: 108,
+    artHeight: 118,
   },
   tuxedo: {
     id: "tuxedo",
@@ -179,10 +179,10 @@ export const SKINS: Record<Skin, SkinSheet> = {
     // a whole horse under him: wide frames for the body and the tail, the
     // anchor is the middle of the horse on the ground
     frameWidth: 152,
-    frameHeight: 144,
+    frameHeight: 150,
     baselineY: 134,
-    // James's head rides on a horse: hair top ~108px above the hooves
-    artHeight: 108,
+    // James's head rides on a horse: hair top ~118px above the hooves
+    artHeight: 118,
     // two textures so neither side passes 4096px (mobile WebGL): idle, walk
     // and breathe here, tag and run in kid_centaur_b.png
     columns: 16,
