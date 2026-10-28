@@ -122,6 +122,8 @@ export const koKR: Messages = {
   "skin.cobra.note": "쉬익~ 순식간에! 네가 술래!",
   "skin.billy": "Billy",
   "skin.billy.note": "제임스의 친구",
+  "skin.boxer": "복서 제임스",
+  "skin.boxer.note": "나비처럼 날고, 벌처럼 태그하라.",
   "settings.credits.heading": "만든 사람",
   "credits.bio": "이 게임은 뉴욕에 사는 소프트웨어 엔지니어 James가 만들었어 (Jim, Jimbo, Jimothy, Sir Jims-a-lot 같은 다른 이름으로도 불려).",
   "credits.linkedinLead": "LinkedIn에서 편하게 연결하자:",
