@@ -2,22 +2,19 @@
 """Build the "Boxer James" sprite sheet (public/assets/kid_boxer.png/json)
 from the base kid sheet.
 
-Same smooth pipeline as make_tennis_skin.py: flat-colour class maps,
-supersampled 4x, outlined, then box-downscaled.
+Composite onto James's real base frame (do NOT redraw the body):
 
-  * James's real face and head, unchanged;
-  * bare muscular chest (detailed pecs/abs shading) over his normal build;
-  * shiny baggy red boxing trunks with a wide gold/white waistband and gold
-    side trim, mid-thigh, consistent every direction;
-  * high-top boxing shoes in red / white / gold with laces;
-  * BIG round glossy RED boxing gloves (~1/2–2/3 head width) with white
-    cuffs on BOTH hands in every frame (side views: near arm only). Idle /
-    walk / breathe / run hold a high guard near the chin with a light bounce;
-  * tag is a quick JAB: the near (tagging) glove snaps straight forward in
-    the facing direction and retracts over the 6 tag frames. The arm stays
-    James-thick, shaded, attached at the shoulder in all 8 directions
-    (NW mirrors NE). The torso keeps the idle outline; the far glove stays
-    up in guard.
+  * James's face, head, neck, torso silhouette, arms, and legs stay the base;
+  * tee → bare chest with light pec/abs shading on his real skin tone;
+  * navy shorts → shiny red boxing trunks with a gold/white waistband that
+    sits ON the hips (same width as the torso), gold side trim, mid-thigh;
+  * shoes → red / white / gold high-tops with laces (same footprint);
+  * glossy RED boxing gloves (~½ head width) with white cuffs. Idle / walk /
+    breathe / run: high-ish guard at chest/shoulder height so the whole face
+    stays visible; side views show the near glove only;
+  * tag is a 6-frame JAB: near arm strips, then a shaded James-thick arm with
+    a big glove snaps forward and retracts. Far glove stays in guard.
+    NW mirrors NE.
 
 Requires: Python 3 + Pillow + numpy.  Usage:
     python3 tools/make_boxer_skin.py [--preview /tmp/boxer_preview.png]
@@ -40,29 +37,27 @@ from make_wizard_skin import down, over, premul, to_u8
 HERE = Path(__file__).resolve().parent
 ASSETS = HERE.parent / "public" / "assets"
 
-PAD_TOP = 12
-PAD_SIDE = 28
+PAD_TOP = 8
+PAD_SIDE = 24
 SS = 4
 
 FRONT = {"SE": 1, "S": 0, "SW": -1}
 PROFILE = {"E": 1, "W": -1}
 BACK = {"NW": -1, "N": 0, "NE": 1}
 
-# outfit
-TRUNK = (200, 24, 40)
-TRUNK_SHADE = (140, 12, 26)
-TRUNK_HI = (236, 70, 82)
-WAIST = (236, 204, 78)
-WAIST_HI = (252, 236, 160)
-TRIM = (250, 240, 210)
-SHOE_RED = (214, 32, 46)
+TRUNK = (200, 28, 42)
+TRUNK_SHADE = (148, 16, 28)
+TRUNK_HI = (236, 78, 90)
+WAIST = (232, 200, 72)
+WAIST_HI = (250, 236, 160)
+TRIM = (248, 240, 210)
+SHOE_RED = (214, 36, 48)
 SHOE_WHITE = (248, 248, 246)
 SHOE_GOLD = (224, 184, 56)
 SOLE = (52, 40, 36)
 LACE = (252, 252, 250)
 LINE = (36, 22, 20)
 
-# gloves — Little-Mac sized
 GLOVE = (224, 28, 44)
 GLOVE_SHADE = (148, 12, 26)
 GLOVE_HI = (255, 140, 150)
@@ -70,7 +65,6 @@ GLOVE_SPEC = (255, 210, 214)
 CUFF = (250, 250, 248)
 CUFF_SHADE = (200, 200, 206)
 ARM_LINE = (40, 26, 22)
-SKIN_SHADE = (200, 140, 100)
 
 
 def S(v):
@@ -103,7 +97,7 @@ def shapes_layer(size, parts, line, line_w=0.7):
 
 def capsule_fn(p1, r1, p2, r2):
     def fn(d):
-        n = 18
+        n = 16
         for i in range(n + 1):
             t = i / n
             x = p1[0] + (p2[0] - p1[0]) * t
@@ -115,10 +109,6 @@ def capsule_fn(p1, r1, p2, r2):
 
 def disc_fn(c, r):
     return lambda d: d.ellipse([S(c[0] - r), S(c[1] - r), S(c[0] + r), S(c[1] + r)], fill=255)
-
-
-def oval_fn(c, rx, ry):
-    return lambda d: d.ellipse([S(c[0] - rx), S(c[1] - ry), S(c[0] + rx), S(c[1] + ry)], fill=255)
 
 
 def loose_skinlike(f):
@@ -139,6 +129,17 @@ def ik(sh, hand, L1, L2, bend):
     ux, uy = dx / dd, dy / dd
     px, py = -uy * bend, ux * bend
     return (sh[0] + ux * a + px * hh, sh[1] + uy * a + py * hh)
+
+
+def arm_comps_on(arms, g, direction, side):
+    m = np.zeros_like(arms)
+    for comp in components8(arms):
+        if comp.sum() < 4:
+            continue
+        xs = np.nonzero(comp)[1]
+        if side == 0 or direction in PROFILE or (xs.mean() + 0.5 - g.head_cx) * side > 0:
+            m |= comp
+    return m
 
 
 def torso_hull(keep, rm, gi):
@@ -167,20 +168,11 @@ def torso_hull(keep, rm, gi):
     return out
 
 
-def arm_comps_on(arms, g, direction, side):
-    m = np.zeros_like(arms)
-    for comp in components8(arms):
-        if comp.sum() < 4:
-            continue
-        xs = np.nonzero(comp)[1]
-        if side == 0 or direction in PROFILE or (xs.mean() + 0.5 - g.head_cx) * side > 0:
-            m |= comp
-    return m
-
-
-def strip_arms(f, g, direction, sides):
-    """Remove hanging arms on the given sides and fill the torso hull so the
-    silhouette stays James-width. Head / face / neck pixels are never touched."""
+def strip_arms(f, g, direction, sides, waist=None, hem=None):
+    """Remove hanging arms on the given sides WITHOUT erasing the torso/shorts.
+    Only pixels outside the torso core are stripped. Holes that sit over the
+    torso are filled with nearby tee/shorts colours so recolor still sees James
+    cloth. Never touch the head or the leg band below the hem."""
     h, w = f.shape[:2]
     yy, xx = np.mgrid[0:h, 0:w]
     out = f.copy()
@@ -189,37 +181,65 @@ def strip_arms(f, g, direction, sides):
     rm = np.zeros_like(arms)
     for s in sides:
         rm |= arm_comps_on(arms, g, direction, s)
+    # drop any "arm" blob whose centroid sits in the leg band
+    cleaned = np.zeros_like(rm)
+    for comp in components8(rm):
+        ys = np.nonzero(comp)[0]
+        if ys.mean() < g.hem - 6:
+            cleaned |= comp
+    rm = cleaned
     rm = grow(rm, alpha_mask(out), 1) & (yy > g.neck + 2)
+    if waist is None:
+        waist = int((hem if hem is not None else g.hem) - 9)
+    hem_y = int(hem if hem is not None else g.hem)
+    rm &= yy < hem_y - 1  # leave the last shorts row + all legs alone
+
     ai = alpha_mask(out)
+    # Torso CORE: shrink each body row by a few px so hanging arms (outside
+    # the silhouette core) are the only thing we strip. Protects tee + shorts.
+    core = np.zeros_like(ai)
+    for y in range(int(g.neck) + 3, hem_y):
+        xs = np.nonzero(ai[y])[0]
+        if len(xs) < 6:
+            continue
+        lo = int(xs.min()) + 3
+        hi = int(xs.max()) - 3
+        if hi > lo:
+            core[y, lo:hi + 1] = True
+    # Never erase the torso/shorts core — only true lateral hanging arms
+    rm = rm & ~core
+
     keep = ai & ~rm
     over_t = rm & ai & torso_hull(keep, rm, g)
-    ys = np.nonzero(ai.any(1))[0]
-    if len(ys):
-        hb = ys.max() - 6
-        hem = np.nonzero(ai[max(0, hb - 8):hb])[1]
-        if len(hem):
-            hx = int(np.median(hem))
-            core = max(3, (hem.max() - hem.min()) // 2 - 2)
-            over_t |= rm & ai & (np.abs(xx - hx) <= core)
-    sk = skin_mask(out) & (yy > g.neck + 2) & (yy < g.hem - 4)
+    # sample fill colours from James himself (tee grey / navy shorts), NOT trunk red
+    sk = skin_mask(out) & (yy > g.neck + 2) & (yy < waist - 2)
     if sk.any():
         px = out[sk][:, :3].astype(int)
         px = px[px.sum(1) >= np.percentile(px.sum(1), 40)]
         chest_c = tuple(int(v) for v in np.median(px, 0)) if len(px) else (220, 160, 120)
     else:
         chest_c = (220, 160, 120)
-    c = out[..., :3].astype(np.int32)
-    navy = ai & ~loose_skinlike(out) & (c[..., 2] - c[..., 1] > 11) & (yy >= g.hem - 16)
-    sh_c = tuple(int(v) for v in np.median(out[navy][:, :3], 0)) if navy.any() else TRUNK
-    waist = int(g.hem - 10)
-    if navy.any():
-        waist = int(np.median(np.nonzero(navy)[0]) - 2)
-    for msk, col in (((yy < waist), chest_c), ((yy >= waist), sh_c)):
-        out[over_t & msk, :3] = col
-        out[over_t & msk, 3] = 255
+    # tee sample (grey cloth above waist, not skin)
+    tee_band = ai & ~skin_mask(out) & (yy > g.neck + 4) & (yy < waist) & ~rm
+    if tee_band.any():
+        tee_c = tuple(int(v) for v in np.median(out[tee_band][:, :3], 0))
+    else:
+        tee_c = (90, 90, 95)
+    shorts_band = ai & ~skin_mask(out) & (yy >= waist) & (yy < hem_y) & ~rm
+    if shorts_band.any():
+        sh_c = tuple(int(v) for v in np.median(out[shorts_band][:, :3], 0))
+    else:
+        sh_c = (40, 40, 55)  # navy placeholder so recolor still sees dark cloth
+    chest_fill = over_t & (yy < waist)
+    trunk_fill = over_t & (yy >= waist) & (yy < hem_y)
+    out[chest_fill, :3] = tee_c   # keep tee-coloured so recolor → chest works
+    out[chest_fill, 3] = 255
+    out[trunk_fill, :3] = sh_c
+    out[trunk_fill, 3] = 255
     out[rm & ~over_t] = 0
+    # close holes in chest + shorts only — NEVER below hem_y (legs)
     ai = alpha_mask(out)
-    for y in range(int(g.neck) + 2, int(g.hem) + 1):
+    for y in range(int(g.neck) + 2, hem_y):
         xs = np.nonzero(ai[y])[0]
         if len(xs) < 2:
             continue
@@ -227,32 +247,16 @@ def strip_arms(f, g, direction, sides):
         hole[xs.min():xs.max() + 1] = True
         hole &= ~ai[y]
         if hole.any():
-            out[y, hole, :3] = chest_c if y < waist else sh_c
+            col = tee_c if y < waist else sh_c
+            out[y, hole, :3] = col
             out[y, hole, 3] = 255
     return out
 
 
-def find_waist(f, g):
-    h, w = f.shape[:2]
-    yy = np.mgrid[0:h, 0:w][0]
-    a = f[..., 3] >= 128
-    c = f[..., :3].astype(np.int32)
-    skin = loose_skinlike(f)
-    lum = c.mean(-1)
-    line = lum < 26
-    cloth = a & ~skin & ~line
-    navy = cloth & (c[..., 2] - c[..., 1] > 11)
-    waist = g.hem - 12
-    for y in range(g.neck + 6, g.hem):
-        row = cloth[y] | skin[y]
-        if row.sum() >= 4 and navy[y].sum() / max(row.sum(), 1) > 0.35:
-            waist = y
-            break
-    return waist
-
-
-def recolor_chest(f, g, waist):
-    """Bare chest with pec/abs shading. Does NOT paint trunks (drawn separately)."""
+def recolor(f, g):
+    """In-place: tee → bare chest + pec/abs; dark shorts → red trunks with
+    gold waistband ON the hips (same width as the torso); shoes → R/W/G
+    high-tops. Legs, silhouette, face, hair untouched."""
     h, w = f.shape[:2]
     yy, xx = np.mgrid[0:h, 0:w]
     a = f[..., 3] >= 128
@@ -263,11 +267,37 @@ def recolor_chest(f, g, waist):
     line = lum < 26
     cloth = a & ~skin & ~line
     head = yy <= g.neck + 1
+    # collar bits of the tee poke into the head mask
     tee_col = (b_ - r_ > 4) & (lum > 40) & (lum < 140)
     cloth &= ~head | ((yy > g.neck - 3) & tee_col)
-    shirt = cloth & (yy < waist) & (yy > g.neck)
+
+    # James shorts sit ~9px above the shoe-line hem. Trust that, then refine
+    # ONLY inside a tight band so hanging-arm skin never pulls the waist up
+    # into the tee.
+    dark = cloth & (lum < 55)
+    waist = int(g.hem - 9)
+    for y in range(max(int(g.hem) - 11, int(g.neck) + 12), int(g.hem) - 5):
+        row = cloth[y] | dark[y]
+        if row.sum() >= 8 and dark[y].sum() / max(int(row.sum()), 1) > 0.45:
+            waist = y
+            break
+    waist = int(np.clip(waist, g.hem - 11, g.hem - 7))
+
+    shirt = cloth & (yy < waist)
+    # Trunks end mid-thigh: leave a clear peach-leg band above the shoes.
+    # Prefer a short trunk (waist..waist+6) so legs read clearly like James.
+    trunk_bot = min(max(waist + 6, g.hem - 6), g.hem - 3)
+    shorts = cloth & (yy >= waist) & (yy <= trunk_bot) & (lum < 120)
+    # also catch near-black navy the cloth detector missed
+    shorts |= a & ~skin & ~head & (yy >= waist) & (yy <= trunk_bot) & (lum < 70)
+    shorts |= (line & (yy >= waist) & (yy <= trunk_bot) & (lum < 30)
+               & grow(shorts if shorts.any() else dark, a, 1))
+    # shoes: cloth below the leg band (don't start until past the legs)
+    shoes = cloth & (yy >= g.hem + 1)
+    # shoe pixels sometimes include leftover navy — keep only below hem
     out = f.copy().astype(np.float64)
 
+    # --- chest: paint shirt as James's own skin, then pec/abs ---
     sk_src = skin & (yy > g.neck + 2) & (yy < waist)
     if sk_src.any():
         px = f[sk_src][:, :3].astype(float)
@@ -277,186 +307,144 @@ def recolor_chest(f, g, waist):
         base_skin = np.array([220.0, 160.0, 120.0])
     if shirt.any():
         ref = np.percentile(lum[shirt], 75) or 1.0
-        k = np.clip(0.82 + 0.24 * lum[shirt] / ref, 0.82, 1.06)
+        k = np.clip(0.88 + 0.18 * lum[shirt] / ref, 0.86, 1.05)
         out[shirt, :3] = base_skin[None] * k[:, None]
     torso = (shirt | (skin & (yy > g.neck + 3) & (yy < waist))) & a & ~head
-    # slightly warm / even the bare torso so pecs/abs read on top
-    if torso.any():
-        ref = np.percentile(lum[torso], 70) or 1.0
-        k = np.clip(0.92 + 0.14 * lum[torso] / ref, 0.90, 1.06)
-        out[torso, :3] = base_skin[None] * k[:, None]
     if torso.any():
         cx = g.head_cx
-        for sx in (-4.8, 4.8):
-            d2 = ((xx + 0.5 - (cx + sx)) ** 2) / 22.0 + ((yy + 0.5 - (g.neck + 9.5)) ** 2) / 11.0
-            pec = torso & (d2 < 1.0) & (yy > g.neck + 4) & (yy < g.neck + 16)
-            out[pec, :3] *= 0.82
-            # pec highlight above
-            hi = torso & (d2 < 0.45) & (yy > g.neck + 4) & (yy < g.neck + 10)
-            out[hi, :3] = np.clip(out[hi, :3] * 1.08, 0, 255)
-        mid = torso & (np.abs(xx + 0.5 - cx) < 3.6) & (yy > g.neck + 14) & (yy < waist - 1)
-        for by in (g.neck + 16, g.neck + 21, g.neck + 26, g.neck + 31):
+        for sx in (-4.5, 4.5):
+            d2 = ((xx + 0.5 - (cx + sx)) ** 2) / 20.0 + ((yy + 0.5 - (g.neck + 9.0)) ** 2) / 10.0
+            pec = torso & (d2 < 1.0) & (yy > g.neck + 4) & (yy < g.neck + 15)
+            out[pec, :3] *= 0.86
+        mid = torso & (np.abs(xx + 0.5 - cx) < 3.4) & (yy > g.neck + 14) & (yy < waist - 1)
+        for by in (g.neck + 16, g.neck + 21, g.neck + 26):
             band = mid & (np.abs(yy - by) <= 1)
-            out[band, :3] *= 0.78
-        crease = mid & (np.abs(xx + 0.5 - cx) < 1.0)
-        out[crease, :3] *= 0.80
+            out[band, :3] *= 0.82
+        crease = mid & (np.abs(xx + 0.5 - cx) < 0.85)
+        out[crease, :3] *= 0.84
         for sx in (-1, 1):
-            side = torso & ((xx + 0.5 - cx) * sx > 4.5) & ((xx + 0.5 - cx) * sx < 9.5)
-            side &= (yy > g.neck + 9) & (yy < waist - 2)
-            out[side, :3] *= 0.86
-    # soften outline next to chest
-    near = line & grow(shirt | torso, a, 1) & ~head & (yy < waist)
-    out[near, :3] = LINE
-    return to_u8_simple(out), base_skin
+            side = torso & ((xx + 0.5 - cx) * sx > 5.0) & ((xx + 0.5 - cx) * sx < 9.0)
+            side &= (yy > g.neck + 10) & (yy < waist - 2)
+            out[side, :3] *= 0.90
 
+    def paint(m, col, lo=0.82, hi=1.05):
+        if not m.any():
+            return
+        ref = np.percentile(lum[m], 80) or 1.0
+        k = np.clip(lo + (hi - lo) * lum[m] / ref, lo, hi)
+        out[m, :3] = np.array(col, float)[None] * k[:, None]
 
-def foot_centers(f, g):
-    """Approximate left/right foot centres from shoe/leg pixels below the hem."""
-    h, w = f.shape[:2]
-    yy, xx = np.mgrid[0:h, 0:w]
-    a = f[..., 3] >= 128
-    feet = a & (yy >= g.hem + 1)
-    comps = [c for c in components8(feet) if c.sum() >= 4]
-    centres = []
-    for comp in comps:
+    # Cover hanging-arm skin that sits over the shorts (inside the hip span)
+    # so peach arms don't float on top of the trunks after we skip a full strip.
+    arm_over = skin & a & (yy >= waist) & (yy <= trunk_bot) & (yy < g.hem - 2)
+    shorts |= arm_over
+
+    # --- trunks: recolor existing shorts pixels (keeps legs!) ---
+    paint(shorts, TRUNK, 0.84, 1.08)
+    # Gold waistband ON the hips: same x-span as the opaque body at the waist,
+    # 3 rows tall. Painted by geometry so it never floats wider or goes missing
+    # when the shorts mask is thin.
+    y_ref = max(int(waist) - 2, int(g.neck) + 8)
+    body_xs = np.nonzero(a[y_ref])[0]
+    if len(body_xs) < 2:
+        body_xs = np.nonzero(a[min(int(waist), h - 1)])[0]
+    if len(body_xs) >= 2:
+        x_lo, x_hi = int(body_xs.min()), int(body_xs.max())
+        for dy in range(3):
+            y = int(waist) + dy
+            if y >= h:
+                break
+            band = a[y].copy()
+            band[:x_lo] = False
+            band[x_hi + 1:] = False
+            # only paint over trunk/cloth rows (not peach legs)
+            band &= (yy[y] >= 0)  # keep shape
+            if dy == 0:
+                out[y, band, :3] = WAIST_HI
+            else:
+                out[y, band, :3] = WAIST
+            out[y, band, 3] = 255
+    if shorts.any():
+        top = np.zeros_like(shorts)
+        for x in range(w):
+            ys = np.nonzero(shorts[:, x])[0]
+            if len(ys):
+                top[ys.min():min(ys.min() + 3, ys.max() + 1), x] = True
+        top &= shorts
+        # gold side trim along left/right edge of the trunks (below waistband)
+        for y in range(h):
+            xs = np.nonzero(shorts[y] & ~top[y])[0]
+            if len(xs) < 3:
+                continue
+            out[y, xs.min(), :3] = TRIM
+            out[y, xs.max(), :3] = TRIM
+        bot = shorts & ~np.roll(shorts, -1, 0) & (yy > waist + 3)
+        out[bot, :3] = TRUNK_SHADE
+        gloss = shorts & ~top & (np.abs(xx + 0.5 - g.hip_cx) < 4) & (yy < waist + 6)
+        out[gloss, :3] = np.clip(out[gloss, :3] * 1.08, 0, 255)
+
+    # --- high-top shoes on existing shoe pixels ---
+    sole = np.zeros_like(shoes)
+    for x in range(w):
+        ys = np.nonzero(shoes[:, x] | (line[:, x] & (yy[:, x] > g.hem)))[0]
+        if len(ys) and shoes[:, x].any():
+            sole[ys.max() - 1:ys.max() + 1, x] = True
+    paint(shoes & ~sole, SHOE_RED, 0.85, 1.05)
+    out[shoes & sole, :3] = SOLE
+    for comp in components8(shoes & ~sole):
+        if comp.sum() < 4:
+            continue
         ys, xs = np.nonzero(comp)
-        centres.append((float(xs.mean() + 0.5), float(ys.mean() + 0.5),
-                        float(ys.min()), float(ys.max()), float(xs.min()), float(xs.max())))
-    centres.sort(key=lambda t: t[0])
-    return centres
+        cx = xs.mean()
+        top_shoe = comp & (yy <= ys.min() + 2)
+        out[top_shoe, :3] = SHOE_WHITE
+        mid = comp & (yy >= ys.min() + 2) & (yy <= ys.min() + 4)
+        out[mid, :3] = SHOE_GOLD
+        for ly in range(ys.min() + 1, min(ys.min() + 5, ys.max())):
+            for lx in (int(cx) - 1, int(cx) + 1):
+                if 0 <= lx < w and comp[ly, lx]:
+                    out[ly, lx, :3] = LACE
 
+    # 1px high-top cuff onto the ankle only — never climb into the shin
+    for comp in components8(shoes):
+        if comp.sum() < 4:
+            continue
+        ys, xs = np.nonzero(comp)
+        cuff = (a & skin & (yy == ys.min() - 1)
+                & (xx >= xs.min()) & (xx <= xs.max()))
+        if cuff.any():
+            out[cuff, :3] = SHOE_GOLD
 
-def rect_capsule_fn(x0, y0, x1, y1, round_r):
-    """Filled rounded rect via capsules + discs (SS-space via S())."""
-    def fn(d):
-        # horizontal bands
-        y = y0
-        while y <= y1:
-            r = round_r
-            if y < y0 + round_r:
-                # taper not needed; just draw full width discs along midline
-                pass
-            d.ellipse([S(x0 - r), S(y - r), S(x0 + r), S(y + r)], fill=255)
-            d.ellipse([S(x1 - r), S(y - r), S(x1 + r), S(y + r)], fill=255)
-            # fill between
-            d.rectangle([S(x0), S(y - r), S(x1), S(y + r)], fill=255)
-            y += max(0.6, round_r * 0.7)
-    return fn
-
-
-def trunks_layer(size, g, waist, direction):
-    """Baggy shiny red trunks mid-thigh, wide gold waistband, gold side trim.
-    Strictly below `waist` so they never smear onto the chest."""
-    # mid-thigh: leave a clear shin gap above the shoes
-    thigh = waist + max(9, int(0.38 * (g.bottom - waist)))
-    thigh = min(thigh, g.bottom - 14)
-    cx = g.hip_cx
-    hw = max(9.5, g.head_hw * 0.90 + 2.0)
-    if direction in PROFILE:
-        fx = PROFILE[direction]
-        cx = g.head_cx + fx * 0.8
-        hw = max(7.5, g.head_hw * 0.62 + 1.0)
-    top = float(waist) + 0.2   # never above waist
-    bot = float(thigh)
-    wb = 4.0
-    # baggy body: rounded rect via dense capsules
-    parts = [
-        (rect_capsule_fn(cx - hw, top + wb * 0.7, cx + hw, bot - 0.5, 2.4), TRUNK),
-        # lower shade band
-        (rect_capsule_fn(cx - hw + 0.5, bot - 4.0, cx + hw - 0.5, bot - 0.3, 2.0), TRUNK_SHADE),
-        # gloss streak
-        (oval_fn((cx - hw * 0.25, top + wb + 4.0), hw * 0.40, 2.0), TRUNK_HI),
-        # wide gold waistband (multi-row for thickness)
-        (rect_capsule_fn(cx - hw - 0.3, top, cx + hw + 0.3, top + wb, 1.8), WAIST),
-        (capsule_fn((cx - hw + 0.5, top + 1.0), 1.0,
-                    (cx + hw - 0.5, top + 1.0), 1.0), WAIST_HI),
-        # white drawstring hint
-        (disc_fn((cx - 1.2, top + wb * 0.55), 0.7), TRIM),
-        (disc_fn((cx + 1.2, top + wb * 0.55), 0.7), TRIM),
-        # gold side trim
-        (capsule_fn((cx - hw + 0.6, top + wb + 0.5), 1.05,
-                    (cx - hw + 0.3, bot - 1.2), 0.95), TRIM),
-        (capsule_fn((cx + hw - 0.6, top + wb + 0.5), 1.05,
-                    (cx + hw - 0.3, bot - 1.2), 0.95), TRIM),
-        # hem
-        (capsule_fn((cx - hw + 1.0, bot - 0.5), 0.75,
-                    (cx + hw - 1.0, bot - 0.5), 0.75), TRIM),
-    ]
-    return shapes_layer(size, parts, LINE, 0.85)
-
-
-def shoes_layer(size, feet, direction):
-    """Red/white/gold high-top boxing shoes with laces on each foot."""
-    if not feet:
-        return None
-    parts = []
-    for (cx, cy, y0, y1, x0, x1) in feet:
-        # tall high-top: rise well above the original shoe pixels
-        top = y0 - 5.5
-        bot = y1 + 1.0
-        mid = (top + bot) / 2
-        hw = max(4.2, (x1 - x0) / 2 + 1.4)
-        tip_dx = 0.0
-        if direction in PROFILE:
-            tip_dx = PROFILE[direction] * 1.6
-        elif direction in FRONT:
-            tip_dx = FRONT[direction] * 0.7
-        elif direction in BACK:
-            tip_dx = -BACK[direction] * 0.5
-        # sole
-        parts.append((oval_fn((cx + tip_dx * 0.4, bot - 0.5), hw + 0.6, 1.4), SOLE))
-        # red boot shaft (tall)
-        parts.append((oval_fn((cx, mid), hw, (bot - top) / 2 + 0.2), SHOE_RED))
-        # shade
-        parts.append((oval_fn((cx + 0.8, mid + 1.5), hw * 0.55, (bot - top) * 0.28), tuple(int(c*0.75) for c in SHOE_RED)))
-        # white toe box
-        parts.append((oval_fn((cx + tip_dx * 1.6, bot - 2.4), hw * 0.62, 2.0), SHOE_WHITE))
-        # gold collar stripe near top
-        parts.append((capsule_fn((cx - hw + 0.4, top + 2.2), 1.2,
-                                (cx + hw - 0.4, top + 2.2), 1.2), SHOE_GOLD))
-        # white tongue / cuff
-        parts.append((oval_fn((cx, top + 0.9), hw * 0.75, 1.5), SHOE_WHITE))
-        # laces (3 pairs)
-        for ly in (top + 3.4, top + 5.0, top + 6.6):
-            if ly < bot - 2.5:
-                parts.append((disc_fn((cx - 1.1, ly), 0.6), LACE))
-                parts.append((disc_fn((cx + 1.1, ly), 0.6), LACE))
-                # lace cross
-                parts.append((capsule_fn((cx - 1.1, ly), 0.35, (cx + 1.1, ly + 0.8), 0.35), LACE))
-    return shapes_layer(size, parts, LINE, 0.75)
+    near_cloth = line & grow(shirt | shorts | shoes, a, 1) & ~head
+    out[near_cloth, :3] = LINE
+    return to_u8_simple(out), waist
 
 
 def glove_radius(g):
-    """~1/2 to 2/3 of head width → radius ~0.28–0.33 head width."""
-    return max(9.5, min(12.5, g.head_hw * 0.65))
+    """~½ head width → diameter ≈ head_hw, radius ≈ head_hw/2."""
+    return max(6.5, min(8.5, g.head_hw * 0.45))
 
 
 def shoulder(g, direction, side):
     if direction in PROFILE:
         return (g.head_cx - PROFILE[direction] * 0.3, g.neck + 4.5)
-    return (g.head_cx + (side or 1) * 7.5, g.neck + 4.5)
+    return (g.head_cx + (side or 1) * 7.2, g.neck + 4.5)
 
 
-def guard_hand(sh, direction, side, bounce=0.0, gr=9.0):
-    """High guard near the chin; hand far enough out that a thick arm + white
-    cuff stay visible and the big glove does not paint red onto the torso."""
+def guard_hand(sh, direction, side, bounce=0.0, gr=8.0):
+    """Mid-chest / upper-rib guard — whole face + chin stay clear."""
     if direction in PROFILE:
         fx = PROFILE[direction]
-        # forward and slightly down so the upper-arm capsule is a visible stub
-        return (sh[0] + fx * (12.0 + gr * 0.25), sh[1] + 1.0 + bounce)
-    out = (side or 1) * (6.0 + gr * 0.10)
-    up = -4.5 if direction in FRONT or direction == "S" else -3.5
-    if direction in BACK:
-        up = -3.0
-    return (sh[0] + out * 0.75, sh[1] + up + bounce)
+        return (sh[0] + fx * (6.5 + gr * 0.1), sh[1] + 11.0 + bounce)
+    out = (side or 1) * (8.0 + gr * 0.05)
+    return (sh[0] + out * 0.85, sh[1] + 11.0 + bounce)
 
 
-# jab reach includes glove radius so the tip travels clearly
-JAB_REACH = [12.0, 17.0, 23.5, 28.5, 19.0, 13.0]
+JAB_REACH = [10.0, 14.5, 20.0, 25.0, 16.5, 11.0]
 JAB_ANG = {
-    "profile": [-52, -30, -8, 4, -16, -46],
-    "front":   [-65, -40, -16, 0, -22, -58],
-    "back":    [-98, -75, -46, -20, -52, -90],
+    "profile": [-48, -28, -8, 4, -16, -42],
+    "front":   [-60, -38, -14, 0, -20, -54],
+    "back":    [-95, -72, -44, -18, -50, -88],
 }
 
 
@@ -477,61 +465,50 @@ def jab_pose(direction, p_idx, side):
 
 
 def glove_parts(sh, elbow, hand, skin, gr, jabbing=False):
-    """Thick upper arm + forearm + white cuff (under) + BIG glossy red glove.
-    Cuff is centred behind the glove so a white crescent peeks at the wrist."""
     ex, ey = hand[0] - elbow[0], hand[1] - elbow[1]
     en = math.hypot(ex, ey) or 1.0
     ux, uy = ex / en, ey / en
-    # cuff well behind glove edge so it remains visible as a white band
-    cuff_c = (hand[0] - ux * (gr + 2.8), hand[1] - uy * (gr + 2.8))
-    cuff_r = 4.2
+    cuff_c = (hand[0] - ux * (gr + 2.2), hand[1] - uy * (gr + 2.2))
     wrist = (hand[0] - ux * (gr * 0.55), hand[1] - uy * (gr * 0.55))
     hi = (hand[0] - gr * 0.28, hand[1] - gr * 0.32)
     spec = (hand[0] - gr * 0.38, hand[1] - gr * 0.42)
     shade = (hand[0] + gr * 0.22, hand[1] + gr * 0.28)
     if jabbing:
-        u0, u1 = 5.8, 5.2
-        f0, f1 = 5.0, 4.5
+        u0, u1, f0, f1 = 5.0, 4.5, 4.3, 3.8
     else:
-        u0, u1 = 5.2, 4.6
-        f0, f1 = 4.5, 4.0
+        u0, u1, f0, f1 = 4.4, 3.9, 3.7, 3.3
     skin2 = tuple(int(v * 0.86) for v in skin)
     return [
         (capsule_fn(sh, u0, elbow, u1), skin),
         (capsule_fn(sh, u0 * 0.55, elbow, u1 * 0.55), skin2),
         (capsule_fn(elbow, f0, wrist, f1), skin),
         (capsule_fn(elbow, f0 * 0.55, wrist, f1 * 0.55), skin2),
-        # white cuff UNDER the glove, sticking out the back
-        (disc_fn(cuff_c, cuff_r), CUFF),
-        (disc_fn(cuff_c, cuff_r * 0.65), CUFF_SHADE),
-        # big glossy glove on top (unbroken red disc)
+        (disc_fn(cuff_c, 3.4), CUFF),
+        (disc_fn(cuff_c, 2.2), CUFF_SHADE),
         (disc_fn(hand, gr), GLOVE),
-        (disc_fn(shade, gr * 0.58), GLOVE_SHADE),
-        (disc_fn(hi, gr * 0.36), GLOVE_HI),
-        (disc_fn(spec, gr * 0.16), GLOVE_SPEC),
+        (disc_fn(shade, gr * 0.55), GLOVE_SHADE),
+        (disc_fn(hi, gr * 0.34), GLOVE_HI),
+        (disc_fn(spec, gr * 0.15), GLOVE_SPEC),
     ]
 
 
 def draw_arm(size, sh, hand, skin, gr, jabbing=False):
-    # longer IK segments so a jab doesn't stretch into a stick
-    L1, L2 = 9.5, 9.0
+    L1, L2 = 9.0, 8.5
     e1 = ik(sh, hand, L1, L2, 1)
     e2 = ik(sh, hand, L1, L2, -1)
     if jabbing:
-        # nearly straight: elbow close to the shoulder→hand line
         def off(e):
-            # distance from line sh→hand
             dx, dy = hand[0] - sh[0], hand[1] - sh[1]
             lx = math.hypot(dx, dy) or 1.0
             return abs((hand[0] - sh[0]) * (sh[1] - e[1]) - (sh[0] - e[0]) * (hand[1] - sh[1])) / lx
         elbow = e1 if off(e1) < off(e2) else e2
-        # pull elbow toward the line a bit for a cleaner jab
         t = 0.45
         mid = (sh[0] + (hand[0] - sh[0]) * t, sh[1] + (hand[1] - sh[1]) * t)
         elbow = (elbow[0] * 0.35 + mid[0] * 0.65, elbow[1] * 0.35 + mid[1] * 0.65)
     else:
-        elbow = e1 if e1[1] <= e2[1] else e2
-    return shapes_layer(size, glove_parts(sh, elbow, hand, skin, gr, jabbing), ARM_LINE, 1.05)
+        # prefer elbow that hangs a bit below for a natural guard
+        elbow = e1 if e1[1] >= e2[1] else e2
+    return shapes_layer(size, glove_parts(sh, elbow, hand, skin, gr, jabbing), ARM_LINE, 1.0)
 
 
 def skin_rgb_of(f):
@@ -549,107 +526,56 @@ def bounce_of(anim, col, meta):
         return 0.0
     rng = meta["animations"][anim]
     k = col - rng["start"]
-    return 1.2 * math.sin(k * math.pi / 2.0)
+    return 1.0 * math.sin(k * math.pi / 2.0)
 
 
-def scrub_red_smears(body, g, waist):
-    """Remove stray saturated-red pixels on the torso/legs that aren't trunks.
-    Trunks are drawn as a separate layer, so any red on the body plate above
-    mid-chest or on bare thighs is a smear."""
-    out = body.copy()
-    h, w = out.shape[:2]
-    yy = np.mgrid[0:h, 0:w][0]
-    a = out[..., 3] >= 128
-    rgb = out[..., :3].astype(np.int32)
-    red = a & (rgb[..., 0] > 150) & (rgb[..., 0] - rgb[..., 1] > 55) & (rgb[..., 0] - rgb[..., 2] > 45)
-    # above waistband: never keep red on the body plate
-    smear = red & (yy < waist + 1) & (yy > g.neck)
-    if smear.any():
-        # repaint as neighbouring skin
-        sk = loose_skinlike(out) & (yy > g.neck + 2) & (yy < waist) & ~smear
-        fill = np.median(out[sk][:, :3], 0) if sk.any() else np.array([220, 160, 120])
-        out[smear, :3] = fill
-    return out
-
-
-
-def scrub_chest_red(body, g, waist, direction, tag_side):
-    """Remove glove-bleed red smears on the bare torso above the waistband.
-    Keeps large round glove components; erases thin trails on the chest."""
-    out = body.copy()
-    h, w = out.shape[:2]
+def trim_lateral_arms(f, g, sides):
+    """Erase only hanging-arm pixels that stick OUTSIDE the torso silhouette.
+    Never touch the torso core, shorts, or legs — James's body stays intact."""
+    h, w = f.shape[:2]
     yy, xx = np.mgrid[0:h, 0:w]
-    a = out[..., 3] >= 128
-    rgb = out[..., :3].astype(np.int32)
-    # true garment/glove red (low green) — does not match skin
-    red = a & (rgb[..., 0] > 160) & (rgb[..., 1] < 100) & (rgb[..., 0] - rgb[..., 1] > 80) & (rgb[..., 0] - rgb[..., 2] > 70)
-    chest = (yy > g.neck + 2) & (yy < waist + 0.5)
-    keep = np.zeros_like(red)
-    for comp in components8(red):
-        ys, xs = np.nonzero(comp)
-        if not len(xs):
+    out = f.copy()
+    ai = alpha_mask(out)
+    face = (yy <= g.neck + 1) & skin_mask(out)
+    arms, _ = arms_and_hands(out, g, face)
+    rm = np.zeros_like(arms)
+    for s in sides:
+        rm |= arm_comps_on(arms, g, 'S', s)  # side filter only; direction unused for L/R
+    # Build per-row torso x-span from opaque non-arm rows near mid-torso, then
+    # erase arm pixels outside that span (true hanging arms / hands only).
+    L = np.full(h, np.nan)
+    R = np.full(h, np.nan)
+    for y in range(int(g.neck) + 4, int(g.hem) - 1):
+        xs = np.nonzero(ai[y] & ~arms[y])[0]
+        if len(xs) < 4:
+            xs = np.nonzero(ai[y])[0]
+        if len(xs) >= 4:
+            L[y] = xs.min() + 1
+            R[y] = xs.max() - 1
+    ys = np.arange(h)
+    for E in (L, R):
+        ok = ~np.isnan(E)
+        if ok.sum() >= 2:
+            E[:] = np.interp(ys, ys[ok], E[ok])
+    lateral = np.zeros_like(ai)
+    for y in range(int(g.neck) + 3, int(g.hem)):
+        if np.isnan(L[y]) or np.isnan(R[y]):
             continue
-        ww = xs.max() - xs.min() + 1
-        hh = ys.max() - ys.min() + 1
-        # keep only blob-like gloves (roughly round, big enough)
-        if comp.sum() >= 70 and min(ww, hh) >= 10 and max(ww, hh) / max(min(ww, hh), 1) < 2.4:
-            keep |= comp
-        elif comp.sum() >= 40 and direction in PROFILE:
-            fx = PROFILE[direction]
-            if (xs.mean() - g.head_cx) * fx > 6 and min(ww, hh) >= 8:
-                keep |= comp
-        elif comp.sum() >= 40 and abs(xs.mean() - g.head_cx) > 6 and min(ww, hh) >= 8:
-            keep |= comp
-    smear = red & chest & ~keep
-    if smear.any():
-        sk = loose_skinlike(out) & chest & ~smear & ~red
-        fill = np.median(out[sk][:, :3], 0) if sk.any() else np.array([220, 160, 120])
-        out[smear, :3] = fill
-    return out
-
-
-
-def scrub_profile_trails(body, g, waist, direction):
-    """Erase thin red trails on the profile torso that aren't the main glove."""
-    out = body.copy()
-    h, w = out.shape[:2]
-    yy, xx = np.mgrid[0:h, 0:w]
-    a = out[..., 3] >= 128
-    rgb = out[..., :3].astype(np.int32)
-    red = a & (rgb[..., 0] > 160) & (rgb[..., 1] < 100) & (rgb[..., 0] - rgb[..., 1] > 80)
-    fx = PROFILE[direction]
-    # torso column near the body axis
-    torso_x = (xx + 0.5 - g.head_cx) * fx < 3.0
-    chest = (yy > g.neck + 2) & (yy < waist)
-    # keep the large forward glove
-    keep = np.zeros_like(red)
-    for comp in components8(red):
-        xs = np.nonzero(comp)[1]
-        ys = np.nonzero(comp)[0]
-        if not len(xs):
-            continue
-        ww = xs.max() - xs.min() + 1
-        hh = ys.max() - ys.min() + 1
-        if comp.sum() >= 70 and min(ww, hh) >= 10 and (xs.mean() - g.head_cx) * fx > 4:
-            keep |= comp
-    smear = red & chest & torso_x & ~keep
-    # also any red component on chest with height<<width (horizontal smear)
-    for comp in components8(red & chest & ~keep):
-        ys, xs = np.nonzero(comp)
-        if not len(xs):
-            continue
-        ww = xs.max() - xs.min() + 1
-        hh = ys.max() - ys.min() + 1
-        if hh <= 4 or (ww > hh * 2 and comp.sum() < 80):
-            smear |= comp
-    if smear.any():
-        sk = loose_skinlike(out) & chest & ~smear & ~red
-        fill = np.median(out[sk][:, :3], 0) if sk.any() else np.array([220, 160, 120])
-        out[smear, :3] = fill
+        lo, hi = int(round(L[y])), int(round(R[y]))
+        row = arms[y].copy()
+        row[lo:hi + 1] = False  # keep torso core
+        lateral[y] |= row
+    # also drop any leftover hand blobs below mid-torso that sit outside hips
+    lateral |= rm & ((xx < np.nanmin(L)) | (xx > np.nanmax(R)))
+    lateral &= yy < int(g.hem) - 1
+    lateral &= yy > int(g.neck) + 2
+    out[lateral] = 0
     return out
 
 
 def boxify(frame, direction, anim, col, meta):
+    """Composite Boxer onto James: recolor tee/shorts/shoes in place, trim only
+    lateral hanging arms, then draw guard/jab gloves. Body is never redrawn."""
     f = pad_frame(frame)
     a = alpha_mask(f)
     if not a.any():
@@ -663,35 +589,27 @@ def boxify(frame, direction, anim, col, meta):
     side = TAG_SIDE[direction]
     bounce = bounce_of(anim, col, meta)
 
-    if direction in PROFILE:
-        sides = [side]
-    else:
-        sides = [1, -1]
-
+    # 1) Recolor James in place FIRST (tee→chest, navy→trunks+gold waistband,
+    #    shoes→high-tops). Legs, face, silhouette stay his.
     if tag:
         idle = pad_frame(meta["_base_idle"][direction])
-        f = strip_arms(idle, Geometry(idle), direction, [side])
-        g = Geometry(f)
+        gi = Geometry(idle)
+        body = idle
+        g = gi
     else:
-        f = strip_arms(f, g, direction, sides)
-        g = Geometry(f)
+        body = f
 
-    waist = find_waist(f, g)
-    rc, _ = recolor_chest(f, g, waist)
-    rc = scrub_red_smears(rc, g, waist)
-    skin = skin_rgb_of(f)
+    rc, waist = recolor(body, g)
+    g = Geometry(rc)
+
+    # 2) Trim only lateral hanging arms (outside torso). Core body untouched.
+    sides = [side] if (tag or direction in PROFILE) else [1, -1]
+    rc = trim_lateral_arms(rc, g, sides)
+    g = Geometry(rc)
+
+    skin = skin_rgb_of(rc)
     gr = glove_radius(g)
-    feet = foot_centers(f, g)
-
-    # body plate
-    base = premul(rc, np.ones((h, w)))
-    # drawn trunks over the body (baggy, readable)
-    trunks = down(trunks_layer(size, g, waist, direction))
-    out = over(base, trunks)
-    # high-top shoes
-    shoes = shoes_layer(size, feet, direction)
-    if shoes is not None:
-        out = over(out, down(shoes))
+    out = premul(rc, np.ones((h, w)))
 
     if tag:
         n = rng["count"]
@@ -703,7 +621,6 @@ def boxify(frame, direction, anim, col, meta):
             out = over(out, down(draw_arm(size, sh_f, hd_f, skin, gr, False)))
         sh_n = shoulder(g, direction, side)
         ang, R = jab_pose(direction, p, side)
-        # tip of jab is the glove centre; add a touch so big glove clears body
         hd_n = (sh_n[0] + math.cos(ang) * R, sh_n[1] + math.sin(ang) * R)
         out = over(out, down(draw_arm(size, sh_n, hd_n, skin, gr * 1.05, True)))
     else:
@@ -715,16 +632,11 @@ def boxify(frame, direction, anim, col, meta):
 
     res = to_u8(out)
     res[res[..., 3] < 8] = 0
-    # final smear pass: saturated red on the chest (above waist) that is not
-    # part of a large glove blob near the hands gets repainted as skin
-    res = scrub_chest_red(res, g, waist, direction, side if tag else 0)
-    if direction in PROFILE:
-        res = scrub_profile_trails(res, g, waist, direction)
     comps = components8(res[..., 3] > 40)
     if comps:
         big = max(comps, key=lambda c: c.sum())
         for c in comps:
-            if c is not big and c.sum() < 40:
+            if c is not big and c.sum() < 30:
                 res[c] = 0
     res = solidify(res, (int(g.neck), int(g.hem) - 1))
     return res

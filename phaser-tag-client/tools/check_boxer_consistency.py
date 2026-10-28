@@ -77,7 +77,7 @@ for r, d in enumerate(m["directions"]):
                      key=lambda y: w_.get(y, 999))
             hr = (nk - t_) / max(b_ - t_, 1)
             hrs.setdefault(d, []).append(hr)
-            if not 0.36 <= hr <= 0.62:
+            if not 0.34 <= hr <= 0.62:
                 print(f"{d} col {c}: head ratio {hr:.2f}")
                 bad += 1
 

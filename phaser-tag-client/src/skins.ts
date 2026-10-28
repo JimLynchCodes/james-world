@@ -240,10 +240,10 @@ export const SKINS: Record<Skin, SkinSheet> = {
     note: "Float like a butterfly, tag like a bee.",
     texture: "kid_boxer",
     url: `${BASE}assets/kid_boxer.png`,
-    // padded 28px each side and 12px on top so big gloves + jab fit
-    frameWidth: 136,
-    frameHeight: 112,
-    baselineY: 108,
+    // padded 24px each side and 8px on top so the jab glove fits
+    frameWidth: 128,
+    frameHeight: 108,
+    baselineY: 104,
     artHeight: 90,
   },
 };
