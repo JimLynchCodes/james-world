@@ -188,4 +188,9 @@ Información técnica:
 
 
 Pulsa cualquier tecla o toca para continuar `,
+
+  "brawler.fighter": "Luchador",
+  "brawler.wave": "OLEADA {n}",
+  "brawler.boss": "JEFE",
+  "brawler.win": "¡GANASTE!"
 };

@@ -185,4 +185,9 @@ James World をシャットダウンしました。
 
 
 いずれかのキーを押すか、タップして続行 `,
+
+  "brawler.fighter": "ファイター",
+  "brawler.wave": "WAVE {n}",
+  "brawler.boss": "ボス",
+  "brawler.win": "クリア！"
 };

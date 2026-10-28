@@ -138,4 +138,9 @@ export const frFR: Messages = {
   "cave.line2": "TU POURRAS AVOIR CECI.",
   "bsod.aria": "Erreur : Quête non implémentée.",
   "bsod.text": "Un problème a été détecté et James World a été arrêté pour éviter d’endommager\nvotre ordinateur.\n\nErreur : Quête non implémentée.\n\nSi c’est la première fois que vous voyez cet écran d’erreur,\nredémarrez votre ordinateur. Si cet écran réapparaît, suivez\nces étapes :\n\nVérifiez que tout nouveau matériel ou logiciel est correctement installé.\nS’il s’agit d’une nouvelle installation, demandez à votre fabricant de matériel\nou de logiciel les mises à jour de James World dont vous pourriez avoir besoin.\n\nSi les problèmes persistent, désactivez ou retirez tout matériel ou logiciel\nrécemment installé. Désactivez les options mémoire du BIOS comme la mise en cache\nou le shadowing. Si vous devez utiliser le Mode sans échec pour retirer ou\ndésactiver des composants, redémarrez votre ordinateur, appuyez sur F8 pour\nchoisir les Options de démarrage avancées, puis sélectionnez Mode sans échec.\n\nInformations techniques :\n\n*** STOP: 0x0000007B (0xC0000034, 0x00000000, 0x00000000, 0x00000000)\n\n\nAppuyez sur une touche ou touchez l’écran pour continuer ",
+
+  "brawler.fighter": "Combattant",
+  "brawler.wave": "VAGUE {n}",
+  "brawler.boss": "BOSS",
+  "brawler.win": "TU AS GAGNÉ !"
 };

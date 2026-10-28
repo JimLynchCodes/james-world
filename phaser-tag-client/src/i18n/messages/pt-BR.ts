@@ -138,4 +138,9 @@ export const ptBR: Messages = {
   "cave.line2": "ISTO PODE SER SEU.",
   "bsod.aria": "Erro: Missão Não Implementada.",
   "bsod.text": "Um problema foi detectado e o James World foi desligado para evitar danos\nao seu computador.\n\nErro: Missão Não Implementada.\n\nSe esta é a primeira vez que você vê esta tela de erro,\nreinicie o computador. Se esta tela aparecer de novo, siga\nestes passos:\n\nVerifique se qualquer hardware ou software novo está instalado corretamente.\nSe esta for uma instalação nova, peça ao fabricante do seu hardware ou software\nas atualizações do James World que você possa precisar.\n\nSe os problemas continuarem, desative ou remova qualquer hardware ou software\ninstalado recentemente. Desative opções de memória da BIOS, como cache ou shadowing.\nSe precisar usar o Modo de Segurança para remover ou desativar componentes, reinicie\no computador, pressione F8 para escolher as Opções de Inicialização Avançadas e então\nselecione Modo de Segurança.\n\nInformações técnicas:\n\n*** STOP: 0x0000007B (0xC0000034, 0x00000000, 0x00000000, 0x00000000)\n\n\nPressione qualquer tecla ou toque para continuar ",
+
+  "brawler.fighter": "Lutador",
+  "brawler.wave": "ONDA {n}",
+  "brawler.boss": "CHEFE",
+  "brawler.win": "VOCÊ VENCEU!"
 };

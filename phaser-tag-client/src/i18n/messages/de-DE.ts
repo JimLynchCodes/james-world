@@ -138,4 +138,9 @@ export const deDE: Messages = {
   "cave.line2": "DU KANNST DAS HABEN.",
   "bsod.aria": "Fehler: Quest nicht implementiert.",
   "bsod.text": "Ein Problem wurde festgestellt und James World wurde heruntergefahren, um Schäden\nan Ihrem Computer zu vermeiden.\n\nFehler: Quest nicht implementiert.\n\nWenn Sie diesen Stoppfehler zum ersten Mal sehen, starten Sie\nden Computer neu. Wenn dieser Bildschirm wieder erscheint, gehen\nSie so vor:\n\nPrüfen Sie, ob neue Hardware oder Software richtig installiert ist.\nBei einer Neuinstallation fragen Sie Ihren Hardware- oder Softwarehersteller\nnach James-World-Updates, die Sie eventuell brauchen.\n\nWenn die Probleme bleiben, deaktivieren oder entfernen Sie neu installierte\nHardware oder Software. Deaktivieren Sie BIOS-Speicheroptionen wie Caching oder\nShadowing. Wenn Sie im abgesicherten Modus Komponenten entfernen oder deaktivieren\nmüssen, starten Sie den Computer neu, drücken Sie F8 für die erweiterten\nStartoptionen und wählen Sie dann Abgesicherter Modus.\n\nTechnische Informationen:\n\n*** STOP: 0x0000007B (0xC0000034, 0x00000000, 0x00000000, 0x00000000)\n\n\nBeliebige Taste drücken oder tippen, um fortzufahren ",
+
+  "brawler.fighter": "Kämpfer",
+  "brawler.wave": "WELLE {n}",
+  "brawler.boss": "BOSS",
+  "brawler.win": "DU HAST GEWONNEN!"
 };

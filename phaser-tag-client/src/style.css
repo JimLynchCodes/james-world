@@ -2045,7 +2045,14 @@ body.in-secret .status,
 body.in-secret .controls,
 body.in-secret .settings-cog,
 body.in-secret .lang-button,
-body.in-secret .lang-popover {
+body.in-secret .lang-popover,
+body.in-brawler .status,
+body.in-brawler .controls,
+body.in-brawler .settings-cog,
+body.in-brawler .lang-button,
+body.in-brawler .lang-popover,
+body.in-brawler .hud .energy-bar,
+body.in-brawler #energy-label {
   visibility: hidden;
 }
 

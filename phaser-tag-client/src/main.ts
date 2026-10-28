@@ -4,10 +4,12 @@ import { GameSocket } from "./network";
 import type { ServerMessage, PlayerSnapshot } from "./protocol";
 import type { UUID } from "./types";
 import { KidAvatar, createKidAnimations, preloadKid } from "./kid";
-import { applyPhysicalKey, movementAxes, noteTagKey, physicalCode } from "./tagging";
+import { applyPhysicalKey, isTagKey, movementAxes, noteTagKey, physicalCode } from "./tagging";
 import { createSchoolyard, type Occluder } from "./schoolyard";
 import { PLAYER_RADIUS, PLAY_AREA, WORLD_HEIGHT, WORLD_WIDTH } from "./world";
 import { GameAudio, type Sfx } from "./audio";
+import { BrawlerWorldScene, type BrawlerHooks } from "./brawlerWorld";
+import { CROWN, loadSavedCosmetic, saveCosmetic, toCosmetic, type Cosmetic } from "./cosmetics";
 import { SecretDungeonScene, type DungeonHooks } from "./secretDungeon";
 import {
   nearSecretTree,
@@ -213,6 +215,10 @@ class GameScene extends Phaser.Scene {
   private secretGateState: SecretGate = { awayAt: null };
   private secretTree: { x: number; y: number } | null = null;
   private inSecret = false;
+  private inBrawler = false;
+  private localCosmetic: Cosmetic = loadSavedCosmetic();
+  private brawlerAttackHeld = false;
+  private brawlerScene: BrawlerWorldScene | null = null;
   private secretReturn: { x: number; y: number } | null = null;
 
   private signs: PlacedSign[] = [];
@@ -269,7 +275,7 @@ class GameScene extends Phaser.Scene {
         if (this.startRequested) {
           this.socket.send({
             type: "Join",
-            data: { room_id: ROOM_ID, skin: this.localSkin },
+            data: { room_id: ROOM_ID, skin: this.localSkin, cosmetic: this.localCosmetic },
           });
         }
       },
@@ -385,6 +391,9 @@ class GameScene extends Phaser.Scene {
     }
     if (!this.playing) return;
     this.tagQueued = noteTagKey(this.tagQueued, event, phase);
+    if (isTagKey(event) && !event.repeat) {
+      this.brawlerAttackHeld = phase === "down";
+    }
   };
 
   /** +1 zoom in, -1 zoom out, 0 when both directions are held (or neither). */
@@ -402,6 +411,8 @@ class GameScene extends Phaser.Scene {
       // The cave scene reads keys / the joystick itself. Drop tag presses
       // so leaving the cave doesn't swing, and don't send MoveInput.
       this.tagQueued = false;
+    } else if (this.inBrawler) {
+      // Brawler scene reads axes + attack; schoolyard MoveInput stays off.
     } else if (this.playing) {
       this.tagCooldown = Math.max(0, this.tagCooldown - delta);
 
@@ -567,9 +578,11 @@ class GameScene extends Phaser.Scene {
 
       case "PlayerJoined":
         if (message.data.player_id === this.localPlayerId) break;
-        this.ensureRemotePlayer(message.data.player_id, message.data.name, message.data.x, message.data.y).avatar.setSkin(
-          toSkin(message.data.skin)
-        );
+        {
+          const joined = this.ensureRemotePlayer(message.data.player_id, message.data.name, message.data.x, message.data.y);
+          joined.avatar.setSkin(toSkin(message.data.skin));
+          joined.avatar.setCosmetic(toCosmetic(message.data.cosmetic));
+        }
         this.logEvent(t("toast.joined", { name: message.data.name }));
         this.updateHud();
         this.playEffect("join");
@@ -594,6 +607,13 @@ class GameScene extends Phaser.Scene {
       case "Error":
         // Keep the status line for the connection / name; errors go to the log.
         this.logEvent(t("toast.serverError", { message: message.data.message }));
+        break;
+
+      case "BrawlerWelcome":
+      case "BrawlerSnapshot":
+      case "BrawlerPlayerDied":
+      case "BrawlerWon":
+        this.brawlerScene?.handleServerMessage(message);
         break;
     }
   }
@@ -639,6 +659,13 @@ class GameScene extends Phaser.Scene {
 
     // Energy comes straight from our entry in the server snapshot.
     this.localEnergy = player.energy;
+    const cos = toCosmetic(player.cosmetic);
+    if (cos !== this.localCosmetic) {
+      // Server is source of truth while connected (e.g. just awarded a crown).
+      this.localCosmetic = cos;
+      saveCosmetic(cos);
+    }
+    this.player.setCosmetic(cos);
   }
 
   private applyRemoteSnapshot(player: PlayerSnapshot) {
@@ -667,6 +694,7 @@ class GameScene extends Phaser.Scene {
 
     // Outfit: switches live when that player changes skin.
     remote.avatar.setSkin(toSkin(player.skin));
+    remote.avatar.setCosmetic(toCosmetic(player.cosmetic));
 
     // Bots have no "BOT" text any more; their purple ring says it.
     remote.avatar.setLabels({ name: player.name, you: false, it: player.is_it });
@@ -838,7 +866,15 @@ class GameScene extends Phaser.Scene {
 
   /** Mobile Tag button: same as SPACE. */
   tagPressed() {
-    if (!this.playing || this.uiOpen || this.inSecret) return;
+    if (!this.playing || this.uiOpen) return;
+    if (this.inBrawler) {
+      this.brawlerAttackHeld = true;
+      this.time.delayedCall(180, () => {
+        this.brawlerAttackHeld = false;
+      });
+      return;
+    }
+    if (this.inSecret) return;
     if (this.readSignIfNear()) return;
     if (!this.observeSecretTag()) this.tryTagNearest();
   }
@@ -916,18 +952,17 @@ class GameScene extends Phaser.Scene {
       skin: this.localSkin,
       audio: this.audio,
       readMove: () => this.dungeonAxes(),
-      onExit: () => this.exitSecret(),
+      onExit: (result) => this.exitSecret(result),
     };
     this.scene.launch("SecretDungeon", hooks);
   }
 
-  /** Back to the schoolyard, on the spot we left (beside the secret tree). */
-  private exitSecret() {
+  /** Back to the schoolyard, or onward to the brawler if the sword was taken. */
+  private exitSecret(result: { tookSword: boolean } = { tookSword: false }) {
     if (!this.inSecret) return;
     this.scene.stop("SecretDungeon");
     this.inSecret = false;
     document.body.classList.remove("in-secret");
-    this.socket.send({ type: "SetAway", data: { away: false } });
     this.tagQueued = false;
     this.held.clear();
     this.joystick = { x: 0, y: 0 };
@@ -935,6 +970,11 @@ class GameScene extends Phaser.Scene {
     this.clearTapTarget();
     this.secret.reset();
     this.secretGateState = { awayAt: null };
+    if (result.tookSword) {
+      this.enterBrawler();
+      return;
+    }
+    this.socket.send({ type: "SetAway", data: { away: false } });
     const spot = this.secretReturn;
     if (this.player && spot) {
       this.player.x = spot.x;
@@ -946,6 +986,73 @@ class GameScene extends Phaser.Scene {
     } else {
       this.player?.setDrawn(true);
     }
+  }
+
+  private enterBrawler() {
+    if (this.inBrawler) return;
+    this.inBrawler = true;
+    this.brawlerAttackHeld = false;
+    document.body.classList.add("in-brawler");
+    this.player?.setDrawn(false);
+    // Stay away from the playground while fighting.
+    this.socket.send({ type: "SetAway", data: { away: true } });
+    const hooks: BrawlerHooks = {
+      skin: this.localSkin,
+      cosmetic: this.localCosmetic,
+      name: this.localName || "James",
+      audio: this.audio,
+      readMove: () => this.dungeonAxes(),
+      readAttack: () => this.brawlerAttackHeld || this.tagQueued,
+      sendInput: (dx, dy, attack) => {
+        this.socket.send({
+          type: "BrawlerInput",
+          data: { seq: ++this.sequence, dx, dy, attack },
+        });
+      },
+      onLeaveBrawler: () => this.leaveBrawlerToPlayground(),
+      onDied: () => this.leaveBrawlerToPlayground(),
+      onWon: () => this.winBrawler(),
+    };
+    this.scene.launch("BrawlerWorld", hooks);
+    this.brawlerScene = this.scene.get("BrawlerWorld") as BrawlerWorldScene;
+    this.socket.send({ type: "JoinBrawler", data: {} });
+  }
+
+  private leaveBrawlerToPlayground() {
+    if (!this.inBrawler) return;
+    this.socket.send({ type: "LeaveBrawler", data: {} });
+    this.scene.stop("BrawlerWorld");
+    this.brawlerScene = null;
+    this.inBrawler = false;
+    this.brawlerAttackHeld = false;
+    document.body.classList.remove("in-brawler");
+    this.socket.send({ type: "SetAway", data: { away: false } });
+    this.tagQueued = false;
+    this.held.clear();
+    this.joystick = { x: 0, y: 0 };
+    this.runHeld = false;
+    this.clearTapTarget();
+    const spot = this.secretReturn;
+    if (this.player && spot) {
+      this.player.x = spot.x;
+      this.player.y = spot.y;
+      this.localTargetX = spot.x;
+      this.localTargetY = spot.y;
+      this.player.setCosmetic(this.localCosmetic);
+      this.player.setDrawn(true);
+      this.cameras.main.centerOn(spot.x, spot.y);
+    } else {
+      this.player?.setCosmetic(this.localCosmetic);
+      this.player?.setDrawn(true);
+    }
+  }
+
+  private winBrawler() {
+    this.localCosmetic = CROWN;
+    saveCosmetic(CROWN);
+    this.socket.send({ type: "SetCosmetic", data: { cosmetic: CROWN } });
+    this.player?.setCosmetic(CROWN);
+    this.leaveBrawlerToPlayground();
   }
 
   /**
@@ -975,7 +1082,7 @@ class GameScene extends Phaser.Scene {
     if (!this.connected) return; // Join as soon as onOpen fires
     this.socket.send({
       type: "Join",
-      data: { room_id: ROOM_ID, skin: this.localSkin },
+      data: { room_id: ROOM_ID, skin: this.localSkin, cosmetic: this.localCosmetic },
     });
   }
 
@@ -1009,6 +1116,7 @@ class GameScene extends Phaser.Scene {
     this.player.setLabels({ name, you: true, it: false });
     this.player.setRole("self");
     this.player.setSkin(this.localSkin);
+    this.player.setCosmetic(this.localCosmetic);
     this.snapCameraToLocalPlayer();
     this.playing = true;
     this.renderStatus();
@@ -1113,7 +1221,7 @@ class GameScene extends Phaser.Scene {
     // Phaser only reports presses on the canvas itself, so clicks on the
     // HUD, the cog, the hint's X, or the modal never reach these handlers.
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
-      if (!this.playing || this.controlMode !== "mobile" || this.uiOpen || this.inSecret) return;
+      if (!this.playing || this.controlMode !== "mobile" || this.uiOpen || this.inSecret || this.inBrawler) return;
       if (this.pinchLock || this.touches.size >= 2) {
         this.pendingTag = null;
         this.clearTapTarget();
@@ -1257,7 +1365,7 @@ class GameScene extends Phaser.Scene {
   }
 
   private updateZoomHold(delta: number) {
-    if (this.uiOpen || this.inSecret || !this.altHeld || this.zoomKeyDir() === 0) {
+    if (this.uiOpen || this.inSecret || this.inBrawler || !this.altHeld || this.zoomKeyDir() === 0) {
       this.zoomHoldMs = 0;
       return;
     }
@@ -1286,7 +1394,7 @@ class GameScene extends Phaser.Scene {
   private readonly onWheel = (event: WheelEvent) => {
     if (!event.altKey) return;
     event.preventDefault();
-    if (this.uiOpen || this.inSecret) {
+    if (this.uiOpen || this.inSecret || this.inBrawler) {
       this.wheelRemainder = 0;
       return;
     }
@@ -1324,7 +1432,7 @@ class GameScene extends Phaser.Scene {
   }
 
   private readonly onTouchStart = (event: TouchEvent) => {
-    if (this.uiOpen || this.inSecret) return;
+    if (this.uiOpen || this.inSecret || this.inBrawler) return;
     for (const touch of event.changedTouches) {
       if (!this.onGameSurface(touch)) continue;
       this.touches.set(touch.identifier, { x: touch.clientX, y: touch.clientY });
@@ -1418,7 +1526,7 @@ class GameScene extends Phaser.Scene {
   /** Show the read prompt over the closest sign in range. */
   private updateSigns() {
     let best: PlacedSign | null = null;
-    if (this.playing && this.player && !this.inSecret && !this.uiOpen) {
+    if (this.playing && this.player && !this.inSecret && !this.inBrawler && !this.uiOpen) {
       let bestD = SIGN_READ_DISTANCE;
       for (const s of this.signs) {
         const d = Phaser.Math.Distance.Between(this.player.x, this.player.feetY, s.x, s.y);
@@ -1590,6 +1698,7 @@ class GameScene extends Phaser.Scene {
 
 const scene = new GameScene();
 const secretDungeon = new SecretDungeonScene();
+const brawlerWorld = new BrawlerWorldScene();
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
@@ -1617,7 +1726,7 @@ const game = new Phaser.Game({
       debug: false,
     },
   },
-  scene: [scene, secretDungeon],
+  scene: [scene, secretDungeon, brawlerWorld],
 });
 
 const hud = document.createElement("div");

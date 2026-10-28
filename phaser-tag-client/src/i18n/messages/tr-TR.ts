@@ -138,4 +138,9 @@ export const trTR: Messages = {
   "cave.line2": "BU SENİN OLSUN.",
   "bsod.aria": "Hata: Görev Henüz Yok.",
   "bsod.text": "Bir sorun algılandı ve bilgisayarınıza zarar gelmemesi için James World\nkapatıldı.\n\nHata: Görev Henüz Yok.\n\nBu hata ekranını ilk kez görüyorsanız bilgisayarınızı yeniden\nbaşlatın. Bu ekran yeniden görünürse şu adımları izleyin:\n\nYeni donanım veya yazılımın düzgün kurulduğundan emin olun.\nBu yeni bir kurulumsa, donanım veya yazılım üreticinizden ihtiyaç\nduyabileceğiniz James World güncellemelerini isteyin.\n\nSorunlar devam ederse yeni kurulan donanım veya yazılımı devre dışı\nbırakın ya da kaldırın. Önbelleğe alma veya gölgeleme gibi BIOS bellek\nseçeneklerini kapatın. Bileşenleri kaldırmak veya devre dışı bırakmak için\nGüvenli Mod gerekiyorsa, bilgisayarı yeniden başlatın, Gelişmiş Başlangıç\nSeçenekleri için F8'e basın ve Güvenli Mod'u seçin.\n\nTeknik bilgi:\n\n*** STOP: 0x0000007B (0xC0000034, 0x00000000, 0x00000000, 0x00000000)\n\n\nDevam etmek için bir tuşa basın veya dokunun ",
+
+  "brawler.fighter": "Savaşçı",
+  "brawler.wave": "DALGA {n}",
+  "brawler.boss": "BOSS",
+  "brawler.win": "KAZANDIN!"
 };

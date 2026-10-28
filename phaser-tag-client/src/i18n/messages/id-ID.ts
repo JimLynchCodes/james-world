@@ -138,4 +138,9 @@ export const idID: Messages = {
   "cave.line2": "INI BISA JADI MILIKMU.",
   "bsod.aria": "Error: Misi Belum Dibuat.",
   "bsod.text": "Masalah terdeteksi dan James World dimatikan untuk mencegah kerusakan\npada komputer Anda.\n\nError: Misi Belum Dibuat.\n\nJika ini pertama kalinya Anda melihat layar error ini,\nnyalakan ulang komputer. Jika layar ini muncul lagi, ikuti\nlangkah-langkah berikut:\n\nPastikan hardware atau software baru terpasang dengan benar.\nJika ini instalasi baru, tanyakan ke produsen hardware atau software Anda\npembaruan James World yang mungkin Anda perlukan.\n\nJika masalah berlanjut, nonaktifkan atau hapus hardware atau software\nyang baru dipasang. Nonaktifkan opsi memori BIOS seperti caching atau shadowing.\nJika Anda perlu memakai Safe Mode untuk menghapus atau menonaktifkan komponen,\nnyalakan ulang komputer, tekan F8 untuk memilih Opsi Startup Lanjutan, lalu\npilih Safe Mode.\n\nInformasi teknis:\n\n*** STOP: 0x0000007B (0xC0000034, 0x00000000, 0x00000000, 0x00000000)\n\n\nTekan tombol apa saja atau ketuk untuk lanjut ",
+
+  "brawler.fighter": "Petarung",
+  "brawler.wave": "GELOMBANG {n}",
+  "brawler.boss": "BOSS",
+  "brawler.win": "KAMU MENANG!"
 };

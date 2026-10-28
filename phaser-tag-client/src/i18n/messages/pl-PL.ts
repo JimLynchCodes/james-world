@@ -138,4 +138,9 @@ export const plPL: Messages = {
   "cave.line2": "BĘDZIESZ TO MIEĆ.",
   "bsod.aria": "Błąd: Misja niezaimplementowana.",
   "bsod.text": "Wykryto problem i James World został zamknięty, aby zapobiec uszkodzeniu\nkomputera.\n\nBłąd: Misja niezaimplementowana.\n\nJeśli widzisz ten ekran błędu po raz pierwszy, uruchom\nponownie komputer. Jeśli ekran pojawi się znowu, wykonaj\nnastępujące kroki:\n\nSprawdź, czy nowy sprzęt lub oprogramowanie jest poprawnie zainstalowane.\nJeśli to nowa instalacja, zapytaj producenta sprzętu lub oprogramowania\no potrzebne aktualizacje James World.\n\nJeśli problemy nie znikną, wyłącz lub usuń niedawno zainstalowany sprzęt\nlub oprogramowanie. Wyłącz opcje pamięci BIOS, takie jak buforowanie lub\nshadowing. Jeśli musisz użyć trybu awaryjnego, aby usunąć lub wyłączyć\nkomponenty, uruchom ponownie komputer, naciśnij F8, wybierz Zaawansowane\nopcje rozruchu, a potem Tryb awaryjny.\n\nInformacje techniczne:\n\n*** STOP: 0x0000007B (0xC0000034, 0x00000000, 0x00000000, 0x00000000)\n\n\nNaciśnij dowolny klawisz lub stuknij, aby kontynuować ",
+
+  "brawler.fighter": "Wojownik",
+  "brawler.wave": "FALA {n}",
+  "brawler.boss": "BOSS",
+  "brawler.win": "WYGRAŁEŚ!"
 };

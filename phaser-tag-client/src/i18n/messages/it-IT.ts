@@ -138,4 +138,9 @@ export const itIT: Messages = {
   "cave.line2": "QUESTO SARÀ TUO.",
   "bsod.aria": "Errore: Missione non implementata.",
   "bsod.text": "È stato rilevato un problema e James World è stato chiuso per evitare danni\nal computer.\n\nErrore: Missione non implementata.\n\nSe è la prima volta che vedi questa schermata di errore,\nriavvia il computer. Se la schermata ricompare, segui\nquesti passaggi:\n\nVerifica che l’hardware o il software nuovo sia installato correttamente.\nSe è una nuova installazione, chiedi al produttore dell’hardware o del software\ngli aggiornamenti di James World di cui potresti avere bisogno.\n\nSe i problemi continuano, disattiva o rimuovi l’hardware o il software\ninstallato di recente. Disattiva le opzioni di memoria del BIOS come caching\no shadowing. Se devi usare la Modalità provvisoria per rimuovere o disattivare\ncomponenti, riavvia il computer, premi F8 per scegliere le Opzioni di avvio\navanzate e poi seleziona Modalità provvisoria.\n\nInformazioni tecniche:\n\n*** STOP: 0x0000007B (0xC0000034, 0x00000000, 0x00000000, 0x00000000)\n\n\nPremi un tasto qualsiasi o tocca per continuare ",
+
+  "brawler.fighter": "Combattente",
+  "brawler.wave": "ONDATA {n}",
+  "brawler.boss": "BOSS",
+  "brawler.win": "HAI VINTO!"
 };

@@ -185,4 +185,9 @@ Advanced Startup Options چننے کے لیے F8 دبائیں، اور پھر
 
 
 جاری رکھنے کے لیے کوئی بھی کلید دبائیں یا ٹیپ کریں `,
+
+  "brawler.fighter": "جنگجو",
+  "brawler.wave": "لہر {n}",
+  "brawler.boss": "باس",
+  "brawler.win": "آپ جیت گئے!"
 };
