@@ -142,5 +142,6 @@ export const ptBR: Messages = {
   "brawler.fighter": "Lutador",
   "brawler.wave": "ONDA {n}",
   "brawler.boss": "CHEFE",
+  "brawler.go": "VAI →",
   "brawler.win": "VOCÊ VENCEU!"
 };

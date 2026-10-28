@@ -96,6 +96,9 @@ export type BrawlerSnapshotData = {
   boss_hp?: number | null;
   boss_max_hp?: number | null;
   won: boolean;
+  show_go?: boolean;
+  lock_left?: number | null;
+  lock_right?: number | null;
 };
 
 export type ServerMessage =

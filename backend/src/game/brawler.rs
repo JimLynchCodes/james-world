@@ -117,6 +117,8 @@ pub struct BrawlerPlayer {
     pub input_dx: f32,
     pub input_dy: f32,
     pub input_attack: bool,
+    /// Previous tick's attack input — rising edge only starts a swing.
+    pub attack_held_prev: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -167,6 +169,11 @@ pub struct BrawlerSnapshot {
     pub boss_hp: Option<f32>,
     pub boss_max_hp: Option<f32>,
     pub won: bool,
+    /// Arcade "GO →" after a wave is cleared, until the next segment starts.
+    pub show_go: bool,
+    /// While fighting, players/camera are clamped to this band (inclusive).
+    pub lock_left: Option<f32>,
+    pub lock_right: Option<f32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -182,11 +189,16 @@ pub struct BrawlerWorld {
     pub enemies: Vec<Enemy>,
     pub wave: u32,
     next_enemy_id: u32,
-    /// Waves already spawned (0 = none yet).
+    /// Waves already spawned (0 = none yet — nothing until first trigger).
     waves_spawned: u32,
     pub won: bool,
     /// True after a win until the room empties (so late leavers don't re-award).
     win_sent: bool,
+    /// Fight camera/move lock while a wave is alive.
+    pub lock_left: Option<f32>,
+    pub lock_right: Option<f32>,
+    /// Wave just cleared; show GO until the next trigger fires.
+    pub show_go: bool,
 }
 
 impl BrawlerWorld {
@@ -211,11 +223,8 @@ impl BrawlerWorld {
         cosmetic: Cosmetic,
     ) -> (f32, f32) {
         if self.players.is_empty() {
-            // Fresh run.
+            // Fresh run: no enemies until the lead player hits segment 1.
             self.reset();
-            self.spawn_wave(1);
-            self.waves_spawned = 1;
-            self.wave = 1;
         }
 
         let (x, y) = self.spawn_point();
@@ -239,6 +248,7 @@ impl BrawlerWorld {
                 input_dx: 0.0,
                 input_dy: 0.0,
                 input_attack: false,
+                attack_held_prev: false,
             },
         );
         (x, y)
@@ -336,6 +346,9 @@ impl BrawlerWorld {
     }
 
     fn tick_player(&mut self, id: Uuid, dt: f32) {
+        let min_x = self.lock_left.unwrap_or(20.0).max(20.0);
+        let max_x = self.lock_right.unwrap_or(WORLD_W - 20.0).min(WORLD_W - 20.0);
+
         let Some(p) = self.players.get_mut(&id) else {
             return;
         };
@@ -345,12 +358,16 @@ impl BrawlerWorld {
         p.invuln = (p.invuln - dt).max(0.0);
         p.attack_cooldown = (p.attack_cooldown - dt).max(0.0);
 
+        // One swing per fresh press (rising edge). Holding does nothing extra.
+        let pressed = p.input_attack && !p.attack_held_prev;
+        p.attack_held_prev = p.input_attack;
+
         if p.attack_timer > 0.0 {
             p.attack_timer = (p.attack_timer - dt).max(0.0);
             p.attacking = p.attack_timer > 0.0;
         } else {
             p.attacking = false;
-            if p.input_attack && p.attack_cooldown <= 0.0 {
+            if pressed && p.attack_cooldown <= 0.0 {
                 p.attack_timer = ATTACK_DURATION_S;
                 p.attack_cooldown = ATTACK_COOLDOWN_S;
                 p.attacking = true;
@@ -370,7 +387,7 @@ impl BrawlerWorld {
         } else {
             PLAYER_SPEED
         };
-        p.x = (p.x + dx * speed * dt).clamp(20.0, WORLD_W - 20.0);
+        p.x = (p.x + dx * speed * dt).clamp(min_x, max_x);
         p.y = (p.y + dy * speed * dt).clamp(LANE_TOP, LANE_BOTTOM);
         p.moving = len > 0.05;
         if p.moving {
@@ -427,6 +444,8 @@ impl BrawlerWorld {
             return;
         }
 
+        let min_x = self.lock_left.unwrap_or(20.0).max(20.0);
+        let max_x = self.lock_right.unwrap_or(WORLD_W - 20.0).min(WORLD_W - 20.0);
         let mut hits: Vec<(Uuid, f32)> = Vec::new();
 
         for enemy in &mut self.enemies {
@@ -452,7 +471,7 @@ impl BrawlerWorld {
             if dist > range * 0.85 {
                 let nx = dx / dist.max(0.001);
                 let ny = dy / dist.max(0.001);
-                enemy.x = (enemy.x + nx * speed * dt).clamp(20.0, WORLD_W - 20.0);
+                enemy.x = (enemy.x + nx * speed * dt).clamp(min_x, max_x);
                 enemy.y = (enemy.y + ny * speed * dt).clamp(LANE_TOP, LANE_BOTTOM);
             }
             if dx.abs() > 0.05 {
@@ -485,14 +504,27 @@ impl BrawlerWorld {
     }
 
     fn maybe_advance_wave(&mut self) {
-        if self.won || self.enemies.iter().any(|e| e.kind == EnemyKind::Boss) {
+        if self.won {
             return;
         }
+
+        // Wave just cleared → unlock, show GO, wait for the next trigger.
+        if self.lock_right.is_some() && self.enemies.is_empty() && self.waves_spawned > 0 {
+            self.lock_left = None;
+            self.lock_right = None;
+            if self.waves_spawned < 5 && !self.boss_defeated() {
+                self.show_go = true;
+            }
+            return;
+        }
+
         if !self.enemies.is_empty() {
             return;
         }
-        // Next wave when the lead player has walked far enough, or immediately
-        // if they cleared the previous pack.
+        if self.waves_spawned >= 5 {
+            return;
+        }
+
         let lead = self
             .players
             .values()
@@ -500,44 +532,60 @@ impl BrawlerWorld {
             .map(|p| p.x)
             .fold(0.0_f32, f32::max);
         let next = self.waves_spawned + 1;
-        let gate = wave_gate(next);
-        if next <= 5 && lead >= gate - 40.0 {
+        let gate = segment_trigger(next);
+        if next <= 5 && lead >= gate {
             self.spawn_wave(next);
             self.waves_spawned = next;
             self.wave = next;
+            self.show_go = false;
+            // Lock the fight band around this segment.
+            self.lock_left = Some((gate - 100.0).max(20.0));
+            self.lock_right = Some((gate + FIGHT_WIDTH).min(WORLD_W - 20.0));
+            // Pull anyone who overshot back into the band.
+            let left = self.lock_left.unwrap();
+            let right = self.lock_right.unwrap();
+            for p in self.players.values_mut() {
+                if !p.dead {
+                    p.x = p.x.clamp(left, right);
+                }
+            }
         }
     }
 
     fn spawn_wave(&mut self, wave: u32) {
-        let base_x = wave_gate(wave) + 40.0;
+        let gate = segment_trigger(wave);
+        let left = (gate - 100.0).max(20.0);
+        let right = (gate + FIGHT_WIDTH).min(WORLD_W - 20.0);
+        // Enter from the right edge of the fight band (still inside the lock).
+        let edge = right - 30.0;
         let pack: Vec<(EnemyKind, f32, f32)> = match wave {
             1 => vec![
-                (EnemyKind::Grunt, base_x, GROUND_Y - 10.0),
-                (EnemyKind::Grunt, base_x + 50.0, GROUND_Y + 10.0),
-                (EnemyKind::Grunt, base_x + 90.0, GROUND_Y),
+                (EnemyKind::Grunt, edge, GROUND_Y - 10.0),
+                (EnemyKind::Grunt, edge - 40.0, GROUND_Y + 10.0),
+                (EnemyKind::Grunt, edge - 80.0, GROUND_Y),
             ],
             2 => vec![
-                (EnemyKind::Grunt, base_x, GROUND_Y - 15.0),
-                (EnemyKind::Grunt, base_x + 40.0, GROUND_Y + 15.0),
-                (EnemyKind::Bruiser, base_x + 100.0, GROUND_Y),
-                (EnemyKind::Swift, base_x + 160.0, GROUND_Y - 8.0),
+                (EnemyKind::Grunt, edge, GROUND_Y - 15.0),
+                (EnemyKind::Grunt, edge - 35.0, GROUND_Y + 15.0),
+                (EnemyKind::Bruiser, edge - 70.0, GROUND_Y),
+                (EnemyKind::Swift, edge - 110.0, GROUND_Y - 8.0),
             ],
             3 => vec![
-                (EnemyKind::Swift, base_x, GROUND_Y - 20.0),
-                (EnemyKind::Swift, base_x + 30.0, GROUND_Y + 20.0),
-                (EnemyKind::Bruiser, base_x + 80.0, GROUND_Y - 5.0),
-                (EnemyKind::Bruiser, base_x + 130.0, GROUND_Y + 10.0),
-                (EnemyKind::Grunt, base_x + 180.0, GROUND_Y),
+                (EnemyKind::Swift, edge, GROUND_Y - 20.0),
+                (EnemyKind::Swift, edge - 30.0, GROUND_Y + 20.0),
+                (EnemyKind::Bruiser, edge - 65.0, GROUND_Y - 5.0),
+                (EnemyKind::Bruiser, edge - 100.0, GROUND_Y + 10.0),
+                (EnemyKind::Grunt, edge - 140.0, GROUND_Y),
             ],
             4 => vec![
-                (EnemyKind::Bruiser, base_x, GROUND_Y),
-                (EnemyKind::Bruiser, base_x + 70.0, GROUND_Y - 18.0),
-                (EnemyKind::Swift, base_x + 120.0, GROUND_Y + 18.0),
-                (EnemyKind::Swift, base_x + 160.0, GROUND_Y),
-                (EnemyKind::Grunt, base_x + 200.0, GROUND_Y - 12.0),
-                (EnemyKind::Grunt, base_x + 240.0, GROUND_Y + 12.0),
+                (EnemyKind::Bruiser, edge, GROUND_Y),
+                (EnemyKind::Bruiser, edge - 40.0, GROUND_Y - 18.0),
+                (EnemyKind::Swift, edge - 80.0, GROUND_Y + 18.0),
+                (EnemyKind::Swift, edge - 110.0, GROUND_Y),
+                (EnemyKind::Grunt, edge - 145.0, GROUND_Y - 12.0),
+                (EnemyKind::Grunt, edge - 175.0, GROUND_Y + 12.0),
             ],
-            _ => vec![(EnemyKind::Boss, base_x + 40.0, GROUND_Y)],
+            _ => vec![(EnemyKind::Boss, edge - 20.0, GROUND_Y)],
         };
 
         for (kind, x, y) in pack {
@@ -546,7 +594,7 @@ impl BrawlerWorld {
             self.enemies.push(Enemy {
                 id,
                 kind,
-                x: x.clamp(40.0, WORLD_W - 40.0),
+                x: x.clamp(left + 10.0, right - 10.0),
                 y: y.clamp(LANE_TOP, LANE_BOTTOM),
                 hp: kind.max_hp(),
                 facing: std::f32::consts::PI,
@@ -601,6 +649,9 @@ impl BrawlerWorld {
             boss_hp: boss.map(|b| b.hp),
             boss_max_hp: boss.map(|b| b.kind.max_hp()),
             won: self.won,
+            show_go: self.show_go,
+            lock_left: self.lock_left,
+            lock_right: self.lock_right,
         }
     }
 
@@ -616,13 +667,17 @@ impl BrawlerWorld {
     }
 }
 
-fn wave_gate(wave: u32) -> f32 {
+/// Horizontal width of a locked fight arena.
+pub const FIGHT_WIDTH: f32 = 360.0;
+
+/// X position the lead player must reach to trigger wave N (1..=5).
+pub fn segment_trigger(wave: u32) -> f32 {
     match wave {
-        1 => 200.0,
-        2 => 700.0,
-        3 => 1300.0,
-        4 => 2000.0,
-        _ => 2800.0,
+        1 => 320.0,
+        2 => 900.0,
+        3 => 1500.0,
+        4 => 2200.0,
+        _ => 3000.0,
     }
 }
 
@@ -643,12 +698,72 @@ mod tests {
         assert!(w.is_empty());
         let a = Uuid::new_v4();
         w.join(a, "James 1".into(), skin(), cos());
-        assert_eq!(w.wave, 1);
-        assert!(!w.enemies.is_empty());
+        assert_eq!(w.wave, 0);
+        assert!(w.enemies.is_empty(), "no enemies before the first segment");
         w.leave(a);
         assert!(w.is_empty());
         assert_eq!(w.wave, 0);
         assert!(w.enemies.is_empty());
+    }
+
+    #[test]
+    fn wave_spawns_only_after_lead_reaches_segment_trigger() {
+        let mut w = BrawlerWorld::new();
+        let a = Uuid::new_v4();
+        w.join(a, "James 1".into(), skin(), cos());
+        assert!(w.enemies.is_empty());
+        // Short of the trigger — still quiet.
+        w.players.get_mut(&a).unwrap().x = segment_trigger(1) - 10.0;
+        let _ = w.advance(0.05);
+        assert!(w.enemies.is_empty());
+        assert_eq!(w.waves_spawned, 0);
+        // Cross the trigger — wave 1 locks in.
+        w.players.get_mut(&a).unwrap().x = segment_trigger(1) + 1.0;
+        let _ = w.advance(0.05);
+        assert!(!w.enemies.is_empty());
+        assert_eq!(w.wave, 1);
+        assert_eq!(w.waves_spawned, 1);
+        assert!(w.lock_right.is_some());
+        assert!(!w.show_go);
+        // Clear enemies → GO unlock.
+        w.enemies.clear();
+        let _ = w.advance(0.05);
+        assert!(w.show_go);
+        assert!(w.lock_right.is_none());
+        // Walk to segment 2.
+        w.players.get_mut(&a).unwrap().x = segment_trigger(2) + 1.0;
+        let _ = w.advance(0.05);
+        assert_eq!(w.wave, 2);
+        assert!(!w.enemies.is_empty());
+        assert!(!w.show_go);
+    }
+
+    #[test]
+    fn attack_only_on_rising_edge_not_while_held() {
+        let mut w = BrawlerWorld::new();
+        let a = Uuid::new_v4();
+        w.join(a, "James 1".into(), skin(), cos());
+        w.enemies.clear();
+        // Hold attack across many ticks: exactly one swing starts.
+        w.set_input(a, 0.0, 0.0, true);
+        let _ = w.advance(0.05);
+        assert!(w.players[&a].attacking);
+        // Finish the swing + cooldown while still held.
+        for _ in 0..40 {
+            w.set_input(a, 0.0, 0.0, true);
+            let _ = w.advance(0.05);
+        }
+        assert!(!w.players[&a].attacking);
+        assert!(w.players[&a].attack_held_prev);
+        // Still held — must NOT start another.
+        let _ = w.advance(0.05);
+        assert!(!w.players[&a].attacking);
+        // Release then press again → new swing.
+        w.set_input(a, 0.0, 0.0, false);
+        let _ = w.advance(0.05);
+        w.set_input(a, 0.0, 0.0, true);
+        let _ = w.advance(0.05);
+        assert!(w.players[&a].attacking);
     }
 
     #[test]

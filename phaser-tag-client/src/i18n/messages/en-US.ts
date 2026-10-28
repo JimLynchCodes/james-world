@@ -187,6 +187,7 @@ Press any key or tap to continue `,
   "brawler.fighter": "Fighter",
   "brawler.wave": "WAVE {n}",
   "brawler.boss": "BOSS",
+  "brawler.go": "GO →",
   "brawler.win": "YOU WIN!"
 } as const;
 

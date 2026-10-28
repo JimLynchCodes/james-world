@@ -142,5 +142,6 @@ export const filPH: Messages = {
   "brawler.fighter": "Mandirigma",
   "brawler.wave": "ALON {n}",
   "brawler.boss": "BOSS",
+  "brawler.go": "GO →",
   "brawler.win": "NANALO KA!"
 };

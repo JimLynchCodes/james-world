@@ -269,6 +269,8 @@ impl RoomManager {
         let (name, skin, cosmetic) = {
             let world = self.world.lock().await;
             match world.players.get(&player_id) {
+                // Playground bots stay in the playground — never enter the brawler.
+                Some(p) if p.is_bot => return,
                 Some(p) => (p.name.clone(), p.skin.clone(), p.cosmetic.clone()),
                 None => return,
             }

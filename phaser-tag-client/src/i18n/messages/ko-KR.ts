@@ -142,5 +142,6 @@ export const koKR: Messages = {
   "brawler.fighter": "전사",
   "brawler.wave": "웨이브 {n}",
   "brawler.boss": "보스",
+  "brawler.go": "GO →",
   "brawler.win": "승리!"
 };

@@ -142,5 +142,6 @@ export const viVN: Messages = {
   "brawler.fighter": "Đấu sĩ",
   "brawler.wave": "ĐỢT {n}",
   "brawler.boss": "TRÙM",
+  "brawler.go": "ĐI →",
   "brawler.win": "BẠN THẮNG!"
 };

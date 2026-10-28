@@ -8,6 +8,7 @@ import { applyPhysicalKey, isTagKey, movementAxes, noteTagKey, physicalCode } fr
 import { createSchoolyard, type Occluder } from "./schoolyard";
 import { PLAYER_RADIUS, PLAY_AREA, WORLD_HEIGHT, WORLD_WIDTH } from "./world";
 import { GameAudio, type Sfx } from "./audio";
+import { consumeAttackPulse, shouldQueueBrawlerAttack } from "./brawlerAttack";
 import { BrawlerWorldScene, type BrawlerHooks } from "./brawlerWorld";
 import { CROWN, loadSavedCosmetic, saveCosmetic, toCosmetic, type Cosmetic } from "./cosmetics";
 import { SecretDungeonScene, type DungeonHooks } from "./secretDungeon";
@@ -217,7 +218,8 @@ class GameScene extends Phaser.Scene {
   private inSecret = false;
   private inBrawler = false;
   private localCosmetic: Cosmetic = loadSavedCosmetic();
-  private brawlerAttackHeld = false;
+  /** One-shot: true after a fresh tag press until the brawler consumes it. */
+  private brawlerAttackPulse = false;
   private brawlerScene: BrawlerWorldScene | null = null;
   private secretReturn: { x: number; y: number } | null = null;
 
@@ -391,8 +393,17 @@ class GameScene extends Phaser.Scene {
     }
     if (!this.playing) return;
     this.tagQueued = noteTagKey(this.tagQueued, event, phase);
-    if (isTagKey(event) && !event.repeat) {
-      this.brawlerAttackHeld = phase === "down";
+    // Brawler: rising-edge only. Ignore key-repeat and ignore hold.
+    if (
+      isTagKey(event) &&
+      shouldQueueBrawlerAttack({
+        inBrawler: this.inBrawler,
+        phase,
+        repeat: !!event.repeat,
+      })
+    ) {
+      this.brawlerAttackPulse = true;
+      this.tagQueued = false;
     }
   };
 
@@ -413,6 +424,8 @@ class GameScene extends Phaser.Scene {
       this.tagQueued = false;
     } else if (this.inBrawler) {
       // Brawler scene reads axes + attack; schoolyard MoveInput stays off.
+      // Never leave tagQueued sticky — it would re-fire every frame.
+      this.tagQueued = false;
     } else if (this.playing) {
       this.tagCooldown = Math.max(0, this.tagCooldown - delta);
 
@@ -868,10 +881,9 @@ class GameScene extends Phaser.Scene {
   tagPressed() {
     if (!this.playing || this.uiOpen) return;
     if (this.inBrawler) {
-      this.brawlerAttackHeld = true;
-      this.time.delayedCall(180, () => {
-        this.brawlerAttackHeld = false;
-      });
+      // Mobile Tag: one attack per tap, same as a fresh Space/T press.
+      this.brawlerAttackPulse = true;
+      this.tagQueued = false;
       return;
     }
     if (this.inSecret) return;
@@ -991,9 +1003,14 @@ class GameScene extends Phaser.Scene {
   private enterBrawler() {
     if (this.inBrawler) return;
     this.inBrawler = true;
-    this.brawlerAttackHeld = false;
+    this.brawlerAttackPulse = false;
+    this.tagQueued = false;
     document.body.classList.add("in-brawler");
     this.player?.setDrawn(false);
+    // Hide playground remotes / computer Jameses — they stay in the playground room only.
+    for (const remote of this.remotePlayers.values()) {
+      remote.avatar.setDrawn(false);
+    }
     // Stay away from the playground while fighting.
     this.socket.send({ type: "SetAway", data: { away: true } });
     const hooks: BrawlerHooks = {
@@ -1002,7 +1019,14 @@ class GameScene extends Phaser.Scene {
       name: this.localName || "James",
       audio: this.audio,
       readMove: () => this.dungeonAxes(),
-      readAttack: () => this.brawlerAttackHeld || this.tagQueued,
+      // Consume the pulse once so holding Space never auto-repeats.
+      readAttack: () => {
+        const state = { pulse: this.brawlerAttackPulse };
+        const fired = consumeAttackPulse(state);
+        this.brawlerAttackPulse = state.pulse;
+        if (fired) this.tagQueued = false;
+        return fired;
+      },
       sendInput: (dx, dy, attack) => {
         this.socket.send({
           type: "BrawlerInput",
@@ -1013,6 +1037,8 @@ class GameScene extends Phaser.Scene {
       onDied: () => this.leaveBrawlerToPlayground(),
       onWon: () => this.winBrawler(),
     };
+    // Sleep the schoolyard so bots/remotes cannot render over the brawler.
+    this.scene.sleep();
     this.scene.launch("BrawlerWorld", hooks);
     this.brawlerScene = this.scene.get("BrawlerWorld") as BrawlerWorldScene;
     this.socket.send({ type: "JoinBrawler", data: {} });
@@ -1024,14 +1050,18 @@ class GameScene extends Phaser.Scene {
     this.scene.stop("BrawlerWorld");
     this.brawlerScene = null;
     this.inBrawler = false;
-    this.brawlerAttackHeld = false;
+    this.brawlerAttackPulse = false;
     document.body.classList.remove("in-brawler");
+    this.scene.wake();
     this.socket.send({ type: "SetAway", data: { away: false } });
     this.tagQueued = false;
     this.held.clear();
     this.joystick = { x: 0, y: 0 };
     this.runHeld = false;
     this.clearTapTarget();
+    for (const remote of this.remotePlayers.values()) {
+      remote.avatar.setDrawn(true);
+    }
     const spot = this.secretReturn;
     if (this.player && spot) {
       this.player.x = spot.x;

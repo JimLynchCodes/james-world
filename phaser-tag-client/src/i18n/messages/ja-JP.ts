@@ -189,5 +189,6 @@ James World をシャットダウンしました。
   "brawler.fighter": "ファイター",
   "brawler.wave": "WAVE {n}",
   "brawler.boss": "ボス",
+  "brawler.go": "GO →",
   "brawler.win": "クリア！"
 };

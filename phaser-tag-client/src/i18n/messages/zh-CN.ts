@@ -189,5 +189,6 @@ export const zhCN: Messages = {
   "brawler.fighter": "战士",
   "brawler.wave": "第 {n} 波",
   "brawler.boss": "首领",
+  "brawler.go": "出发 →",
   "brawler.win": "你赢了！"
 };

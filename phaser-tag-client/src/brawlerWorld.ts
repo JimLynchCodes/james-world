@@ -4,6 +4,7 @@
  */
 import Phaser from "phaser";
 import type { GameAudio } from "./audio";
+import { shouldPlayAttackAnim } from "./brawlerAttack";
 import { toCosmetic, type Cosmetic } from "./cosmetics";
 import { onLocaleChange, t } from "./i18n";
 import { KidAvatar } from "./kid";
@@ -30,7 +31,7 @@ export type BrawlerHooks = {
   name: string;
   audio: GameAudio | null;
   readMove: () => { dx: number; dy: number; mode: ControlMode };
-  /** True while the player is holding the tag / attack button. */
+  /** Rising-edge pulse: true for one consume after a fresh tag press. */
   readAttack: () => boolean;
   sendInput: (dx: number, dy: number, attack: boolean) => void;
   onLeaveBrawler: () => void;
@@ -41,6 +42,8 @@ export type BrawlerHooks = {
 type Peer = {
   avatar: KidAvatar;
   snap: BrawlerPlayerSnap;
+  /** Last snapshot attacking flag — playTag only on rising edge. */
+  wasAttacking: boolean;
 };
 
 const ENEMY_COLORS: Record<string, number> = {
@@ -165,10 +168,13 @@ export class BrawlerWorldScene extends Phaser.Scene {
   private bossFill!: Phaser.GameObjects.Image;
   private bossLabel!: Phaser.GameObjects.Text;
   private banner!: Phaser.GameObjects.Text;
+  private goLabel!: Phaser.GameObjects.Text;
   private ending: "none" | "dying" | "winning" | "done" = "none";
   private fade?: Phaser.GameObjects.Rectangle;
   private unsubLocale: (() => void) | null = null;
   private left = false;
+  private lockLeft: number | null = null;
+  private lockRight: number | null = null;
 
   constructor() {
     super({ key: "BrawlerWorld", active: false });
@@ -290,12 +296,26 @@ export class BrawlerWorldScene extends Phaser.Scene {
       .setDepth(950)
       .setVisible(false);
 
+    this.goLabel = this.add
+      .text(this.scale.width / 2, this.scale.height * 0.28, "", {
+        fontFamily: "monospace",
+        fontSize: "36px",
+        color: "#ffe680",
+        stroke: "#000000",
+        strokeThickness: 6,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(940)
+      .setVisible(false);
+
     this.refreshHudText();
   }
 
   private refreshHudText() {
     this.hpLabel?.setText(this.hooks?.name || t("brawler.fighter"));
     this.bossLabel?.setText(t("brawler.boss"));
+    this.goLabel?.setText(t("brawler.go"));
   }
 
   /** Route a brawler-related server message into the scene. */
@@ -349,10 +369,13 @@ export class BrawlerWorldScene extends Phaser.Scene {
       peer.avatar.setSkin(toSkin(p.skin));
       peer.avatar.setCosmetic(toCosmetic(p.cosmetic));
       peer.avatar.setLabels({ name: p.name, you: p.id === this.localId, it: false });
-      if (p.attacking && !peer.avatar.isTagging) {
+      // Only start the tag clip on a fresh server attacking rising-edge.
+      // Snapshots that keep attacking:true after the clip ends must not re-fire it.
+      if (shouldPlayAttackAnim(p.attacking, peer.wasAttacking)) {
         peer.avatar.playTag(p.facing);
         if (p.id === this.localId) this.hooks.audio?.playSfx("brawlerHit", 0.85);
       }
+      peer.wasAttacking = p.attacking;
       if (p.dead) peer.avatar.sprite.setAngle(90);
       else peer.avatar.sprite.setAngle(0);
       peer.avatar.setDrawn(!p.dead || this.ending === "dying");
@@ -360,8 +383,15 @@ export class BrawlerWorldScene extends Phaser.Scene {
       if (p.id === this.localId) {
         this.localHp = p.hp;
         this.localMaxHp = p.max_hp;
-        this.cameras.main.centerOn(p.x, 180);
-        this.bg.tilePositionX = p.x * 0.25;
+        let camX = p.x;
+        if (this.lockLeft != null && this.lockRight != null) {
+          const half = this.cameras.main.width / 2;
+          const min = this.lockLeft + half;
+          const max = this.lockRight - half;
+          camX = max >= min ? Phaser.Math.Clamp(p.x, min, max) : (this.lockLeft + this.lockRight) / 2;
+        }
+        this.cameras.main.centerOn(camX, 180);
+        this.bg.tilePositionX = camX * 0.25;
       }
     }
     for (const [id, peer] of this.peers) {
@@ -383,6 +413,8 @@ export class BrawlerWorldScene extends Phaser.Scene {
       }
     }
 
+    this.lockLeft = snap.lock_left ?? null;
+    this.lockRight = snap.lock_right ?? null;
     this.updateHud(snap);
   }
 
@@ -394,7 +426,7 @@ export class BrawlerWorldScene extends Phaser.Scene {
     avatar.setCosmetic(toCosmetic(p.cosmetic));
     avatar.setRole(p.id === this.localId ? "self" : "human");
     avatar.setLabels({ name: p.name, you: p.id === this.localId, it: false });
-    const peer = { avatar, snap: p };
+    const peer = { avatar, snap: p, wasAttacking: false };
     this.peers.set(p.id, peer);
     return peer;
   }
@@ -427,6 +459,13 @@ export class BrawlerWorldScene extends Phaser.Scene {
       this.bossFill.setScale(Math.max(0, bossHp / bossMax), 1);
     } else {
       this.bossWrap.setVisible(false);
+    }
+    if (snap.show_go && this.ending === "none") {
+      this.goLabel.setText(t("brawler.go"));
+      this.goLabel.setVisible(true);
+      this.goLabel.setAlpha(0.55 + 0.45 * Math.abs(Math.sin(this.time.now / 220)));
+    } else {
+      this.goLabel.setVisible(false);
     }
   }
 

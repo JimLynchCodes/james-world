@@ -142,5 +142,6 @@ export const arSA: Messages = {
   "brawler.fighter": "مقاتل",
   "brawler.wave": "الموجة {n}",
   "brawler.boss": "الزعيم",
+  "brawler.go": "انطلق ←",
   "brawler.win": "لقد فزت!"
 };

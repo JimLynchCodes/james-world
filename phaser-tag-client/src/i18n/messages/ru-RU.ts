@@ -142,5 +142,6 @@ export const ruRU: Messages = {
   "brawler.fighter": "Боец",
   "brawler.wave": "ВОЛНА {n}",
   "brawler.boss": "БОСС",
+  "brawler.go": "ВПЕРЁД →",
   "brawler.win": "ТЫ ПОБЕДИЛ!"
 };

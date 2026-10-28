@@ -142,5 +142,6 @@ export const plPL: Messages = {
   "brawler.fighter": "Wojownik",
   "brawler.wave": "FALA {n}",
   "brawler.boss": "BOSS",
+  "brawler.go": "START →",
   "brawler.win": "WYGRAŁEŚ!"
 };

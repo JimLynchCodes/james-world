@@ -142,5 +142,6 @@ export const trTR: Messages = {
   "brawler.fighter": "Savaşçı",
   "brawler.wave": "DALGA {n}",
   "brawler.boss": "BOSS",
+  "brawler.go": "HAYDİ →",
   "brawler.win": "KAZANDIN!"
 };

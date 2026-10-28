@@ -142,5 +142,6 @@ export const thTH: Messages = {
   "brawler.fighter": "นักสู้",
   "brawler.wave": "เวฟ {n}",
   "brawler.boss": "บอส",
+  "brawler.go": "ไป →",
   "brawler.win": "คุณชนะ!"
 };
