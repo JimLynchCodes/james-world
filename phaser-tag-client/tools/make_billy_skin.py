@@ -47,14 +47,14 @@ ASSETS = HERE.parent / "public" / "assets"
 
 SS = 4
 OW, OH = 128, 124          # output frame
-HEAD_SCALE = 1.45
+HEAD_SCALE = 1.19
 ARM_R = 3.5
 BACK_D = 12.5
 TORSO_D = 15.0
 OBASE = 118                # feet line in the output frame
 SRC_BASE = 96              # feet line in kid.png
 SRC_CX = 40
-HS = 0.82                  # head scale
+HS = 0.95                  # head scale (keep James shape)
 BSY = 1.10                 # body: taller ...
 BSX = 1.4                  # ... and stocky
 
@@ -368,625 +368,326 @@ def render_body(lab, wp, back_fx=0):
 
 
 
-# --- adult head (replaces the kid's warped head) ------------------------------------
-def _rbox_sdf(X, Y, cx, cy, hw, hh, r):
-    qx = np.abs(X - cx) - hw + r
-    qy = np.abs(Y - cy) - hh + r
-    return np.hypot(np.maximum(qx, 0), np.maximum(qy, 0)) + np.minimum(np.maximum(qx, qy), 0) - r
+# --- James head modified into Billy (no hand-drawn skull) -----------------------------
+# Keep James's proven head shape / neck / ears / eyes / smile in every direction.
+# Recolor skin+hair, slight cheek widen, short messy bangs, glasses, thin mustache.
+
+def _warp_rgba_head(src_f, g, wp):
+    """Warp James source pixels above the neck into the SS canvas as RGBA.
+    Also returns a warped hair mask (James non-skin head pixels)."""
+    X, Y = grid()
+    xs, ys = wp.inv(X, Y)
+    out = np.zeros(X.shape + (4,), np.float64)
+    for c in range(4):
+        out[..., c] = bilinear(src_f[..., c].astype(np.float64), xs, ys)
+    src_y_ok = ys <= (g.neck + 2.5)
+    a = out[..., 3]
+    keep = (a >= 8) & src_y_ok & (Y < S(wp.yn_o + 6))
+    out[~keep] = 0
+    # source hair = opaque head minus skin_mask (face/ears)
+    h, w = src_f.shape[:2]
+    yy = np.mgrid[0:h, 0:w][0]
+    src_hair = (alpha_mask(src_f) & (yy <= g.neck + 2) & ~skin_mask(src_f)).astype(np.float64)
+    hair_w = bilinear(src_hair, xs, ys) > 0.35
+    hair_w &= keep
+    return np.clip(out, 0, 255).astype(np.uint8), hair_w
 
 
-def rebuild_head(L, rgb, union, direction, wp, eyes_o):
-    """Swap the warped kid head (tall hair peak) for a rounder adult head with
-    short neat hair. Works at SS on L/rgb/union in place; returns the head
-    mask (SS)."""
+def _recolor_james_head(rgba, hair_mask, direction=None, eyes_o=None):
+    """James peach skin → warm tan; brown hair → black with blue-grey highlights.
+    hair_mask is the warped James non-skin head (keeps light tan tips as hair).
+    Jaw stubble / face-adjacent darks stay skin so we never paint a beard block."""
+    out = rgba.copy()
+    a = out[..., 3] > 8
+    if not a.any():
+        return out
+    H, W = a.shape
+    Y, X = np.mgrid[0:H, 0:W]
+    r = out[..., 0].astype(np.int32)
+    g = out[..., 1].astype(np.int32)
+    b = out[..., 2].astype(np.int32)
+    lum = (r + g + b) / 3.0
+
+    white = a & (lum > 200) & (np.maximum(np.maximum(r, g), b) - np.minimum(np.minimum(r, g), b) < 40)
+    black = a & (lum < 38)
+    blush = a & (r > g + 30) & (r > b + 25) & (lum > 100) & (lum < 185) & (g > 70) & (g < 150)
+    peach = a & ~white & (r > 145) & (g > 95) & (b > 55) & (r > g + 8) & (lum > 115)
+
+    hair = hair_mask & a & ~white & ~peach
+    # grow only into non-peach so the face/smile stay intact
+    hair = grow(hair, a & ~white & ~peach, 1)
+
+    # strip jaw / lower-face stubble out of hair (front + profile)
+    if direction is not None and direction not in BACK and eyes_o:
+        ey = float(np.mean([e[1] for e in eyes_o]))
+        xs = np.nonzero(a.any(0))[0]
+        cx = 0.5 * (xs.min() + xs.max())
+        # lower face oval under the eyes
+        jaw = a & (Y > S(ey + 1.5)) & (np.abs(X - cx) < S(9.5))
+        if direction in PROFILE:
+            fx = FACE[direction][0]
+            # only the forward half of the head is face; keep back hair
+            jaw &= ((X - cx) * fx > -S(1.0))
+        hair &= ~jaw
+
+    skin = a & ~white & ~black & ~hair & ~blush
+
+    sk = COL[SKIN]
+    sk_hi = tuple(min(255, c + 28) for c in sk)
+    sk_ln = SKIN_LINE
+    if skin.any():
+        sl = lum[skin]
+        tt = np.clip((sl - 90) / 140.0, 0, 1)
+        rgb = out[..., :3].astype(np.float64)
+        for i, (lo, mid, hi) in enumerate(zip(sk_ln, sk, sk_hi)):
+            base = np.where(tt < 0.45,
+                            np.array(lo, dtype=np.float64) + (np.array(mid) - lo) * (tt / 0.45),
+                            np.array(mid, dtype=np.float64) + (np.array(hi) - mid) * ((tt - 0.45) / 0.55))
+            ch = rgb[..., i]
+            ch[skin] = base
+            rgb[..., i] = ch
+        out[..., :3] = np.clip(rgb, 0, 255).astype(np.uint8)
+
+    if hair.any():
+        hl = lum[hair]
+        tt = np.clip((hl - 25) / 150.0, 0, 1)
+        rgb = out[..., :3].astype(np.float64)
+        for i, (back, mid, lit, hi) in enumerate(
+                zip(HAIR_BACK, HAIR_MID, HAIR_LIT, HAIR_HI)):
+            v = np.where(
+                tt < 0.35,
+                np.array(back, dtype=np.float64) + (np.array(mid) - back) * (tt / 0.35),
+                np.where(
+                    tt < 0.7,
+                    np.array(mid, dtype=np.float64) + (np.array(lit) - mid) * ((tt - 0.35) / 0.35),
+                    np.array(lit, dtype=np.float64) + (np.array(hi) - lit) * ((tt - 0.7) / 0.3),
+                ),
+            )
+            ch = rgb[..., i]
+            ch[hair] = v
+            rgb[..., i] = ch
+        out[..., :3] = np.clip(rgb, 0, 255).astype(np.uint8)
+
+    # scrub any leftover peach/tan tips that slipped past the hair mask
+    r = out[..., 0].astype(np.int32)
+    g = out[..., 1].astype(np.int32)
+    b = out[..., 2].astype(np.int32)
+    peach_hair = hair & (r > 140) & (g > 95) & (r > b + 20) & (r > g)
+    if peach_hair.any():
+        for i, c in enumerate(HAIR_LIT):
+            ch = out[..., i]
+            ch[peach_hair] = c
+            out[..., i] = ch
+
+    return out
+
+
+def _widen_cheeks(rgba, amount=1.6):
+    """Widen the face ~1-2 output px by horizontal dilate of opaque head."""
+    a = rgba[..., 3] > 8
+    if not a.any():
+        return rgba
+    ys = np.nonzero(a.any(1))[0]
+    t, b = ys.min(), ys.max()
+    # cheek band: mid face
+    y0 = int(t + 0.35 * (b - t))
+    y1 = int(t + 0.78 * (b - t))
+    px = max(1, int(round(S(amount))))
+    out = rgba.copy()
+    # shift opaque pixels outward from row center
+    for y in range(y0, y1 + 1):
+        xs = np.nonzero(a[y])[0]
+        if len(xs) < 4:
+            continue
+        cx = 0.5 * (xs.min() + xs.max())
+        # copy edge columns outward
+        left, right = int(xs.min()), int(xs.max())
+        for d in range(1, px + 1):
+            if left - d >= 0 and out[y, left, 3] > 8:
+                if out[y, left - d, 3] < 8:
+                    out[y, left - d] = out[y, left]
+            if right + d < out.shape[1] and out[y, right, 3] > 8:
+                if out[y, right + d, 3] < 8:
+                    out[y, right + d] = out[y, right]
+    return out
+
+
+def _add_messy_bangs(rgba, direction, eyes_o, wp):
+    """Short messy bangs over the forehead (front/diagonal), like the photo.
+    Clumps sit just below the hairline — never long spikes through the eyes."""
+    if direction not in FRONT:
+        return rgba
+    a = rgba[..., 3] > 8
+    if not a.any() or not eyes_o:
+        return rgba
+    r = rgba[..., 0].astype(np.int32)
+    gch = rgba[..., 1].astype(np.int32)
+    b = rgba[..., 2].astype(np.int32)
+    lum = (r + gch + b) / 3.0
+    # hair pixels already recolored (dark / blue-grey)
+    hair = a & (lum < 120) & (r < 130) & (gch < 130)
+    ey = float(np.mean([e[1] for e in eyes_o]))
+    xs = np.nonzero(a.any(0))[0]
+    cx = (xs.min() + xs.max() + 1) / 2 / SS
+    out = Image.fromarray(rgba, "RGBA")
+    d = ImageDraw.Draw(out)
+    # short tufts from hairline, stop well above eyes / brows
+    stop = ey - 4.0
+    for (u, dx, bw, drop) in (
+        (-0.55, -0.35, 1.15, 0.15),
+        (-0.22, -0.45, 1.35, -0.05),
+        (0.08, -0.55, 1.25, -0.2),
+        (0.38, -0.25, 1.1, 0.05),
+        (0.62, -0.1, 1.0, 0.2),
+    ):
+        bx = cx + u * 5.8
+        xi = int(round(S(bx)))
+        xi = int(np.clip(xi, 0, rgba.shape[1] - 1))
+        col = hair[:, xi]
+        if not col.any():
+            # search nearby columns
+            found = False
+            for o in range(1, 6):
+                for s_ in (-1, 1):
+                    x2 = int(np.clip(xi + s_ * o, 0, hair.shape[1] - 1))
+                    if hair[:, x2].any():
+                        xi = x2; col = hair[:, xi]; found = True; break
+                if found:
+                    break
+            if not col.any():
+                continue
+        # hairline = lowest hair pixel in this column above the eyes
+        ys_h = np.nonzero(col)[0]
+        ys_h = ys_h[ys_h / SS < ey - 2.5]
+        if len(ys_h) == 0:
+            continue
+        hairline = ys_h.max() / SS
+        tip_y = min(hairline + 2.0 + drop, stop)
+        if tip_y <= hairline + 0.4:
+            continue
+        # soft short clump (not a long stroke from the crown)
+        d.ellipse([S(bx - bw * 0.55), S(hairline - 0.15),
+                   S(bx + bw * 0.35 + dx * 0.2), S(tip_y)],
+                  fill=HAIR_MID + (255,))
+        d.ellipse([S(bx - bw * 0.25 + dx * 0.15), S(hairline),
+                   S(bx + bw * 0.15 + dx * 0.25), S(tip_y - 0.35)],
+                  fill=HAIR_LIT + (230,))
+    return np.asarray(out)
+
+
+def apply_james_head(L, rgb, union, src_f, g, wp, direction, eyes_o):
+    """Stamp recolored James head over the flat warped head. Returns head mask."""
     H, W = L.shape
     Y, X = np.mgrid[0:H, 0:W]
     Xo, Yo = (X + 0.5) / SS, (Y + 0.5) / SS
-    old = np.isin(L, (HAIR, SKIN)) & (Yo < wp.yn_o)
-    if not old.any():
-        return old
-    widths = old.sum(1)
-    mw = widths.max()
-    rows = np.nonzero(widths >= 0.72 * mw)[0]
-    ys = np.nonzero(old.any(1))[0]
-    top = rows.min() / SS - 1.2
-    bot = ys.max() / SS + 0.3
-    xs = np.nonzero(old[rows].any(0))[0]
-    cxs = [np.nonzero(old[y])[0] for y in rows]
-    cx = float(np.median([(c.min() + c.max() + 1) / 2 for c in cxs])) / SS
-    hw = mw / SS / 2 * 1.0
-    if eyes_o and direction not in BACK:
-        ey_m = float(np.mean([e[1] for e in eyes_o]))
-        # taller chibi head → head/height ~0.46–0.49
-        bot = max(bot, ey_m + 11.2)
-        top = min(top, ey_m - 15.2)
-        hw = min(hw, (bot - top) / 1.14 / 2) if direction not in PROFILE else min(hw, (bot - top) / 1.10 / 2)
-    hh = (bot - top) / 2
-    cy = (top + bot) / 2
-    fx = FACE[direction][0]
-    # photo: round full face — soft cheeks, wide gentle chin (not pointy)
-    t = np.clip((Yo - cy) / hh, 0, 1)
-    bulge = np.exp(-(((Yo - (cy + 0.18 * hh)) / (0.52 * hh)) ** 2))
-    Xs = cx + (Xo - cx) / ((1 - 0.02 * t * t) * (1 + 0.20 * bulge))
-    sdf = _rbox_sdf(Xs, Yo, cx, cy, hw * 1.10, hh, hw * 1.12)
-    head = sdf < 0
-    # erase the old head
+    # clear old flat head (hair+skin above neck)
+    old = np.isin(L, (HAIR, SKIN)) & (Yo < wp.yn_o + 1.5)
     L[old] = BG
     union[old] = False
-    if direction in PROFILE:
-        ey = eyes_o[0][1] if eyes_o else top + 0.55 * (bot - top)
-        nose = ((Xo - (cx + fx * (hw + 0.2))) / 1.1) ** 2 + ((Yo - (ey + 2.6)) / 1.4) ** 2 < 1
-        head |= nose
-    # Flat underfill only on the skull / bangs zone — NOT the crown.
-    # Sora's silhouette needs deep valleys between spikes; a filled dome
-    # above the hairline reads as a 2D blob. Spikes alone form the crown.
-    hair_cap = _rbox_sdf(Xs, Yo, cx, cy - 0.1, hw + 0.35, hh + 0.15, (hw + 0.35) * 0.95) < 0
-    crown_cut = top + 4.6  # above this, only painted spikes count
+    rgb[old] = 0
+
+    head, hair_m = _warp_rgba_head(src_f, g, wp)
+    head = _recolor_james_head(head, hair_m, direction, eyes_o)
+    head = _widen_cheeks(head, amount=1.5)
+    head = _add_messy_bangs(head, direction, eyes_o, wp)
+
+    hm = head[..., 3] > 20
+    if not hm.any():
+        return hm
+
+    # prefer warped James hair mask for labels (after widen/bangs, grow a touch)
+    is_hair = grow(hair_m & hm, hm, 1)
+    # bangs painted as dark → hair
+    r = head[..., 0].astype(np.int32)
+    gch = head[..., 1].astype(np.int32)
+    b = head[..., 2].astype(np.int32)
+    lum = (r + gch + b) / 3.0
+    is_hair |= hm & (lum < 100) & (r < 110) & (gch < 110)
+    is_hair &= hm
+    is_skin = hm & ~is_hair
+
+    L[is_skin] = SKIN
+    L[is_hair] = HAIR
+    union |= hm
+    for c in range(3):
+        ch = rgb[..., c]
+        ch[hm] = head[..., c][hm]
+        rgb[..., c] = ch
+    return hm
+
+
+def draw_face(img, L, direction, eyes_o, wp, head_box):
+    """Glasses + thin mustache only. James eyes/smile stay from the stamped head."""
+    d = ImageDraw.Draw(img)
+    fx = FACE[direction][0]
+    x0, y0, x1, y1 = head_box
     if direction in BACK:
-        # Skin-coloured head (like James). NO black underfill — spikes alone
-        # cover the upper/back skull so it never reads as a black ball/helmet.
-        # Lower head + nape stay skin; ears sit on the head edge and show.
-        ey = top + 0.55 * (bot - top)
-        hair = np.zeros_like(hair_cap)  # spikes-only; no solid scalp fill
-        ear_y = top + 0.50 * (bot - top)
-        ears = [(cx - hw + 0.35, ear_y), (cx + hw - 0.35, ear_y)]
-    elif direction in PROFILE:
-        # Short hair = thin CROWN band by height only (no vertical back wall).
-        # Back coverage comes from painted short spikes; face/cheek/ear skin.
-        ey = eyes_o[0][1] if eyes_o else top + 0.55 * (bot - top)
-        crown = hair_cap & (Yo < top + 0.28 * (bot - top)) & (Yo > top + 0.4)
-        # allow crown onto forehead a bit; bangs paint the rest
-        crown &= fx * (Xo - cx) < hw * 0.62
-        hair = crown
-        ears = [(cx - fx * hw * 0.55, ey + 0.6)]
-    else:
-        ey = np.mean([e[1] for e in eyes_o]) if eyes_o else top + 0.55 * (bot - top)
-        # photo: short hair — solid cap over top/sides, clear forehead for bangs
-        hl = ey - 6.8
-        edge = np.clip((np.abs(Xo - (cx + fx * 0.6)) / hw - 0.55) / 0.35, 0, 1)
-        hair = hair_cap & (Yo < hl + 1.8 * edge)
-        # leave a forehead band for painted messy bangs (not a bald dome)
-        hair &= (Yo > top + 1.2) | (np.abs(Xo - cx) > hw * 0.35)
-        if fx:
-            # diagonal: keep back-of-skull short hair fill (no black half-head)
-            back = fx * (Xo - cx) < -hw * 0.05
-            hair |= hair_cap & back & (Yo < ey + 1.5) & (Yo > top + 0.8)
-        # never let underfill reach the glasses/eye band
-        hair &= ~((Yo > ey - 4.0) & (Yo < ey + 4.0) & (np.abs(Xo - (cx + fx * 0.35)) < hw * 1.0))
-        ears = [(cx - hw - 0.1, ey + 0.8), (cx + hw + 0.1, ey + 0.8)]
-        if fx:
-            ears = [ears[0] if fx > 0 else ears[1]]
-    # --- Sora VOLUMETRIC layered spikes (black) ---
-    # Big ROUNDED crown of thick spikes fanning out to the sides and back
-    # (not a tall Cloud vertical crest). Chunky front bangs, layered depth:
-    # back(darker) -> mid -> front(lighter). Each spike has lit/shade halves,
-    # highlight streak, outline, and casts a shadow onto spikes behind it.
-    y_glass = ey - 3.6
+        return ((x0 + x1) / 2 + fx * 3, y0 + 0.72 * (y1 - y0))
+    W_ = lambda v: max(1, int(round(S(v))))
+    if not eyes_o:
+        return None
 
-    def _clamp_tip(tx, ty):
-        return (float(np.clip(tx, 1.0, (W / SS) - 1.0)),
-                float(np.clip(ty, 0.4, (H / SS) - 1.5)))
-
-    def _spike_geom(base, tip, half_w):
-        bx, by = base
-        tx, ty = _clamp_tip(*tip)
-        dx, dy = tx - bx, ty - by
-        L_ = math.hypot(dx, dy) or 1.0
-        px_, py_ = -dy / L_ * half_w, dx / L_ * half_w
-        # light from upper-left → lit rim toward (-1,-1)
-        lit_sign = 1 if (-px_ - py_) >= (px_ + py_) else -1
-        return (bx, by, tx, ty, px_, py_, lit_sign, L_, dx, dy)
-
-    spikes = []  # (layer, base, tip, half_w)  layer 0=back 1=mid 2=front
-
-    if direction in BACK:
-        # Skin head + DENSE spike coverage over ~top 60% of the skull.
-        # No solid black underfill. Rows of chunky spikes hang down-back;
-        # jagged hairline near ear level; only lower head/nape/ears show skin.
-        # --- crown up/out fans (bases high, so no mid-skull helmet band) ---
-        for ang, ln, bw in (
-            (-115, 7.0, 3.6), (-85, 8.5, 4.0), (-55, 9.2, 4.2),
-            (-25, 9.8, 4.4), (5, 10.2, 4.6), (35, 9.5, 4.2),
-            (65, 8.5, 4.0), (95, 7.5, 3.6), (125, 6.5, 3.4),
-        ):
-            rad = math.radians(ang)
-            bx = cx + math.sin(rad) * hw * 0.22
-            by = top + 1.5 + abs(math.sin(rad)) * 0.3
-            tip = (bx + math.sin(rad) * ln, by - math.cos(rad) * ln * 0.55)
-            spikes.append((0, (bx, by), tip, bw))
-        for ang, ln, bw in (
-            (-95, 8.0, 4.0), (-60, 9.2, 4.4), (-28, 10.0, 4.6),
-            (5, 10.4, 4.8), (38, 9.6, 4.4), (72, 8.5, 4.0),
-            (105, 7.2, 3.6),
-        ):
-            rad = math.radians(ang)
-            bx = cx + math.sin(rad) * hw * 0.30
-            by = top + 1.1 + abs(math.sin(rad)) * 0.35
-            tip = (bx + math.sin(rad) * ln, by - math.cos(rad) * ln * 0.58)
-            spikes.append((1, (bx, by), tip, bw))
-        for ang, ln, bw in (
-            (-70, 8.8, 4.2), (-35, 10.0, 4.6), (-5, 10.6, 4.8),
-            (28, 9.8, 4.6), (58, 8.8, 4.2), (88, 7.5, 3.8),
-        ):
-            rad = math.radians(ang)
-            bx = cx + math.sin(rad) * hw * 0.36
-            by = top + 0.8 + abs(math.sin(rad)) * 0.4
-            tip = (bx + math.sin(rad) * ln * 0.95, by - math.cos(rad) * ln * 0.6)
-            spikes.append((2, (bx, by), tip, bw))
-        # side flares
-        spikes.append((0, (cx - hw * 0.55, top + hh * 0.12),
-                       (cx - (hw + 10.0), top + hh * 0.02), 3.6))
-        spikes.append((1, (cx - hw * 0.45, top + hh * 0.28),
-                       (cx - (hw + 8.0), top + hh * 0.32), 3.4))
-        spikes.append((2, (cx - hw * 0.38, top + hh * 0.42),
-                       (cx - (hw + 4.0), top + hh * 0.62), 3.0))
-        spikes.append((0, (cx + hw * 0.5, top + hh * 0.1),
-                       (cx + (hw + 13.0), top - 0.5), 4.0))
-        spikes.append((1, (cx + hw * 0.42, top + hh * 0.26),
-                       (cx + (hw + 11.5), top + hh * 0.22), 3.8))
-        spikes.append((2, (cx + hw * 0.35, top + hh * 0.4),
-                       (cx + (hw + 6.5), top + hh * 0.58), 3.2))
-        # --- down-back ROWS: cover ~top 60% of skull; hairline ~ear level ---
-        # Target tip band: top+0.52..0.65 of head height. Chunkier + denser
-        # so the mid-back isn't a bald skin dome under a thin spike crown.
-        ear_y = top + 0.58 * (bot - top)
-        nape_limit = top + 0.74 * (bot - top)
-        # Row A: long recessed locks spanning crown → ear line
-        for (u, frac, sweep, bw, ly) in (
-            (-0.95, 0.60, -2.6, 3.8, 0), (-0.70, 0.66, -1.6, 4.0, 0),
-            (-0.45, 0.68, -0.6, 4.2, 0), (-0.20, 0.70, 0.2, 4.4, 0),
-            (0.05, 0.71, 0.8, 4.4, 0), (0.30, 0.69, 1.6, 4.2, 0),
-            (0.55, 0.67, 2.4, 4.0, 0), (0.80, 0.64, 3.2, 3.8, 0),
-            (0.98, 0.58, 3.8, 3.6, 0),
-        ):
-            bx = cx + u * hw * 0.55
-            by = top + 1.2 + 0.3 * abs(u)
-            tip_y = min(top + frac * (bot - top), nape_limit)
-            spikes.append((ly, (bx, by), (bx + sweep, tip_y), bw))
-        # Row B: mid layer, staggered lengths for jagged hairline
-        for (u, frac, sweep, bw, ly) in (
-            (-0.85, 0.52, -2.0, 3.6, 1), (-0.58, 0.60, -1.0, 3.8, 1),
-            (-0.32, 0.63, -0.2, 4.0, 1), (-0.05, 0.58, 0.5, 4.0, 1),
-            (0.22, 0.65, 1.3, 4.0, 1), (0.48, 0.61, 2.1, 3.8, 1),
-            (0.72, 0.55, 2.9, 3.6, 1), (0.92, 0.50, 3.5, 3.4, 1),
-        ):
-            bx = cx + u * hw * 0.52
-            by = top + 1.6 + 0.35 * abs(u)
-            tip_y = min(top + frac * (bot - top), nape_limit)
-            spikes.append((ly, (bx, by), (bx + sweep, tip_y), bw))
-        # Row C: forward chunky points — deliberately uneven around ear_y
-        for (u, frac, sweep, bw, ly) in (
-            (-0.90, 0.48, -1.8, 3.2, 2), (-0.65, 0.57, -0.8, 3.4, 2),
-            (-0.38, 0.62, 0.0, 3.6, 2), (-0.12, 0.54, 0.6, 3.6, 2),
-            (0.12, 0.66, 1.2, 3.6, 2), (0.38, 0.59, 1.9, 3.4, 2),
-            (0.62, 0.64, 2.6, 3.4, 2), (0.85, 0.51, 3.2, 3.2, 2),
-        ):
-            bx = cx + u * hw * 0.50
-            by = top + 2.0 + 0.4 * abs(u)
-            tip_y = min(top + frac * (bot - top), nape_limit)
-            spikes.append((ly, (bx, by), (bx + sweep, tip_y), bw))
-        # Row D: tip daggers poking past ear_y for spiky hairline
-        for (u, frac, sweep, bw) in (
-            (-0.75, 0.58, -1.2, 2.6), (-0.48, 0.72, -0.3, 2.8),
-            (-0.22, 0.64, 0.4, 2.8), (0.02, 0.74, 0.9, 3.0),
-            (0.28, 0.60, 1.5, 2.8), (0.52, 0.70, 2.2, 2.8),
-            (0.78, 0.56, 2.8, 2.6),
-            (-0.35, 0.55, 0.2, 2.4), (0.15, 0.68, 1.1, 2.6),
-            (0.42, 0.52, 1.8, 2.4), (-0.08, 0.50, 0.5, 2.4),
-            (-0.60, 0.70, -0.8, 2.5), (0.60, 0.70, 1.6, 2.5),
-            (0.0, 0.72, 0.3, 2.6), (-0.18, 0.66, 0.2, 2.4),
-            (0.35, 0.66, 1.3, 2.4),
-        ):
-            bx = cx + u * hw * 0.48
-            by = top + 2.4 + 0.3 * abs(u)
-            tip_y = min(top + frac * (bot - top), nape_limit)
-            spikes.append((2, (bx, by), (bx + sweep, tip_y), bw))
-        # Mid-skull rooted locks (hang from ~25% down) fill bald mid-back
-        for (u, frac, sweep, bw, ly) in (
-            (-0.70, 0.62, -1.4, 3.4, 0), (-0.40, 0.66, -0.4, 3.6, 0),
-            (-0.10, 0.68, 0.4, 3.8, 1), (0.20, 0.67, 1.2, 3.6, 1),
-            (0.50, 0.64, 2.0, 3.4, 0), (0.75, 0.60, 2.8, 3.2, 0),
-            (-0.55, 0.58, -0.8, 3.0, 2), (-0.25, 0.64, 0.2, 3.2, 2),
-            (0.05, 0.61, 0.8, 3.2, 2), (0.35, 0.65, 1.6, 3.0, 2),
-            (0.60, 0.56, 2.4, 2.8, 2),
-        ):
-            bx = cx + u * hw * 0.48
-            by = top + 0.25 * (bot - top) + 0.2 * abs(u)
-            tip_y = min(top + frac * (bot - top), nape_limit)
-            spikes.append((ly, (bx, by), (bx + sweep, tip_y), bw))
-        # Lateral mid-skull fill: close the bald side gaps above the ears
-        for (u, frac, sweep, bw, ly) in (
-            (-1.05, 0.58, -2.0, 3.6, 0), (-0.88, 0.64, -1.2, 3.8, 0),
-            (-0.72, 0.66, -0.5, 4.0, 1), (0.72, 0.66, 0.8, 4.0, 1),
-            (0.88, 0.64, 1.6, 3.8, 0), (1.05, 0.58, 2.4, 3.6, 0),
-            (-0.95, 0.55, -1.6, 3.4, 2), (-0.80, 0.62, -0.8, 3.6, 2),
-            (0.80, 0.62, 1.2, 3.6, 2), (0.95, 0.55, 2.0, 3.4, 2),
-            (-1.00, 0.50, -1.0, 3.2, 1), (1.00, 0.50, 1.4, 3.2, 1),
-            (-0.82, 0.68, -0.3, 3.4, 2), (0.82, 0.68, 0.6, 3.4, 2),
-        ):
-            bx = cx + u * hw * 0.58
-            by = top + 0.18 * (bot - top) + 0.15 * abs(u)
-            tip_y = min(top + frac * (bot - top), nape_limit)
-            spikes.append((ly, (bx, by), (bx + sweep, tip_y), bw))
-        # Coverage locks across full width at ~ear depth (narrower so tips
-        # stay distinct spikes, not a flat fused rectangle)
-        for (u, frac, sweep, bw, ly) in (
-            (-0.90, 0.62, -1.5, 3.2, 0), (-0.60, 0.68, -0.6, 3.4, 0),
-            (-0.30, 0.71, 0.2, 3.6, 1), (0.0, 0.72, 0.5, 3.6, 1),
-            (0.30, 0.71, 1.2, 3.6, 1), (0.60, 0.68, 2.0, 3.4, 0),
-            (0.90, 0.62, 2.8, 3.2, 0),
-            (-0.75, 0.58, -1.0, 3.0, 2), (-0.45, 0.66, -0.2, 3.2, 2),
-            (-0.15, 0.70, 0.4, 3.2, 2), (0.15, 0.70, 1.0, 3.2, 2),
-            (0.45, 0.66, 1.8, 3.2, 2), (0.75, 0.58, 2.5, 3.0, 2),
-            # spaced tip points with skin gaps between
-            (-0.82, 0.64, -1.2, 2.4, 2), (-0.52, 0.55, -0.4, 2.4, 2),
-            (-0.22, 0.73, 0.3, 2.6, 2), (0.08, 0.56, 0.8, 2.4, 2),
-            (0.38, 0.73, 1.5, 2.6, 2), (0.68, 0.55, 2.2, 2.4, 2),
-            (0.92, 0.64, 2.8, 2.4, 2),
-        ):
-            bx = cx + u * hw * 0.56
-            by = top + 0.12 * (bot - top)
-            tip_y = min(top + frac * (bot - top), nape_limit)
-            spikes.append((ly, (bx, by), (bx + sweep, tip_y), bw))
-    elif direction in PROFILE:
-        back_sign = -fx
-        # Spikes ON TOP + BACK of a skin head (no black underfill). Dense
-        # coverage ~top 60% with jagged hairline near ear; face/cheek stay skin.
-        # crown fans up/back
-        # Dense SHORT spikes on top+back (no underfill → no black half-dome).
-        # Overlap enough to read as short hair, jagged hairline near ear.
-        bang_stop = ey - 5.0
-        for (u, back, lift, bw, ly) in (
-            (0.0, 3.2, 3.2, 3.6, 0), (0.2, 3.8, 3.0, 3.8, 1),
-            (0.4, 4.2, 2.6, 3.6, 0), (0.6, 4.4, 2.2, 3.4, 1),
-            (0.8, 4.0, 1.6, 3.2, 0), (1.0, 3.4, 1.0, 2.8, 1),
-        ):
-            bx = cx + back_sign * hw * (0.02 + 0.30 * u) + fx * hw * 0.04
-            by = top + 1.8 + 0.7 * u
-            spikes.append((ly, (bx, by), (bx + back_sign * back, by - lift), bw))
-        for (u, back, lift, bw, ly) in (
-            (0.1, 2.8, 3.6, 3.6, 2), (0.35, 3.6, 3.2, 3.8, 1),
-            (0.6, 4.0, 2.6, 3.4, 2), (0.85, 3.6, 1.8, 3.0, 1),
-        ):
-            bx = cx + back_sign * hw * (0.0 + 0.28 * u) + fx * hw * 0.05
-            by = top + 1.5 + 0.6 * u
-            spikes.append((ly, (bx, by), (bx + back_sign * back, by - lift), bw))
-        # short forward bangs above glasses only
-        for (u, drop, bw) in (
-            (-0.05, -0.2, 2.8), (0.25, 0.05, 3.0), (0.5, 0.15, 2.6),
-        ):
-            bx = cx + fx * hw * (0.06 + 0.10 * abs(u))
-            by = top + 2.0
-            tip = (cx + fx * (hw * 0.36 + 0.7 * u), bang_stop + drop)
-            spikes.append((2, (bx, by), tip, bw))
-        for (u, lift, bw, ly) in (
-            (0.15, 3.2, 3.4, 2), (0.45, 3.6, 3.6, 1), (0.75, 3.0, 3.2, 2),
-        ):
-            bx = cx + back_sign * hw * (0.08 + 0.16 * u) + fx * hw * 0.10
-            by = top + 1.3
-            spikes.append((ly, (bx, by), (bx + back_sign * 1.2 + fx * 0.8 * u, by - lift), bw))
-        # hanging short locks down the BACK of the skull (jagged near ear)
-        hairline_y = ey + 0.5
-        for (u, drop, bw, ly, xoff) in (
-            (0.0, 4.5, 3.6, 0, 0.20), (0.15, 5.2, 3.8, 1, 0.32),
-            (0.3, 5.8, 4.0, 0, 0.44), (0.45, 6.2, 4.0, 1, 0.55),
-            (0.6, 6.0, 3.8, 0, 0.66), (0.75, 5.4, 3.6, 1, 0.76),
-            (0.9, 4.6, 3.2, 0, 0.86), (1.05, 3.6, 2.8, 1, 0.95),
-        ):
-            bx = cx + back_sign * hw * xoff
-            by = top + hh * 0.10
-            tip_y = min(by + drop, hairline_y - 0.35 * ((int(u * 20)) % 2))
-            # tip mostly DOWN (short hair), slight back drift
-            spikes.append((ly, (bx, by),
-                           (bx + back_sign * (0.4 + 0.6 * u), tip_y), bw))
-        for (u, drop, bw, ly, xoff) in (
-            (0.1, 5.0, 3.4, 2, 0.28), (0.35, 5.8, 3.6, 2, 0.48),
-            (0.6, 5.6, 3.4, 2, 0.68), (0.85, 4.6, 3.0, 2, 0.88),
-        ):
-            bx = cx + back_sign * hw * xoff
-            by = top + hh * 0.18
-            tip_y = min(by + drop, hairline_y)
-            spikes.append((ly, (bx, by),
-                           (bx + back_sign * (0.3 + 0.5 * u), tip_y), bw))
-        # small rear flares (never onto forward cheek)
-        spikes.append((1, (cx + back_sign * hw * 0.38, top + hh * 0.28),
-                       (cx + back_sign * (hw + 4.0), top + hh * 0.14), 3.0))
-        spikes.append((2, (cx + back_sign * hw * 0.50, top + hh * 0.38),
-                       (cx + back_sign * (hw + 3.2), ey - 2.8), 2.6))
-        spikes.append((0, (cx + back_sign * hw * 0.60, top + hh * 0.48),
-                       (cx + back_sign * (hw + 2.4), ey - 1.2), 2.2))
-    else:
-        # FRONT / DIAG — photo: SHORT flat-messy black hair + bangs left.
-        bang_stop = ey - 5.0
-        # low crown texture (almost flat short hair silhouette)
-        for (u, ln, sweep, bw, ly) in (
-            (-0.8, 5.0, -1.2, 4.4, 0), (-0.3, 5.6, -0.4, 4.8, 1),
-            (0.2, 5.8, 0.3, 5.0, 0), (0.7, 5.2, 1.2, 4.6, 1),
-            (1.05, 4.4, 2.0, 4.0, 0),
-        ):
-            bx = cx + u * hw * 0.38 + fx * 0.15
-            by = top + 3.2 + 0.15 * abs(u)
-            spikes.append((ly, (bx, by), (bx + sweep + fx * 0.2, by - ln), bw))
-        for (u, ln, sweep, bw) in (
-            (-0.55, 4.8, -0.9, 4.4), (0.05, 5.4, 0.15, 4.8),
-            (0.55, 5.0, 1.0, 4.4), (0.95, 4.2, 1.6, 3.8),
-        ):
-            bx = cx + u * hw * 0.40 + fx * 0.2
-            by = top + 2.8
-            spikes.append((2, (bx, by), (bx + sweep, by - ln), bw))
-        # messy bangs sweeping LEFT over forehead (photo: more on viewer's right)
-        for (u, tip_x, drop, bw) in (
-            (-0.5, -0.5, 0.5, 3.4), (-0.15, -0.22, 0.0, 3.6),
-            (0.2, 0.08, -0.35, 3.2), (0.5, 0.38, -0.1, 2.8),
-            (0.8, 0.58, 0.3, 2.4),
-        ):
-            bx = cx + u * hw * 0.30 + fx * 0.12
-            by = top + 2.6
-            tip = (cx + tip_x * hw * 0.52 + fx * 0.25, bang_stop + drop)
-            spikes.append((2, (bx, by), tip, bw))
-        # tight short sides (no long flares)
-        spikes.append((0, (cx - hw * 0.78, top + hh * 0.20),
-                       (cx - (hw + 2.2), top + hh * 0.18), 2.8))
-        spikes.append((1, (cx - hw * 0.70, top + hh * 0.34),
-                       (cx - (hw + 1.6), top + hh * 0.38), 2.4))
-        spikes.append((0, (cx + hw * 0.72, top + hh * 0.18),
-                       (cx + (hw + 2.4), top + hh * 0.14), 2.8))
-        spikes.append((1, (cx + hw * 0.62, top + hh * 0.32),
-                       (cx + (hw + 1.8), top + hh * 0.30), 2.4))
-
-    layer_fill = {0: HAIR_BACK, 1: HAIR_MID, 2: COL[HAIR]}
-    layer_lit = {0: HAIR_MID, 1: HAIR_LIT, 2: HAIR_LIT}
-    layer_hi = {0: HAIR_LIT, 1: HAIR_HI, 2: HAIR_HI}
-
-    hair_canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    occ = np.zeros((H, W), dtype=bool)
-
-    for layer, base, tip, half_w in sorted(spikes, key=lambda t: t[0]):
-        bx, by, tx, ty, px_, py_, lit_sign, L_, dx, dy = _spike_geom(base, tip, half_w)
-        # wide-base triangle (chunky Cloud spike)
-        full = [
-            (S(bx + px_), S(by + py_)),
-            (S(tx), S(ty)),
-            (S(bx - px_), S(by - py_)),
-        ]
-        # lit / shade halves split along midline; bias mid slightly into shade
-        # so lit half reads larger (Cloud's bright rims)
-        mid_bx = bx - lit_sign * px_ * 0.08
-        mid_by = by - lit_sign * py_ * 0.08
-        lit_poly = [
-            (S(bx + lit_sign * px_), S(by + lit_sign * py_)),
-            (S(tx), S(ty)),
-            (S(mid_bx), S(mid_by)),
-        ]
-        shade_poly = [
-            (S(bx - lit_sign * px_), S(by - lit_sign * py_)),
-            (S(tx), S(ty)),
-            (S(mid_bx), S(mid_by)),
-        ]
-
-        sp_m = Image.new("L", (W, H), 0)
-        smd = ImageDraw.Draw(sp_m)
-        smd.polygon(full, fill=255)
-        sp_arr = np.asarray(sp_m) > 127
-
-        if occ.any() and sp_arr.any():
-            k = max(3, int(SS * 1.4) | 1)
-            dil = np.asarray(sp_m.filter(ImageFilter.MaxFilter(k))) > 127
-            shadow = dil & occ & ~sp_arr
-            if shadow.any():
-                ca = np.array(hair_canvas, dtype=np.uint8, copy=True)
-                for c_i, c_v in enumerate(HAIR_SHADE):
-                    ch = ca[..., c_i].astype(np.float32)
-                    ch[shadow] = ch[shadow] * 0.35 + c_v * 0.65
-                    ca[..., c_i] = np.clip(ch, 0, 255).astype(np.uint8)
-                hair_canvas = Image.fromarray(ca, "RGBA")
-
-        layer_im = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        ld = ImageDraw.Draw(layer_im)
-        fill = layer_fill[layer]
-        lit = layer_lit[layer]
-        hi = layer_hi[layer]
-        shade_col = HAIR_SHADE if layer == 2 else tuple(max(0, c - 6) for c in fill)
-        # dark BASE underpaint, then lit/shade halves
-        ld.polygon(full, fill=fill + (255,))
-        ld.polygon(shade_poly, fill=shade_col + (255,))
-        ld.polygon(lit_poly, fill=lit + (255,))
-        # lighter TIP chunk (dark-base → light-tip Sora gradient)
-        tip_half = half_w * 0.55
-        tpx = -dy / L_ * tip_half if L_ else 0.0
-        tpy = dx / L_ * tip_half if L_ else 0.0
-        tip_poly = [
-            (S(bx + dx * 0.42 + tpx), S(by + dy * 0.42 + tpy)),
-            (S(tx), S(ty)),
-            (S(bx + dx * 0.42 - tpx), S(by + dy * 0.42 - tpy)),
-        ]
-        tip_col = lit if layer < 2 else tuple(min(255, c + 18) for c in lit)
-        ld.polygon(tip_poly, fill=tip_col + (255,))
-        # crisp highlight streak along lit ridge into the tip
-        hx0 = bx + lit_sign * px_ * 0.55
-        hy0 = by + lit_sign * py_ * 0.55
-        hx1 = bx + dx * 0.88 + lit_sign * px_ * 0.12
-        hy1 = by + dy * 0.88 + lit_sign * py_ * 0.12
-        ld.line([(S(hx0), S(hy0)), (S(hx1), S(hy1))],
-                fill=hi + (255,), width=max(2, int(S(0.95))))
-        # dark outline
-        ld.line(full + [full[0]], fill=HAIR_SHADE + (255,), width=max(2, int(S(0.9))))
-
-        hair_canvas = Image.alpha_composite(hair_canvas, layer_im)
-        occ |= sp_arr
-
-    # stamp hair canvas into rgb / hair mask / labels
-    hc = np.asarray(hair_canvas)
-    hair_px = hc[..., 3] > 40
-    # allow spikes beyond the skull a bit, not below chin
-    hair_px &= Yo < bot + 0.3
-    # FRONT: keep bangs ABOVE the glasses/eyes. Never strip an eye band
-    # on BACK (that punched an orange skin stripe through the scalp).
     if direction in FRONT:
-        eye_band = ((Yo > ey - 4.4) & (Yo < ey + 4.4)
-                    & (np.abs(Xo - (cx + fx * 0.4)) < hw * 0.95))
-        hair_px &= ~eye_band
-        if eye_band.any():
-            ca = np.array(hc, dtype=np.uint8, copy=True)
-            ca[eye_band] = 0
-            hair_canvas = Image.fromarray(ca, "RGBA")
-            hc = ca
-        hair |= hair_px
-        hair &= ~eye_band
-    else:
-        hair |= hair_px
-    # Strip stray hair from cheeks / jaw / chin / temple so face skin is clean
-    # (cheek-lock tips and outline bleed used to leave black blotches).
-    if direction in FRONT or direction in PROFILE:
-        if direction in FRONT:
-            face_clear = (
-                (((Xo - (cx + fx * 0.2)) / (hw * 1.02)) ** 2
-                 + ((Yo - (ey + 3.2)) / (hh * 0.62)) ** 2 < 1)
-                & (Yo > ey - 1.6) & (Yo < bot + 0.4)
-            )
+        if len(eyes_o) >= 2:
+            (lx, ly, lw), (rx, ry, rw) = eyes_o[0], eyes_o[-1]
         else:
-            # profile: clear a ROUND forward face+cheek zone (not a vertical
-            # x-cutoff — that carved the hard mid-head seam Jim called spots).
-            # Leave back/top spikes + ear. Skin head stays full round.
-            face_cx = cx + fx * hw * 0.42
-            face_clear = (
-                (((Xo - face_cx) / (hw * 0.58)) ** 2
-                 + ((Yo - (ey + 2.8)) / (hh * 0.62)) ** 2 < 1)
-                & (Yo > ey - 3.2) & (Yo < bot + 0.4)
-                & (fx * (Xo - cx) > hw * 0.02)  # only clear forward face
-            )
-        hair_px &= ~face_clear
-        hair &= ~face_clear
-        if face_clear.any():
-            ca = np.array(hc, dtype=np.uint8, copy=True)
-            ca[face_clear] = 0
-            hair_canvas = Image.fromarray(ca, "RGBA")
-            hc = ca
-    # keep ears as skin (hair underfill/spikes must not paint over them)
-    for ex_, ey_ in ears:
-        ear_disc = ((Xo - ex_) / 1.85) ** 2 + ((Yo - ey_) / 2.45) ** 2 < 1
-        hair &= ~ear_disc
-        hair_px &= ~ear_disc
-        if ear_disc.any():
-            ca = np.array(hc, dtype=np.uint8, copy=True)
-            ca[ear_disc] = 0
-            hair_canvas = Image.fromarray(ca, "RGBA")
-            hc = ca
-    # rebuild allm after spikes
-    ear = np.zeros_like(head)
-    for ex_, ey_ in ears:
-        ear |= ((Xo - ex_) / 1.3) ** 2 + ((Yo - ey_) / 1.9) ** 2 < 1
-    allm = head | hair | ear
-    allm &= Yo < bot + 0.6
-    skinm = (head & ~hair) | ear
-    L[allm & skinm] = SKIN
-    L[allm & ~skinm] = HAIR
-    union |= allm
-    rgb[allm & skinm] = COL[SKIN]
-    # where hair canvas has coverage, use its shaded RGB; else flat HAIR
-    for c_i in range(3):
-        ch = rgb[..., c_i]
-        src = hc[..., c_i]
-        ch[hair_px] = src[hair_px]
-        rgb[..., c_i] = ch
-    # flat fill any hair mask pixels the canvas missed (cap gaps)
-    miss = hair & allm & ~hair_px
-    rgb[miss] = COL[HAIR]
+            ex, ey, ew = eyes_o[0]
+            lx, ly, lw, rx, ry, rw = ex - 5, ey, ew, ex + 5, ey, ew
+        ey = (ly + ry) / 2
+        sp = float(np.clip(rx - lx, 8.0, 10.0))
+        mid = (lx + rx) / 2 + fx * 0.15
+        lx, rx = mid - sp / 2, mid + sp / 2
+        hw_l = 4.6 * (0.92 if fx > 0 else 1.0)
+        hw_r = 4.6 * (0.92 if fx < 0 else 1.0)
+        gh, gv = 3.2, 3.0
+        mx = mid + fx * 0.2
+        my = ey + 6.6
+        # soft lens tint (don't hide James eyes)
+        for ex, hw in ((lx, hw_l), (rx, hw_r)):
+            d.rounded_rectangle([S(ex - hw), S(ey - gh), S(ex + hw), S(ey + gv)],
+                                radius=S(1.0), fill=(200, 160, 130, 55))
+        # thick black rectangular frames
+        for ex, hw in ((lx, hw_l), (rx, hw_r)):
+            d.rounded_rectangle([S(ex - hw), S(ey - gh), S(ex + hw), S(ey + gv)],
+                                radius=S(1.0), outline=GLASS, width=W_(1.05))
+            d.rounded_rectangle([S(ex - hw + 0.5), S(ey - gh + 0.5),
+                                 S(ex + hw - 0.5), S(ey + gv - 0.5)],
+                                radius=S(0.65), outline=GLASS, width=W_(0.3))
+        tline(d, [(lx + hw_l - 0.15, ey - 0.1), (mid, ey - 0.35),
+                  (rx - hw_r + 0.15, ey - 0.1)], GLASS, 0.9)
+        tline(d, [(lx - hw_l, ey - 0.15), (max(x0 + 0.3, lx - hw_l - 1.8), ey - 0.5)], GLASS, 0.65)
+        tline(d, [(rx + hw_r, ey - 0.15), (min(x1 - 0.3, rx + hw_r + 1.8), ey - 0.5)], GLASS, 0.65)
+        # thin dark mustache just above James's smile
+        stache_y = my - 1.15
+        tline(d, [(mx - 2.35, stache_y), (mx - 0.85, stache_y - 0.05),
+                  (mx, stache_y - 0.1), (mx + 0.85, stache_y - 0.05),
+                  (mx + 2.35, stache_y)], STACHE, 0.8)
+        # slight widen of James smile (keep his curve, make it readable)
+        tline(d, [(mx - 3.6, my + 0.05), (mx - 1.6, my + 0.55),
+                  (mx, my + 0.7), (mx + 1.6, my + 0.55),
+                  (mx + 3.6, my + 0.05)], (78, 36, 34), 0.7)
+        return (mx, my)
 
-    for ex_, ey_ in ears:
-        inner_e = ((Xo - ex_) / 0.6) ** 2 + ((Yo - ey_) / 1.0) ** 2 < 1
-        rgb[inner_e & allm & ~hair] = SKIN_SHADE
-    # outlines: head silhouette, ear edge, hairline
-    u8 = Image.fromarray((allm * 255).astype(np.uint8))
-    k = int(round(0.8 * SS)) * 2 + 1
-    inner = np.asarray(u8.filter(ImageFilter.MinFilter(k))) > 127
-    out_ = allm & ~inner
-    rgb[out_ & ~skinm] = LINE
-    rgb[out_ & skinm] = SKIN_LINE
-    em = Image.fromarray((ear * 255).astype(np.uint8))
-    ein = np.asarray(em.filter(ImageFilter.MinFilter(k - 2))) > 127
-    rgb[ear & ~ein & ~hair] = SKIN_LINE
-    hs = Image.fromarray((hair * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(3))
-    hline = (np.asarray(hs) > 127) & ~hair & skinm & allm
-    # never stamp black hairline onto cheeks/jaw/chin — that made the blotches
-    if direction in FRONT or direction in PROFILE:
-        if direction in FRONT:
-            scrub = (
-                (((Xo - (cx + fx * 0.2)) / (hw * 1.0)) ** 2
-                 + ((Yo - (ey + 3.5)) / (hh * 0.58)) ** 2 < 1)
-                & (Yo > ey - 1.0)
-            )
-        else:
-            face_cx = cx + fx * hw * 0.35
-            scrub = (
-                (((Xo - face_cx) / (hw * 0.70)) ** 2
-                 + ((Yo - (ey + 2.8)) / (hh * 0.65)) ** 2 < 1)
-                & (Yo > ey - 2.5) & (Yo < bot + 0.2)
-                & (fx * (Xo - cx) > -hw * 0.10)
-            )
-        hline &= ~scrub
-    rgb[hline] = LINE
-    # final face scrub: any leftover dark hair/line on cheek/jaw → skin
-    if direction in FRONT or direction in PROFILE:
-        if direction in FRONT:
-            scrub = (
-                (((Xo - (cx + fx * 0.2)) / (hw * 1.0)) ** 2
-                 + ((Yo - (ey + 3.5)) / (hh * 0.58)) ** 2 < 1)
-                & (Yo > ey + 0.5) & (Yo < bot + 0.3) & skinm & allm
-            )
-        else:
-            face_cx = cx + fx * hw * 0.35
-            scrub = (
-                (((Xo - face_cx) / (hw * 0.68)) ** 2
-                 + ((Yo - (ey + 3.0)) / (hh * 0.62)) ** 2 < 1)
-                & (Yo > ey - 2.2) & (Yo < bot + 0.2) & skinm & allm
-                & (fx * (Xo - cx) > -hw * 0.08)
-            )
-        # don't scrub the outer silhouette rim (keep thin outline)
-        u8s = Image.fromarray((allm.astype(np.uint8) * 255))
-        rim = allm & ~(np.asarray(u8s.filter(ImageFilter.MinFilter(int(round(0.9 * SS)) * 2 + 1))) > 127)
-        scrub &= ~rim
-        rgb[scrub] = COL[SKIN]
-        L[scrub] = SKIN
-    # the neck: a short skin column from under the jaw into the jacket
-    # collar; any other skin below the chin (James's warped shoulders) is
-    # jacket
-    below = (Yo > bot - 0.8) & ~allm
-    stray = below & (L == SKIN)
-    Jk = L == JACKET
-    inside_j = np.zeros_like(stray)
-    for y in np.nonzero(stray.any(1))[0]:
-        xj = np.nonzero(Jk[y])[0]
-        if len(xj):
-            inside_j[y, xj.min():xj.max() + 1] = True
-    L[stray & inside_j] = JACKET
-    rgb[stray & inside_j] = COL[JACKET]
-    gone = stray & ~inside_j
-    L[gone] = BG
-    union[gone] = False
-    ncx = cx - fx * (0.6 if direction in PROFILE else -0.2)
-    nhw = 2.8 if direction in PROFILE else 4.0
-    J = np.isin(L, (JACKET, SLEEVE)) & (np.abs(Xo - ncx) < nhw)
-    jr = np.nonzero(J.any(1))[0]
-    jt = (jr[jr > S(bot - 2)].min() / SS) if (jr > S(bot - 2)).any() else bot + 2.5
-    if direction not in BACK:
-        neck_t = bot - 4.0
-        neck_b = max(jt + 1.2, bot + 1.6)
-        # allow neck to thicken the chin tip (overlap head slightly)
-        neck = (np.abs(Xo - ncx) < nhw) & (Yo > neck_t) & (Yo < neck_b)
-        L[neck] = SKIN
-        union |= neck
-        rgb[neck] = COL[SKIN]
-        edge = neck & (np.abs(Xo - ncx) > nhw - 0.75)
-        rgb[edge] = SKIN_LINE
-        sh_ = neck & (Yo < bot + 1.3)
-        rgb[sh_ & ~edge] = SKIN_SHADE
-    else:
-        neck = (np.abs(Xo - ncx) < nhw) & (Yo > bot - 2.5) & (Yo < jt + 1.0) & ~allm & ~union
-        L[neck] = SKIN
-        union |= neck
-        rgb[neck] = SKIN_SHADE
-    return allm
+    # PROFILE
+    ex, ey, _ = eyes_o[0]
+    ex += fx * 0.1
+    yi = int(S(ey + 6.5))
+    row = np.nonzero(np.isin(L[min(yi, L.shape[0] - 1)], (SKIN,)))[0]
+    front = ((row.max() if fx > 0 else row.min()) / SS) if len(row) else ex + fx * 4
+    mx = front - fx * 1.4
+    ex2 = ex - fx * 0.1
+    lx0, lx1 = sorted((ex2 - 3.5, ex2 + 3.5))
+    gh, gv = 3.1, 2.9
+    d.rounded_rectangle([S(lx0), S(ey - gh), S(lx1), S(ey + gv)],
+                        radius=S(1.0), fill=(200, 160, 130, 50))
+    d.rounded_rectangle([S(lx0), S(ey - gh), S(lx1), S(ey + gv)],
+                        radius=S(0.95), outline=GLASS, width=W_(1.0))
+    d.rounded_rectangle([S(lx0 + 0.45), S(ey - gh + 0.45), S(lx1 - 0.45), S(ey + gv - 0.45)],
+                        radius=S(0.6), outline=GLASS, width=W_(0.28))
+    tline(d, [(ex2 - fx * 1.8, ey - 0.1), (wp.hcx_o + fx * 0.1, ey - 0.55)], GLASS, 0.6)
+    my = ey + 6.2
+    tline(d, [(mx - fx * 0.2, my - 1.0), (mx + fx * 1.5, my - 0.9)], STACHE, 0.7)
+    return (mx, my)
 
 
 # --- clean profile legs -----------------------------------------------------------------
@@ -1075,193 +776,6 @@ MOUTH = (82, 38, 36)
 
 def _blend(c, k, t):
     return tuple(int(round(a * (1 - t) + b * t)) for a, b in zip(c, k))
-
-
-def natural_eye(d, ex, ey, hw, side=0, ry=2.0, half=False, fx=0, squint=0.35):
-    """Photo-scale eyes: natural size behind thick glasses, slight smile-squint.
-    Not huge cartoon sclera — iris fills most of the visible eye."""
-    img = d._image
-    lay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    ld = ImageDraw.Draw(lay)
-    ix = ex + 0.06 * side + 0.05 * fx
-    iy = ey + 0.15
-    # squint: flatten vertical, keep readable iris
-    ew, eh = hw * 0.72, ry * (1.0 - 0.45 * squint)
-    msk = Image.new("L", img.size, 0)
-    ImageDraw.Draw(msk).ellipse(
-        [S(ix - ew), S(iy - eh), S(ix + ew), S(iy + eh)], fill=255)
-    if half:
-        ma = np.array(msk, dtype=np.uint8, copy=True)
-        if fx >= 0:
-            ma[:, : max(0, int(S(ix - ew * 0.2)))] = 0
-        else:
-            ma[:, min(img.size[0], int(S(ix + ew * 0.2))):] = 0
-        msk = Image.fromarray(ma)
-    # soft white sclera (small crescent sides)
-    ld.ellipse([S(ix - ew), S(iy - eh), S(ix + ew), S(iy + eh)],
-               fill=(245, 246, 248, 255))
-    # iris — warm dark brown, fills most of eye
-    ir = max(min(ew, eh) * 0.78, 0.85)
-    px = ix + 0.08 * side
-    py = iy + 0.05
-    ld.ellipse([S(px - ir), S(py - ir * 0.9), S(px + ir), S(py + ir * 0.9)],
-               fill=(42, 28, 22, 255))
-    # pupil
-    pr = ir * 0.45
-    ld.ellipse([S(px - pr), S(py - pr), S(px + pr), S(py + pr)],
-               fill=(12, 10, 12, 255))
-    # small catchlight
-    hl = max(pr * 0.42, 0.4)
-    ld.ellipse([S(px - pr * 0.45), S(py - pr * 0.55),
-                S(px - pr * 0.45 + hl), S(py - pr * 0.55 + hl)],
-               fill=(255, 255, 255, 255))
-    la = np.asarray(lay).copy()
-    la[..., 3] = np.minimum(la[..., 3], np.asarray(msk))
-    img.alpha_composite(Image.fromarray(la, "RGBA"))
-    d2 = ImageDraw.Draw(img)
-    # upper lid from smile-squint
-    n = 9
-    ts = np.linspace(-0.9, 0.9, n)
-    up = [(ix + ew * t, iy - eh * 0.95 + 0.2 * squint + 0.08 * (1 - t * t)) for t in ts]
-    d2.line([(S(x), S(y)) for x, y in up], fill=EYE, width=max(1, int(S(0.55))), joint="curve")
-    # soft crow's-feet / smile crease at outer corner
-    ox = ix + side * ew * 0.95
-    d2.line([(S(ox), S(iy)), (S(ox + side * 0.9), S(iy + 0.6)),
-             (S(ox + side * 1.3), S(iy + 1.1))],
-            fill=SKIN_LINE, width=max(1, int(S(0.3))), joint="curve")
-
-
-def draw_face(img, L, direction, eyes_o, wp, head_box):
-    """Photo-matched face (SS=4): thick black rect glasses, natural eyes,
-    thin mustache, gentle closed smile, soft cheeks. Returns mouth point."""
-    d = ImageDraw.Draw(img)
-    fx = FACE[direction][0]
-    x0, y0, x1, y1 = head_box
-    if direction in BACK:
-        return ((x0 + x1) / 2 + fx * 3, y0 + 0.72 * (y1 - y0))
-    W_ = lambda v: max(1, int(round(S(v))))
-    LIP = (150, 78, 70)
-    if direction in FRONT:
-        if len(eyes_o) >= 2:
-            (lx, ly, lw), (rx, ry, rw) = eyes_o[0], eyes_o[-1]
-        elif eyes_o:
-            ex, ey, ew = eyes_o[0]
-            lx, ly, lw, rx, ry, rw = ex - 5, ey, ew, ex + 5, ey, ew
-        else:
-            return None
-        ey = (ly + ry) / 2
-        # thick black rectangular frames like the photo
-        sp = float(np.clip(rx - lx, 8.6, 9.4))
-        mid = (lx + rx) / 2 + fx * 0.2
-        lx, rx = mid - sp / 2, mid + sp / 2
-        # frame half-widths (rect, not round)
-        hw_l = 5.35 * (0.90 if fx > 0 else 1.0)
-        hw_r = 5.35 * (0.90 if fx < 0 else 1.0)
-        gh, gv = 3.55, 3.35  # shorter than cartoon frames
-        mx = mid + fx * 0.25
-        my = ey + 7.2
-        # soft full cheeks (photo: round face)
-        for ex, hw in ((lx, hw_l), (rx, hw_r)):
-            ell(d, ex + (ex - mid) * 0.55, ey + 4.2, hw * 0.95, 2.2, CHEEK)
-            ell(d, ex + (ex - mid) * 0.75, ey + 5.4, hw * 0.55, 1.5, CHEEK)
-        # soft nose
-        ell(d, mx, ey + 3.4, 2.1, 1.2, SKIN_SHADE)
-        ell(d, mx, ey + 2.85, 1.05, 0.7, COL[SKIN])
-        for k in (-1, 1):
-            ell(d, mx + k * 1.05, ey + 4.05, 0.45, 0.32, SKIN_LINE)
-        # lens fill (warm tint) then natural eyes
-        for ex, hw, side in ((lx, hw_l, -1), (rx, hw_r, 1)):
-            d.rounded_rectangle([S(ex - hw), S(ey - gh), S(ex + hw), S(ey + gv)],
-                                radius=S(1.15), fill=LENS)
-            natural_eye(d, ex + fx * 0.1, ey + 0.1, hw * 0.55, ry=2.15,
-                        side=side, fx=fx, squint=0.4)
-        # brows peeking above thick frames
-        for ex, hw, sg in ((lx, hw_l, -1), (rx, hw_r, 1)):
-            tline(d, [(ex - sg * hw * 0.7, ey - gh - 0.55),
-                      (ex + sg * hw * 0.15, ey - gh - 0.95),
-                      (ex + sg * hw * 0.75, ey - gh - 0.5)], BROW, 1.15)
-        # THICK black rectangular frames (photo key feature)
-        for ex, hw in ((lx, hw_l), (rx, hw_r)):
-            d.rounded_rectangle([S(ex - hw), S(ey - gh), S(ex + hw), S(ey + gv)],
-                                radius=S(1.1), outline=GLASS, width=W_(1.15))
-            # inner rim so thickness reads after /4
-            d.rounded_rectangle([S(ex - hw + 0.55), S(ey - gh + 0.55),
-                                 S(ex + hw - 0.55), S(ey + gv - 0.55)],
-                                radius=S(0.7), outline=GLASS, width=W_(0.35))
-        # bridge + temples
-        tline(d, [(lx + hw_l - 0.2, ey - 0.15), (mid, ey - 0.45),
-                  (rx - hw_r + 0.2, ey - 0.15)], GLASS, 1.0)
-        tline(d, [(lx - hw_l, ey - 0.2), (max(x0 + 0.3, lx - hw_l - 2.0), ey - 0.55)], GLASS, 0.7)
-        tline(d, [(rx + hw_r, ey - 0.2), (min(x1 - 0.3, rx + hw_r + 2.0), ey - 0.55)], GLASS, 0.7)
-        # thin dark mustache on upper lip (flat, photo-width)
-        stache_y = my - 1.15
-        tline(d, [(mx - 2.6, stache_y), (mx - 1.0, stache_y - 0.05),
-                  (mx, stache_y - 0.08), (mx + 1.0, stache_y - 0.05),
-                  (mx + 2.6, stache_y)], STACHE, 0.95)
-        # photo: gentle wide smile — mostly closed, faint tooth line like ref
-        smile_pts = [
-            (mx - 5.4, my - 0.2),
-            (mx - 3.5, my + 0.5),
-            (mx - 1.6, my + 1.0),
-            (mx,       my + 1.15),
-            (mx + 1.6, my + 1.0),
-            (mx + 3.5, my + 0.5),
-            (mx + 5.4, my - 0.2),
-        ]
-        tline(d, smile_pts, LIP, 1.2)
-        # subtle tooth hint (thin, not a white bar)
-        tline(d, [(mx - 3.2, my + 0.25), (mx - 1.2, my + 0.48),
-                  (mx, my + 0.52), (mx + 1.2, my + 0.48),
-                  (mx + 3.2, my + 0.25)], (220, 205, 190), 0.45)
-        tline(d, [(mx - 4.6, my + 0.25), (mx - 2.2, my + 0.9),
-                  (mx, my + 1.1), (mx + 2.2, my + 0.9),
-                  (mx + 4.6, my + 0.25)], SKIN_LINE, 0.55)
-        # smile crease / nasolabial soft shade
-        for sg in (-1, 1):
-            tline(d, [(mx + sg * 3.8, my - 0.4), (mx + sg * 4.6, my + 0.9),
-                      (mx + sg * 4.2, my + 1.8)], SKIN_SHADE, 0.45)
-        # pushed-up cheeks from the smile
-        for ex, hw in ((lx, hw_l), (rx, hw_r)):
-            ell(d, ex + (ex - mid) * 0.7, ey + 5.6, hw * 0.7, 1.6, CHEEK)
-        return (mx, my)
-    # --- PROFILE (E/W): same photo features, side view ---
-    if not eyes_o:
-        return None
-    ex, ey, _ = eyes_o[0]
-    ex += fx * 0.15
-    yi = int(S(ey + 7.0))
-    row = np.nonzero(np.isin(L[min(yi, L.shape[0]-1)], (SKIN,)))[0]
-    front = ((row.max() if fx > 0 else row.min()) / SS) if len(row) else ex + fx * 4
-    mx = front - fx * 1.5
-    # soft cheek + nose
-    ell(d, ex - fx * 0.5, ey + 4.2, 2.6, 2.0, CHEEK)
-    ell(d, ex - fx * 0.8, ey + 5.4, 1.8, 1.3, CHEEK)
-    ell(d, ex + fx * 2.5, ey + 3.1, 1.3, 0.95, SKIN_SHADE)
-    ell(d, ex + fx * 2.35, ey + 3.55, 0.35, 0.26, SKIN_LINE)
-    # thick black rect glasses + natural eye
-    ex2 = ex - fx * 0.15
-    lx0, lx1 = sorted((ex2 - 3.9, ex2 + 3.9))
-    gh, gv = 3.5, 3.3
-    d.rounded_rectangle([S(lx0), S(ey - gh), S(lx1), S(ey + gv)],
-                        radius=S(1.1), fill=LENS)
-    natural_eye(d, ex2 + fx * 0.05, ey + 0.1, 2.6, ry=2.0, side=fx, fx=fx, squint=0.4)
-    tline(d, [(ex2 - 2.2, ey - gh - 0.55), (ex2, ey - gh - 0.9),
-              (ex2 + 2.0, ey - gh - 0.5)], BROW, 1.05)
-    d.rounded_rectangle([S(lx0), S(ey - gh), S(lx1), S(ey + gv)],
-                        radius=S(1.05), outline=GLASS, width=W_(1.1))
-    d.rounded_rectangle([S(lx0 + 0.5), S(ey - gh + 0.5), S(lx1 - 0.5), S(ey + gv - 0.5)],
-                        radius=S(0.65), outline=GLASS, width=W_(0.3))
-    tline(d, [(ex2 - fx * 2.0, ey - 0.15), (wp.hcx_o + fx * 0.15, ey - 0.7)], GLASS, 0.65)
-    # thin mustache + gentle closed side smile
-    my = ey + 6.9
-    sy = my - 1.05
-    tline(d, [(mx - fx * 2.8, sy), (mx - fx * 1.2, sy - 0.05),
-              (mx + fx * 0.15, sy)], STACHE, 0.85)
-    LIP = (150, 78, 70)
-    # closed upturned lip from front toward cheek
-    tline(d, [(mx + fx * 0.1, my - 0.35), (mx - fx * 1.6, my + 0.55),
-              (mx - fx * 3.4, my + 0.85), (mx - fx * 4.6, my + 0.35)], LIP, 1.0)
-    return (mx, my)
 
 
 def torso_details(rgb, L, outline, direction, wp):
@@ -1600,7 +1114,9 @@ def billyfy(src_f, direction, anim, col, meta, memo, wp, idle_f):
     memo[(direction, "eyes")] = eyes_o
     if direction not in BACK:
         eyes_o = [(e[0], e[1] - 1.0) + tuple(e[2:]) for e in eyes_o]
-    rebuild_head(L, rgb, union, direction, wp, eyes_o)
+    head_src = src_f if not tag else idle_f
+    head_g = g if not tag else Geometry(idle_f)
+    apply_james_head(L, rgb, union, head_src, head_g, wp, direction, eyes_o)
     torso_details(rgb, L, lines, direction, wp)
     soles(rgb, L, lines)
     body = Image.fromarray(np.dstack([rgb, (union * 255).astype(np.uint8)]), "RGBA")
@@ -1623,10 +1139,13 @@ def billyfy(src_f, direction, anim, col, meta, memo, wp, idle_f):
     ba = np.asarray(body).copy()
     hl_ = ba.copy()
     hl_[~hm2] = 0
-    cyb = hy.max()
-    ax = float(np.median(hx[hy >= cyb - 2 * SS]))
+    # anchor at chin (near neck), not the bottom of a long neck stub
+    chin_cap = min(int(hy.max()), int(S(wp.yn_o) - 1))
+    chin_rows = hy <= chin_cap
+    cyb = int(hy[chin_rows].max()) if chin_rows.any() else int(hy.max())
+    ax = float(np.median(hx[(hy >= cyb - 2 * SS) & (hy <= cyb)]))
     ay = float(cyb)
-    k_ = HEAD_SCALE * (0.97 if direction in BACK else 1.0)
+    k_ = HEAD_SCALE * (0.97 if direction in ("NW", "NE") else 1.0)
     big = Image.fromarray(hl_, "RGBA").transform(
         body.size, Image.AFFINE, (1 / k_, 0, ax - ax / k_, 0, 1 / k_, ay - ay / k_), resample=Image.NEAREST)
     body = Image.alpha_composite(body, big)
