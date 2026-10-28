@@ -67,7 +67,7 @@ FACE = {"E": (1, 0), "SE": (0.7, 0.7), "S": (0, 1), "SW": (-0.7, 0.7),
 
 BG, HAIR, SKIN, HAND, SLEEVE, JACKET, PANTS, SHOE = range(8)
 COL = {
-    HAIR: (92, 54, 28),
+    HAIR: (28, 28, 34),
     SKIN: (210, 158, 128),
     HAND: (210, 158, 128),
     SLEEVE: (96, 99, 114),
@@ -87,14 +87,14 @@ POCKET_HI = (128, 131, 146)
 ZIP = (170, 173, 182)
 HEM = (62, 64, 75)
 PANTS_BACK = (16, 16, 19)
-HAIR_HI = (210, 152, 88)       # tip highlight (warm orange-tan, not blonde)
-HAIR_LIT = (162, 102, 54)      # light tip / lit face of a spike
-HAIR_MID = (108, 64, 34)       # mid orange-brown
-HAIR_BACK = (62, 36, 20)       # recessed back-layer / dark base
-HAIR_SHADE = (32, 18, 10)      # underside / cast-shadow
+HAIR_HI = (118, 132, 148)      # blue-grey tip highlight
+HAIR_LIT = (72, 78, 92)        # lit face of a spike (charcoal-blue)
+HAIR_MID = (38, 40, 48)        # mid black/charcoal
+HAIR_BACK = (22, 22, 28)       # recessed back-layer
+HAIR_SHADE = (10, 10, 14)      # underside / cast-shadow
 GLASS = (14, 14, 17)
-BROW = (22, 18, 18)
-STACHE = (28, 18, 14)
+BROW = (16, 14, 16)
+STACHE = (18, 16, 18)
 TEETH = (250, 248, 240)
 EYE = (30, 24, 26)
 # cup
@@ -689,7 +689,7 @@ def rebuild_head(L, rgb, union, direction, wp, eyes_o):
             (S(tx), S(ty)),
             (S(bx + dx * 0.42 - tpx), S(by + dy * 0.42 - tpy)),
         ]
-        tip_col = lit if layer < 2 else tuple(min(255, c + 28) for c in lit)
+        tip_col = lit if layer < 2 else tuple(min(255, c + 18) for c in lit)
         ld.polygon(tip_poly, fill=tip_col + (255,))
         # crisp highlight streak along lit ridge into the tip
         hx0 = bx + lit_sign * px_ * 0.55
@@ -879,7 +879,7 @@ def ell(d, cx, cy, rx, ry, col, outline=None, width=0.5):
 
 
 CHEEK = (220, 148, 118)
-LENS = (168, 128, 108)
+LENS = (218, 168, 138)  # clear-glass tint over skin; eyes supply the white
 MOUTH = (82, 38, 36)
 
 
@@ -888,16 +888,17 @@ def _blend(c, k, t):
 
 
 def smile_eye(d, ex, ey, hw, side=0, ry=1.7, half=False, fx=0):
-    """Happy-squint cartoon eyes: wide, lids pinch into a warm crescent that
-    nearly fills the glasses so empty lens never reads as a stare."""
+    """Happy-squint cartoon eyes: white sclera + dark pupil behind thin clear
+    glasses; lids pinch into a warm crescent so they read as a smile, not a
+    grey sunglasses visor."""
     img = d._image
     n = 19
     ts = np.linspace(-1, 1, n)
     # crescent: upper lid arcs down firmly, lower lid arcs up
     up = [(ex + hw * t,
-           ey - ry * 0.42 * (1 - t * t) ** 0.4 - 0.08 * side * t) for t in ts]
+           ey - ry * 0.48 * (1 - t * t) ** 0.4 - 0.08 * side * t) for t in ts]
     lo = [(ex + hw * t,
-           ey + ry * 0.48 * (1 - t * t) ** 0.5 - 0.05 * side * t) for t in ts]
+           ey + ry * 0.55 * (1 - t * t) ** 0.5 - 0.05 * side * t) for t in ts]
     if half:
         keep = [i for i, t in enumerate(ts) if (t * fx) >= -0.15]
         up = [up[i] for i in keep]
@@ -908,15 +909,20 @@ def smile_eye(d, ex, ey, hw, side=0, ry=1.7, half=False, fx=0):
     ImageDraw.Draw(msk).polygon(poly, fill=255)
     lay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     ld = ImageDraw.Draw(lay)
-    # iris fills the whole crescent — no white sclera (happy squint, not stare)
-    ld.polygon(poly, fill=(78, 48, 30, 255))
+    # white eyeball (big ellipse) so sclera survives 4x down, then dark pupil
     ix = ex + (0.3 * fx if half else 0.1 * fx) + 0.08 * side
-    r = max(ry * 0.72, 0.95)
-    iy = ey + 0.1
-    ld.ellipse([S(ix - r * 0.85), S(iy - r * 0.55), S(ix + r * 0.85), S(iy + r * 0.55)],
-               fill=(28, 18, 14, 255))
-    # tiny catchlight only (no sclera flash)
-    ld.ellipse([S(ix - r * 0.4), S(iy - r * 0.35), S(ix - r * 0.4 + 0.45), S(iy - r * 0.35 + 0.45)],
+    iy = ey + 0.08
+    ew, eh = hw * 0.95, ry * 0.95
+    ld.ellipse([S(ix - ew), S(iy - eh), S(ix + ew), S(iy + eh)],
+               fill=(250, 252, 255, 255))
+    # also fill crescent so lids clip cleanly
+    ld.polygon(poly, fill=(250, 252, 255, 255))
+    pr = max(ry * 0.42, 0.7)  # pupil smaller than white so white ring remains
+    ld.ellipse([S(ix - pr * 0.95), S(iy - pr * 0.85), S(ix + pr * 0.95), S(iy + pr * 0.85)],
+               fill=(18, 14, 16, 255))
+    # catchlight
+    ld.ellipse([S(ix - pr * 0.45), S(iy - pr * 0.55),
+                S(ix - pr * 0.45 + 0.65), S(iy - pr * 0.55 + 0.65)],
                fill=(255, 255, 255, 255))
     la = np.asarray(lay).copy()
     la[..., 3] = np.minimum(la[..., 3], np.asarray(msk))
@@ -979,39 +985,39 @@ def draw_face(img, L, direction, eyes_o, wp, head_box):
             tline(d, [(ex - sg * hw * 0.9, ey - gh - 0.95),
                       (ex - sg * hw * 0.1, ey - gh - 1.65),
                       (ex + sg * hw * 0.35, ey - gh - 1.7),
-                      (ex + sg * hw * 0.9, ey - gh - 1.15)], BROW, 1.2)
+                      (ex + sg * hw * 0.9, ey - gh - 1.15)], BROW, 1.45)
         # THIN black rectangular frames so eyes read clearly
         for ex, hw in ((lx, hw_l), (rx, hw_r)):
             d.rounded_rectangle([S(ex - hw), S(ey - gh), S(ex + hw), S(ey + gv)],
-                                radius=S(0.5), outline=GLASS, width=W_(0.4))
+                                radius=S(0.5), outline=GLASS, width=W_(0.32))
             tline(d, [(ex + hw * 0.35, ey - gh + 0.55), (ex + hw * 0.7, ey - gh + 0.85)], (235, 240, 245), 0.35)
         tline(d, [(lx + hw_l - 0.1, ey - 0.55), (mid, ey - 0.85), (rx - hw_r + 0.1, ey - 0.55)], GLASS, 0.65)
         tline(d, [(lx - hw_l, ey - 0.7), (max(x0 + 0.4, lx - hw_l - 2.2), ey - 1.0)], GLASS, 0.55)
         tline(d, [(rx + hw_r, ey - 0.7), (min(x1 - 0.4, rx + hw_r + 2.2), ey - 1.0)], GLASS, 0.55)
-        # warm OPEN smile: deep cavity + solid upper-teeth band that survives
-        # 4x box-downscale (needs >=1 out-px of solid TEETH, grid-aligned)
-        mw = 5.0 if fx == 0 else 4.2
+        # warm wide CURVED smile showing teeth (not a gaping slot)
+        mw = 5.35 if fx == 0 else 4.5
         my = ey + 6.6
-        d.chord([S(mx - mw), S(my - 0.7), S(mx + mw), S(my + 2.9)], 0, 180, fill=MOUTH)
-        # solid teeth band (rectangle clipped to mouth width) — thick enough
-        # for down(); still reads as a thin upper strip vs the open cavity
-        # SS height of ~4.5 so after 4x box-mean we keep ~1 out-px of white
-        ty0 = int(round(S(my - 0.1)))
-        ty1 = ty0 + int(round(SS * 1.15))  # solid band height in SS px
-        tx0 = int(round(S(mx - mw + 1.15)))
-        tx1 = int(round(S(mx + mw - 1.15)))
+        # smile cavity: gentle crescent (shallow height)
+        d.chord([S(mx - mw), S(my - 0.2), S(mx + mw), S(my + 2.15)], 12, 168, fill=MOUTH)
+        # solid TEETH band — deliberately thick so 4x mean keeps white
+        ty0 = int(round(S(my + 0.15)))
+        ty1 = ty0 + int(round(SS * 1.25))
+        tx0 = int(round(S(mx - mw + 0.75)))
+        tx1 = int(round(S(mx + mw - 0.75)))
         d.rectangle([tx0, ty0, tx1, ty1], fill=TEETH)
-        d.arc([S(mx - mw), S(my - 0.7), S(mx + mw), S(my + 2.9)], 18, 162, fill=SKIN_LINE, width=W_(0.55))
-        tline(d, [(mx - mw * 0.85, my + 2.15), (mx, my + 2.6), (mx + mw * 0.85, my + 2.15)], (168, 96, 86), 0.65)
-        # small mustache across upper lip (must survive 4x box-down)
-        tline(d, [(mx - mw + 0.5, my + 0.4), (mx - mw * 0.4, my - 0.2),
-                  (mx, my - 0.4), (mx + mw * 0.4, my - 0.2),
-                  (mx + mw - 0.5, my + 0.4)], STACHE, 1.85)
-        tline(d, [(mx - mw * 0.75, my + 0.2), (mx, my - 0.05),
-                  (mx + mw * 0.75, my + 0.2)], STACHE, 1.35)
-        # fill a few SS pixels solid so down() keeps a dark lip band
-        sy0 = int(round(S(my - 0.15))); sy1 = sy0 + max(2, int(SS * 0.55))
-        sx0 = int(round(S(mx - mw * 0.55))); sx1 = int(round(S(mx + mw * 0.55)))
+        # clip teeth corners with warm lower lip so it reads as a curved smile
+        d.pieslice([S(mx - mw), S(my - 0.2), S(mx + mw), S(my + 2.15)], 168, 192, fill=COL[SKIN])
+        d.pieslice([S(mx - mw), S(my - 0.2), S(mx + mw), S(my + 2.15)], -12, 12, fill=COL[SKIN])
+        d.arc([S(mx - mw), S(my - 0.2), S(mx + mw), S(my + 2.15)], 18, 162, fill=SKIN_LINE, width=W_(0.55))
+        tline(d, [(mx - mw * 0.75, my + 1.65), (mx, my + 1.95), (mx + mw * 0.75, my + 1.65)], (168, 96, 86), 0.6)
+        # small mustache across upper lip (above smile)
+        tline(d, [(mx - mw + 0.55, my - 0.15), (mx - mw * 0.4, my - 0.65),
+                  (mx, my - 0.85), (mx + mw * 0.4, my - 0.65),
+                  (mx + mw - 0.55, my - 0.15)], STACHE, 1.85)
+        tline(d, [(mx - mw * 0.7, my - 0.25), (mx, my - 0.5),
+                  (mx + mw * 0.7, my - 0.25)], STACHE, 1.35)
+        sy0 = int(round(S(my - 0.65))); sy1 = sy0 + max(2, int(SS * 0.5))
+        sx0 = int(round(S(mx - mw * 0.5))); sx1 = int(round(S(mx + mw * 0.5)))
         d.rectangle([sx0, sy0, sx1, sy1], fill=STACHE)
         return (mx, my)
     # profile
@@ -1039,18 +1045,18 @@ def draw_face(img, L, direction, eyes_o, wp, head_box):
     gh, gv = 2.5, 2.35
     d.rounded_rectangle([S(lx0), S(ey - gh), S(lx1), S(ey + gv)], radius=S(0.5), fill=LENS)
     smile_eye(d, ex2 + fx * 0.2, ey + 0.1, 2.65, ry=1.7, side=fx, half=True, fx=fx)
-    tline(d, [(ex2 - fx * 1.9, ey - gh - 1.15), (ex2, ey - gh - 1.7), (ex2 + fx * 1.7, ey - gh - 1.2)], BROW, 1.15)
-    d.rounded_rectangle([S(lx0), S(ey - gh), S(lx1), S(ey + gv)], radius=S(0.45), outline=GLASS, width=W_(0.4))
+    tline(d, [(ex2 - fx * 1.9, ey - gh - 1.15), (ex2, ey - gh - 1.7), (ex2 + fx * 1.7, ey - gh - 1.2)], BROW, 1.4)
+    d.rounded_rectangle([S(lx0), S(ey - gh), S(lx1), S(ey + gv)], radius=S(0.45), outline=GLASS, width=W_(0.32))
     tline(d, [(ex2 + fx * 0.2, ey - 0.7), (ex2 + fx * 0.8, ey - 0.7)], (255, 255, 255), 0.35)
     tline(d, [(ex2 - fx * 1.5, ey - 0.65), (wp.hcx_o + fx * 0.2, ey - 1.15)], GLASS, 0.55)
-    # warm open smile + thin mustache (no soul patch)
+    # warm curved smile + thin mustache (no soul patch)
     a0, a1 = sorted((mx + fx * 0.1, mx - fx * 4.0))
-    d.chord([S(a0), S(my - 1.1), S(a1), S(my + 2.4)], 0, 180, fill=MOUTH)
-    ty0 = int(round(S(my - 0.1))); ty1 = int(round(S(my + 1.0)))
-    d.rectangle([int(round(S(a0 + 0.4))), ty0, int(round(S(a1 - 0.35))), ty1], fill=TEETH)
-    tline(d, [(mx - fx * 3.2, my + 0.35), (mx - fx * 3.6, my - 0.25)], SKIN_LINE, 0.45)
-    tline(d, [(mx - fx * 3.4, my - 0.25), (mx - fx * 1.4, my - 1.05), (mx + fx * 0.35, my - 0.75)], STACHE, 1.5)
-    tline(d, [(mx - fx * 2.8, my - 0.05), (mx - fx * 1.0, my - 0.55)], STACHE, 1.1)
+    d.chord([S(a0), S(my - 0.4), S(a1), S(my + 1.95)], 10, 170, fill=MOUTH)
+    ty0 = int(round(S(my + 0.1))); ty1 = ty0 + int(round(SS * 1.15))
+    d.rectangle([int(round(S(a0 + 0.35))), ty0, int(round(S(a1 - 0.3))), ty1], fill=TEETH)
+    tline(d, [(mx - fx * 3.2, my + 0.25), (mx - fx * 3.6, my - 0.15)], SKIN_LINE, 0.45)
+    tline(d, [(mx - fx * 3.4, my - 0.55), (mx - fx * 1.4, my - 1.25), (mx + fx * 0.35, my - 0.95)], STACHE, 1.5)
+    tline(d, [(mx - fx * 2.8, my - 0.35), (mx - fx * 1.0, my - 0.75)], STACHE, 1.1)
     return (mx, my)
 
 
