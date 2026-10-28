@@ -14,7 +14,10 @@
 
 import type { Mood, Settings } from "./settings";
 
-export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "spacemanStep" | "spacemanSwing" | "wizardStep" | "wizardSwing" | "centaurStep" | "centaurSwing" | "tennisStep" | "tennisSwing" | "cobraStep" | "cobraSwing" | "click" | "blip" | "secret";
+/** Billy's slurp lands on the sip frame of the tag animation (see "billySwing"). */
+export const BILLY_SLURP_DELAY_S = 0.45;
+
+export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "spacemanStep" | "spacemanSwing" | "wizardStep" | "wizardSwing" | "centaurStep" | "centaurSwing" | "tennisStep" | "tennisSwing" | "cobraStep" | "cobraSwing" | "billySwing" | "click" | "blip" | "secret";
 
 const CROSSFADE_S = 1.5;
 const LOOKAHEAD_S = 0.15;
@@ -828,6 +831,20 @@ export class GameAudio {
         syn.noise(t, { filter: "highpass", freq: 4200, q: 0.7, gain: 0.2 * v, attack: 0.06, release: 0.45 });
         syn.noise(t, { filter: "bandpass", freq: 6500, sweepTo: 5200, q: 2, gain: 0.12 * v, attack: 0.05, release: 0.42 });
         syn.noise(t + 0.12, { filter: "bandpass", freq: 1500, q: 3, gain: 0.14 * v, attack: 0.001, release: 0.04 });
+        break;
+      }
+      case "billySwing": { // Billy's tag: just a straw slurp, on the frame the straw reaches his mouth
+        // Tag anim (src/kid.ts): 16 fps (62.5 ms/frame) + extra holds [0, 0, 30, 170, 30, 0] ms,
+        // so the sip frame (tag frame 4, sheet column 20) starts 62.5 + 62.5 + 92.5 + 232.5 = 450 ms in.
+        const s0 = t + BILLY_SLURP_DELAY_S;
+        // wet sucking hiss rising in pitch, broken into gurgles
+        syn.noise(s0, { filter: "bandpass", freq: 700, sweepTo: 1700, q: 2.5, gain: 0.12 * v, attack: 0.015, release: 0.22 });
+        for (let i = 0; i < 5; i++) {
+          const dt = i * 0.045 + Math.random() * 0.012;
+          syn.noise(s0 + dt, { filter: "bandpass", freq: 800 + i * 220, sweepTo: 1300 + i * 260, q: 4, gain: 0.11 * v, attack: 0.004, release: 0.035 });
+        }
+        // little air pop at the end as the straw clears
+        syn.noise(s0 + 0.24, { filter: "bandpass", freq: 2400, q: 3, gain: 0.07 * v, attack: 0.002, release: 0.03 });
         break;
       }
       case "pharaohSwing": { // Pharaoh James's tag: cloth whoosh plus a short muted horn (open fifth)

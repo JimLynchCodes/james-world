@@ -11,6 +11,8 @@ export const enGB: Partial<Messages> = {
   "skin.centaur.note": "Four legs, zero chill!",
   "skin.tennis.note": "Forehand — you're it!",
   "skin.cobra.note": "Hiss-terically fast. You're it!",
+  "skin.billy": "Billy",
+  "skin.billy.note": "James's Friend",
   "settings.sound.moodHelp": "The mood chooses the background music.",
   "mood.chillin.blurb": "Lo-fi hip-hop loop",
   "credits.githubLead": "Have a look at the source code for this game, fork it, and give it a star! 😉",

@@ -120,6 +120,8 @@ export const plPL: Messages = {
   "skin.tennis.note": "Forhend – berek!",
   "skin.cobra": "Kobra James",
   "skin.cobra.note": "Sss-zybki jak syk. Berek!",
+  "skin.billy": "Billy",
+  "skin.billy.note": "Przyjaciel Jamesa",
   "settings.credits.heading": "Twórcy",
   "credits.bio": "Tę grę zrobił James, inżynier oprogramowania z Nowego Jorku (znany też pod wieloma innymi imionami, jak Jim, Jimbo, Jimothy i Sir Jims-a-lot).",
   "credits.linkedinLead": "Śmiało, połącz się ze mną na LinkedIn:",

@@ -12,6 +12,8 @@ export const enAU: Partial<Messages> = {
   "skin.centaur.note": "Four legs, zero chill, mate!",
   "skin.tennis.note": "Forehand — you're it, mate!",
   "skin.cobra.note": "Hiss-terically fast. You're it, mate!",
+  "skin.billy": "Billy",
+  "skin.billy.note": "James's Friend",
   "settings.controls.phoneHint":
     "On a phone or tablet? Choose <strong>Mobile</strong> for a joystick and big TAG and RUN buttons.",
   "howto.helpMobile": "Drag on the ground to steer. Mix and match! Spot on for phones and tablets.",

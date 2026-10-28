@@ -120,6 +120,8 @@ export const filPH: Messages = {
   "skin.tennis.note": "Forehand! Ikaw na ang taya!",
   "skin.cobra": "Cobra James",
   "skin.cobra.note": "Sss-obrang bilis. Ikaw na ang taya!",
+  "skin.billy": "Billy",
+  "skin.billy.note": "Kaibigan ni James",
   "settings.credits.heading": "Credits",
   "credits.bio": "Ang larong ito ay ginawa ni James, isang software engineer na nakatira sa New York City (kilala rin sa iba pang pangalan gaya ng Jim, Jimbo, Jimothy, at Sir Jims-a-lot).",
   "credits.linkedinLead": "Tara, mag-connect tayo sa LinkedIn:",

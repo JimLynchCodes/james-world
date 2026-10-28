@@ -120,6 +120,8 @@ export const arSA: Messages = {
   "skin.tennis.note": "ضربة أمامية، وأنت المطارد!",
   "skin.cobra": "جيمس الكوبرا",
   "skin.cobra.note": "سريع كالفحيح. أنت الممسوك!",
+  "skin.billy": "Billy",
+  "skin.billy.note": "صديق جيمس",
   "settings.credits.heading": "الشكر",
   "credits.bio": "صنع هذه اللعبة James، مهندس برمجيات يعيش في مدينة نيويورك (ويُعرف أيضًا بأسماء أخرى كثيرة مثل Jim وJimbo وJimothy وSir Jims-a-lot).",
   "credits.linkedinLead": "تواصل معي على LinkedIn:",

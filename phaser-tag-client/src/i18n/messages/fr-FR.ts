@@ -120,6 +120,8 @@ export const frFR: Messages = {
   "skin.tennis.note": "Coup droit, c'est toi le chat !",
   "skin.cobra": "James Cobra",
   "skin.cobra.note": "Sss-uper rapide. C'est toi le chat !",
+  "skin.billy": "Billy",
+  "skin.billy.note": "Ami de James",
   "settings.credits.heading": "Crédits",
   "credits.bio": "Ce jeu a été créé par James, un ingénieur logiciel qui vit à New York (aussi connu sous plein d’autres noms comme Jim, Jimbo, Jimothy et Sir Jims-a-lot).",
   "credits.linkedinLead": "N’hésite pas à me retrouver sur LinkedIn :",

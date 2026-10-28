@@ -120,6 +120,8 @@ export const ptBR: Messages = {
   "skin.tennis.note": "Forehand, tá com você!",
   "skin.cobra": "James Naja",
   "skin.cobra.note": "Sss-uper rápido. Tá com você!",
+  "skin.billy": "Billy",
+  "skin.billy.note": "Amigo do James",
   "settings.credits.heading": "Créditos",
   "credits.bio": "Este jogo foi feito pelo James, um engenheiro de software que mora em Nova York (também conhecido por vários outros nomes, como Jim, Jimbo, Jimothy e Sir Jims-a-lot).",
   "credits.linkedinLead": "Bora se conectar no LinkedIn:",
