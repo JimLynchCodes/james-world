@@ -4,17 +4,18 @@ from the base kid sheet.
 
 Composite onto James's real base frame (do NOT redraw the body):
 
-  * James's face, head, neck, torso silhouette, arms, and legs stay the base;
+  * James's face, head, neck, torso silhouette, and legs stay the base;
+  * hanging base arms/hands are fully erased (filled with torso/shorts/bg);
   * tee → bare chest with light pec/abs shading on his real skin tone;
   * navy shorts → shiny red boxing trunks with a gold/white waistband that
     sits ON the hips (same width as the torso), gold side trim, mid-thigh;
   * shoes → red / white / gold high-tops with laces (same footprint);
-  * glossy RED boxing gloves (~½ head width) with white cuffs. Idle / walk /
-    breathe / run: high-ish guard at chest/shoulder height so the whole face
-    stays visible; side views show the near glove only;
-  * tag is a 6-frame JAB: near arm strips, then a shaded James-thick arm with
-    a big glove snaps forward and retracts. Far glove stays in guard.
-    NW mirrors NE.
+  * glossy RED boxing gloves (~½ head width) with white cuffs on a single
+    complete shaded arm from each shoulder. Idle / walk / breathe / run:
+    high-ish guard at chest height so the whole face stays visible; side
+    views show the near arm only;
+  * tag is a 6-frame JAB: shaded near arm + glove snaps forward and
+    retracts. Far glove stays in guard. NW mirrors NE.
 
 Requires: Python 3 + Pillow + numpy.  Usage:
     python3 tools/make_boxer_skin.py [--preview /tmp/boxer_preview.png]
@@ -544,9 +545,9 @@ def glove_parts(sh, elbow, hand, skin, gr, jabbing=False):
     seam_a = (hand[0] + nx * (gr * 0.42), hand[1] + ny * (gr * 0.28))
     seam_b = (thumb[0] - nx * (tr * 0.25), thumb[1] - ny * (tr * 0.25))
     if jabbing:
-        u0, u1, f0, f1 = 5.0, 4.5, 4.3, 3.8
+        u0, u1, f0, f1 = 5.4, 4.8, 4.6, 4.0
     else:
-        u0, u1, f0, f1 = 4.4, 3.9, 3.7, 3.3
+        u0, u1, f0, f1 = 5.0, 4.4, 4.2, 3.7
     skin2 = tuple(int(v * 0.86) for v in skin)
     return [
         (capsule_fn(sh, u0, elbow, u1), skin),
@@ -603,53 +604,113 @@ def bounce_of(anim, col, meta):
     return 1.0 * math.sin(k * math.pi / 2.0)
 
 
-def trim_lateral_arms(f, g, sides):
-    """Erase only hanging-arm pixels that stick OUTSIDE the torso silhouette.
-    Never touch the torso core, shorts, or legs — James's body stays intact."""
+def erase_base_arms(f, g):
+    """Fully erase James's hanging base arms/hands BEFORE recolor.
+
+    Detect arms while the tee still separates them from the torso, clear
+    anything outside a chest→hip silhouette to transparency, and fill only the
+    interior (hand-over-shorts / arm-over-tee) with tee or shorts colour so
+    recolor still sees cloth. Legs below the hem are never touched.
+    """
     h, w = f.shape[:2]
     yy, xx = np.mgrid[0:h, 0:w]
     out = f.copy()
-    ai = alpha_mask(out)
     face = (yy <= g.neck + 1) & skin_mask(out)
-    arms, _ = arms_and_hands(out, g, face)
-    rm = np.zeros_like(arms)
-    for s in sides:
-        rm |= arm_comps_on(arms, g, 'S', s)  # side filter only; direction unused for L/R
-    # Build per-row torso x-span from opaque non-arm rows near mid-torso, then
-    # erase arm pixels outside that span (true hanging arms / hands only).
+    arms, hands = arms_and_hands(out, g, face)
+    rm = arms | hands
+    ai = alpha_mask(out)
+    rm = grow(rm, ai, 1) & (yy > g.neck + 2) & (yy < int(g.hem) - 1)
+    cleaned = np.zeros_like(rm)
+    for comp in components8(rm):
+        ys = np.nonzero(comp)[0]
+        if len(ys) and ys.mean() < g.hem - 4:
+            cleaned |= comp
+    rm = cleaned
+    keep = ai & ~rm
+
+    chest_spans, hip_spans, pre_hip = [], [], []
+    for y in range(int(g.neck) + 3, int(g.neck) + 12):
+        xs = np.nonzero(keep[y])[0]
+        if len(xs) >= 6:
+            chest_spans.append((int(xs.min()), int(xs.max())))
+    for y in range(int(g.hem) - 6, int(g.hem) - 1):
+        xs = np.nonzero(keep[y])[0]
+        if len(xs) >= 6:
+            hip_spans.append((int(xs.min()), int(xs.max())))
+        xs = np.nonzero(ai[y])[0]
+        if len(xs) >= 8:
+            pre_hip.append((int(xs.min()), int(xs.max())))
+
+    if chest_spans:
+        cL = float(np.median([s[0] for s in chest_spans]))
+        cR = float(np.median([s[1] for s in chest_spans]))
+    else:
+        cL, cR = w * 0.35, w * 0.65
+    if hip_spans:
+        hL = float(np.median([s[0] for s in hip_spans]))
+        hR = float(np.median([s[1] for s in hip_spans]))
+    else:
+        hL, hR = cL - 2, cR + 2
+    # Hands often occlude shorts sides — if keep-hip collapsed, restore toward
+    # the pre-erase hip span (inset 1px) so trunks keep torso width.
+    if pre_hip and (hR - hL) < (cR - cL) + 2:
+        pL = float(np.median([s[0] for s in pre_hip]))
+        pR = float(np.median([s[1] for s in pre_hip]))
+        hL = min(hL, pL + 1)
+        hR = max(hR, pR - 1)
+
+    y_c = int(g.neck) + 7
+    y_h = int(g.hem) - 3
     L = np.full(h, np.nan)
     R = np.full(h, np.nan)
-    for y in range(int(g.neck) + 4, int(g.hem) - 1):
-        xs = np.nonzero(ai[y] & ~arms[y])[0]
-        if len(xs) < 4:
-            xs = np.nonzero(ai[y])[0]
-        if len(xs) >= 4:
-            L[y] = xs.min() + 1
-            R[y] = xs.max() - 1
-    ys = np.arange(h)
-    for E in (L, R):
-        ok = ~np.isnan(E)
-        if ok.sum() >= 2:
-            E[:] = np.interp(ys, ys[ok], E[ok])
-    lateral = np.zeros_like(ai)
-    for y in range(int(g.neck) + 3, int(g.hem)):
-        if np.isnan(L[y]) or np.isnan(R[y]):
+    for y in range(int(g.neck) + 2, int(g.hem) + 1):
+        t = 0.0 if y_h == y_c else float(np.clip((y - y_c) / (y_h - y_c), 0, 1))
+        L[y] = cL + t * (hL - cL)
+        R[y] = cR + t * (hR - cR)
+
+    waist = int(g.hem - 9)
+    sk = skin_mask(out)
+    tee_band = keep & ~sk & (yy > g.neck + 4) & (yy < waist)
+    tee_c = tuple(int(v) for v in np.median(out[tee_band][:, :3], 0)) if tee_band.any() else (90, 90, 95)
+    shorts_band = keep & ~sk & (yy >= waist) & (yy < g.hem)
+    sh_c = tuple(int(v) for v in np.median(out[shorts_band][:, :3], 0)) if shorts_band.any() else (40, 40, 55)
+
+    fill = np.zeros_like(rm)
+    for y in range(int(g.neck) + 2, int(g.hem)):
+        if np.isnan(L[y]):
             continue
         lo, hi = int(round(L[y])), int(round(R[y]))
-        row = arms[y].copy()
-        row[lo:hi + 1] = False  # keep torso core
-        lateral[y] |= row
-    # also drop any leftover hand blobs below mid-torso that sit outside hips
-    lateral |= rm & ((xx < np.nanmin(L)) | (xx > np.nanmax(R)))
-    lateral &= yy < int(g.hem) - 1
-    lateral &= yy > int(g.neck) + 2
-    out[lateral] = 0
+        inside = rm[y].copy()
+        inside[:lo] = False
+        inside[hi + 1:] = False
+        fill[y] |= inside
+    clear = rm & ~fill
+    out[clear] = 0
+    chest_fill = fill & (yy < waist)
+    trunk_fill = fill & (yy >= waist)
+    out[chest_fill, :3] = tee_c
+    out[chest_fill, 3] = 255
+    out[trunk_fill, :3] = sh_c
+    out[trunk_fill, 3] = 255
+
+    ai2 = alpha_mask(out)
+    for y in range(int(g.neck) + 2, int(g.hem)):
+        if np.isnan(L[y]):
+            continue
+        lo, hi = int(round(L[y])), int(round(R[y]))
+        hole = np.zeros(w, bool)
+        hole[lo:hi + 1] = True
+        hole &= ~ai2[y]
+        if hole.any():
+            col = tee_c if y < waist else sh_c
+            out[y, hole, :3] = col
+            out[y, hole, 3] = 255
     return out
 
 
 def boxify(frame, direction, anim, col, meta):
-    """Composite Boxer onto James: recolor tee/shorts/shoes in place, trim only
-    lateral hanging arms, then draw guard/jab gloves. Body is never redrawn."""
+    """Composite Boxer onto James: erase base arms, recolor tee/shorts/shoes,
+    then draw complete shoulder→glove arms. Body silhouette is never redrawn."""
     f = pad_frame(frame)
     a = alpha_mask(f)
     if not a.any():
@@ -663,22 +724,21 @@ def boxify(frame, direction, anim, col, meta):
     side = TAG_SIDE[direction]
     bounce = bounce_of(anim, col, meta)
 
-    # 1) Recolor James in place FIRST (tee→chest, navy→trunks+gold waistband,
-    #    shoes→high-tops). Legs, face, silhouette stay his.
+    # 1) Start from James (idle body for tag so the jab pose is stable).
     if tag:
         idle = pad_frame(meta["_base_idle"][direction])
-        gi = Geometry(idle)
         body = idle
-        g = gi
+        g = Geometry(idle)
     else:
         body = f
 
-    rc, waist = recolor(body, g)
-    g = Geometry(rc)
+    # 2) Fully erase hanging base arms/hands WHILE tee still separates them
+    #    from the torso; fill torso/shorts holes so recolor sees cloth.
+    body = erase_base_arms(body, Geometry(body))
+    g = Geometry(body)
 
-    # 2) Trim only lateral hanging arms (outside torso). Core body untouched.
-    sides = [side] if (tag or direction in PROFILE) else [1, -1]
-    rc = trim_lateral_arms(rc, g, sides)
+    # 3) Recolor in place (tee→chest, navy→trunks+gold waistband, shoes→high-tops).
+    rc, waist = recolor(body, g)
     g = Geometry(rc)
 
     skin = skin_rgb_of(rc)

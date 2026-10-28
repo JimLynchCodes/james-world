@@ -1,7 +1,8 @@
 """Boxer James consistency: sheet ≤4096; every frame one solid figure; red
 gloves present in every frame; gold waistband present; torso width stable
 across standing frames within a direction; head ratio chibi-like; NW tag
-mirrors NE (jab extends opposite ways)."""
+mirrors NE (jab extends opposite ways); no hanging base-arm skin outside
+the glove-arm masks at hip/side level."""
 import json
 from pathlib import Path
 
@@ -201,6 +202,69 @@ for r, d in enumerate(m["directions"]):
         n = int(bad_px.sum())
         if n > 2:
             print(f"{d} col {c}: {n} black/near-black trunk pixels (want red/gold/white only)")
+            bad += 1
+
+
+# No hanging base-arm skin outside the glove-arm / torso masks at hip level.
+# Hanging hands sit beside the gold waistband; drawn glove arms stay above it.
+def is_skin_arm(rgb, a):
+    """Skin tone that is not glove / gold / near-white cloth."""
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    lum = (r + g + b) / 3.0
+    glove = is_glove(rgb, a)
+    gold = (r > 180) & (g > 140) & (b < 140) & (r - b > 60)
+    white = (lum >= 160) | ((r > 180) & (g > 180) & (b > 170))
+    return (
+        (a > 100) & (r > 140) & (r > b + 20) & (r > g + 8) & (g > 70) & (b > 50)
+        & ~glove & ~gold & ~white
+    )
+
+
+pad = m["baselineY"] - 96
+for r, d in enumerate(m["directions"]):
+    for c in range(im.shape[1] // fw):
+        f = im[r * fh:(r + 1) * fh, c * fw:(c + 1) * fw]
+        a = f[..., 3] >= 200
+        if not a.any():
+            continue
+        rgb = f[..., :3].astype(int)
+        al = f[..., 3]
+        skin = is_skin_arm(rgb, al)
+        glove = is_glove(rgb, al)
+        rr, gg, bb = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+        gold_px = (al > 100) & (rr > 180) & (gg > 140) & (bb < 140) & (rr - bb > 60)
+        # Wide gold waistband row (skip thin shoe-gold scraps).
+        wb = None
+        for y in range(pad + 70, pad + 84):
+            xs = np.nonzero(gold_px[y] & a[y])[0]
+            if len(xs) >= 8:
+                wb = (y, int(xs.min()), int(xs.max()))
+                break
+        if wb is None:
+            spans = []
+            for y in range(pad + 58, pad + 66):
+                body = a[y] & ~glove[y]
+                xs = np.nonzero(body)[0]
+                if len(xs) >= 8:
+                    spans.append((int(xs.min()), int(xs.max())))
+            if not spans:
+                continue
+            wb_lo = int(np.median([s[0] for s in spans]))
+            wb_hi = int(np.median([s[1] for s in spans]))
+            y0 = pad + 74
+        else:
+            y0, wb_lo, wb_hi = wb
+        hip_y1 = min(y0 + 8, pad + 86, fh)
+        stray = 0
+        for y in range(y0, hip_y1):
+            sk = skin[y] & ~glove[y]
+            if not sk.any():
+                continue
+            xs = np.nonzero(sk)[0]
+            outside = xs[(xs < wb_lo - 2) | (xs > wb_hi + 2)]
+            stray += len(outside)
+        if stray > 3:
+            print(f"{d} col {c}: {stray} stray skin-arm px outside glove-arm masks (hip/side)")
             bad += 1
 
 print("glove px median", {d: int(np.median(v)) for d, v in glove_counts.items()})
