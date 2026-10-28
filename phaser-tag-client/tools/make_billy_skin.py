@@ -491,41 +491,40 @@ def rebuild_head(L, rgb, union, direction, wp, eyes_o):
     spikes = []  # (layer, base, tip, half_w)  layer 0=back 1=mid 2=front
 
     if direction in BACK:
-        # Dense layered spikes on a SKIN head (no black scalp fill).
-        # Up-spike bases sit near the crown (not mid-skull) so they don't
-        # fuse into a helmet band; down-back locks cover upper/mid skull
-        # with staggered tips and skin below the jagged hairline.
-        # --- up/out fans: bases high on crown, moderate width ---
+        # Skin head + DENSE spike coverage over ~top 60% of the skull.
+        # No solid black underfill. Rows of chunky spikes hang down-back;
+        # jagged hairline near ear level; only lower head/nape/ears show skin.
+        # --- crown up/out fans (bases high, so no mid-skull helmet band) ---
         for ang, ln, bw in (
-            (-115, 7.5, 3.4), (-85, 8.8, 3.8), (-55, 9.5, 4.0),
-            (-25, 10.0, 4.2), (5, 10.5, 4.4), (35, 9.8, 4.0),
-            (65, 8.8, 3.8), (95, 7.8, 3.4), (125, 6.8, 3.2),
+            (-115, 7.0, 3.6), (-85, 8.5, 4.0), (-55, 9.2, 4.2),
+            (-25, 9.8, 4.4), (5, 10.2, 4.6), (35, 9.5, 4.2),
+            (65, 8.5, 4.0), (95, 7.5, 3.6), (125, 6.5, 3.4),
         ):
             rad = math.radians(ang)
             bx = cx + math.sin(rad) * hw * 0.22
-            by = top + 1.6 + abs(math.sin(rad)) * 0.35
+            by = top + 1.5 + abs(math.sin(rad)) * 0.3
             tip = (bx + math.sin(rad) * ln, by - math.cos(rad) * ln * 0.55)
             spikes.append((0, (bx, by), tip, bw))
         for ang, ln, bw in (
-            (-95, 8.2, 3.8), (-60, 9.5, 4.2), (-28, 10.2, 4.4),
-            (5, 10.6, 4.6), (38, 9.8, 4.2), (72, 8.8, 3.8),
-            (105, 7.5, 3.4),
+            (-95, 8.0, 4.0), (-60, 9.2, 4.4), (-28, 10.0, 4.6),
+            (5, 10.4, 4.8), (38, 9.6, 4.4), (72, 8.5, 4.0),
+            (105, 7.2, 3.6),
         ):
             rad = math.radians(ang)
             bx = cx + math.sin(rad) * hw * 0.30
-            by = top + 1.2 + abs(math.sin(rad)) * 0.4
+            by = top + 1.1 + abs(math.sin(rad)) * 0.35
             tip = (bx + math.sin(rad) * ln, by - math.cos(rad) * ln * 0.58)
             spikes.append((1, (bx, by), tip, bw))
         for ang, ln, bw in (
-            (-70, 9.0, 4.0), (-35, 10.2, 4.4), (-5, 10.8, 4.6),
-            (28, 10.0, 4.4), (58, 9.0, 4.0), (88, 7.8, 3.6),
+            (-70, 8.8, 4.2), (-35, 10.0, 4.6), (-5, 10.6, 4.8),
+            (28, 9.8, 4.6), (58, 8.8, 4.2), (88, 7.5, 3.8),
         ):
             rad = math.radians(ang)
             bx = cx + math.sin(rad) * hw * 0.36
-            by = top + 0.9 + abs(math.sin(rad)) * 0.45
+            by = top + 0.8 + abs(math.sin(rad)) * 0.4
             tip = (bx + math.sin(rad) * ln * 0.95, by - math.cos(rad) * ln * 0.6)
             spikes.append((2, (bx, by), tip, bw))
-        # side flares (asym)
+        # side flares
         spikes.append((0, (cx - hw * 0.55, top + hh * 0.12),
                        (cx - (hw + 10.0), top + hh * 0.02), 3.6))
         spikes.append((1, (cx - hw * 0.45, top + hh * 0.28),
@@ -538,29 +537,107 @@ def rebuild_head(L, rgb, union, direction, wp, eyes_o):
                        (cx + (hw + 11.5), top + hh * 0.22), 3.8))
         spikes.append((2, (cx + hw * 0.35, top + hh * 0.4),
                        (cx + (hw + 6.5), top + hh * 0.58), 3.2))
-        # --- down-back locks: cover upper→mid; staggered center tips ---
-        nape_limit = top + 0.78 * (bot - top)
-        for (u, drop, sweep, bw, ly) in (
-            (-0.92, 8.0, -2.4, 3.2, 0), (-0.62, 10.0, -1.2, 3.4, 0),
-            (-0.32, 12.0, -0.2, 3.6, 0), (0.0, 13.5, 0.4, 3.8, 0),
-            (0.32, 12.0, 1.4, 3.6, 0), (0.62, 10.0, 2.4, 3.4, 0),
-            (0.92, 8.0, 3.2, 3.2, 0),
-            (-0.78, 6.5, -1.6, 3.0, 1), (-0.48, 9.5, -0.5, 3.2, 1),
-            (-0.20, 11.5, 0.3, 3.4, 1), (0.10, 13.0, 0.8, 3.4, 1),
-            (0.40, 10.0, 1.7, 3.2, 1), (0.70, 7.5, 2.6, 3.0, 1),
-            (-0.85, 5.0, -1.4, 2.6, 2), (-0.55, 8.5, -0.4, 2.8, 2),
-            (-0.25, 11.0, 0.4, 3.0, 2), (0.05, 14.0, 0.6, 3.2, 2),
-            (0.30, 11.5, 1.3, 3.0, 2), (0.55, 8.0, 2.1, 2.8, 2),
-            (0.82, 5.5, 2.8, 2.6, 2),
-            (-0.68, 4.0, -0.9, 2.2, 2), (-0.38, 7.0, -0.1, 2.4, 2),
-            (-0.10, 9.5, 0.5, 2.6, 2), (0.18, 5.5, 1.0, 2.4, 2),
-            (0.45, 8.5, 1.7, 2.4, 2), (0.72, 4.5, 2.4, 2.2, 2),
-            (0.0, 6.5, 0.2, 2.3, 2), (-0.12, 5.0, 0.4, 2.2, 2),
-            (0.22, 9.0, 1.1, 2.4, 2), (0.0, 10.5, -0.2, 2.2, 1),
+        # --- down-back ROWS: cover ~top 60% of skull; hairline ~ear level ---
+        # Target tip band: top+0.52..0.65 of head height. Chunkier + denser
+        # so the mid-back isn't a bald skin dome under a thin spike crown.
+        ear_y = top + 0.58 * (bot - top)
+        nape_limit = top + 0.74 * (bot - top)
+        # Row A: long recessed locks spanning crown → ear line
+        for (u, frac, sweep, bw, ly) in (
+            (-0.95, 0.60, -2.6, 3.8, 0), (-0.70, 0.66, -1.6, 4.0, 0),
+            (-0.45, 0.68, -0.6, 4.2, 0), (-0.20, 0.70, 0.2, 4.4, 0),
+            (0.05, 0.71, 0.8, 4.4, 0), (0.30, 0.69, 1.6, 4.2, 0),
+            (0.55, 0.67, 2.4, 4.0, 0), (0.80, 0.64, 3.2, 3.8, 0),
+            (0.98, 0.58, 3.8, 3.6, 0),
+        ):
+            bx = cx + u * hw * 0.55
+            by = top + 1.2 + 0.3 * abs(u)
+            tip_y = min(top + frac * (bot - top), nape_limit)
+            spikes.append((ly, (bx, by), (bx + sweep, tip_y), bw))
+        # Row B: mid layer, staggered lengths for jagged hairline
+        for (u, frac, sweep, bw, ly) in (
+            (-0.85, 0.52, -2.0, 3.6, 1), (-0.58, 0.60, -1.0, 3.8, 1),
+            (-0.32, 0.63, -0.2, 4.0, 1), (-0.05, 0.58, 0.5, 4.0, 1),
+            (0.22, 0.65, 1.3, 4.0, 1), (0.48, 0.61, 2.1, 3.8, 1),
+            (0.72, 0.55, 2.9, 3.6, 1), (0.92, 0.50, 3.5, 3.4, 1),
+        ):
+            bx = cx + u * hw * 0.52
+            by = top + 1.6 + 0.35 * abs(u)
+            tip_y = min(top + frac * (bot - top), nape_limit)
+            spikes.append((ly, (bx, by), (bx + sweep, tip_y), bw))
+        # Row C: forward chunky points — deliberately uneven around ear_y
+        for (u, frac, sweep, bw, ly) in (
+            (-0.90, 0.48, -1.8, 3.2, 2), (-0.65, 0.57, -0.8, 3.4, 2),
+            (-0.38, 0.62, 0.0, 3.6, 2), (-0.12, 0.54, 0.6, 3.6, 2),
+            (0.12, 0.66, 1.2, 3.6, 2), (0.38, 0.59, 1.9, 3.4, 2),
+            (0.62, 0.64, 2.6, 3.4, 2), (0.85, 0.51, 3.2, 3.2, 2),
         ):
             bx = cx + u * hw * 0.50
-            by = top + 1.4 + 0.45 * abs(u)
-            tip_y = min(by + drop, nape_limit)
+            by = top + 2.0 + 0.4 * abs(u)
+            tip_y = min(top + frac * (bot - top), nape_limit)
+            spikes.append((ly, (bx, by), (bx + sweep, tip_y), bw))
+        # Row D: tip daggers poking past ear_y for spiky hairline
+        for (u, frac, sweep, bw) in (
+            (-0.75, 0.58, -1.2, 2.6), (-0.48, 0.72, -0.3, 2.8),
+            (-0.22, 0.64, 0.4, 2.8), (0.02, 0.74, 0.9, 3.0),
+            (0.28, 0.60, 1.5, 2.8), (0.52, 0.70, 2.2, 2.8),
+            (0.78, 0.56, 2.8, 2.6),
+            (-0.35, 0.55, 0.2, 2.4), (0.15, 0.68, 1.1, 2.6),
+            (0.42, 0.52, 1.8, 2.4), (-0.08, 0.50, 0.5, 2.4),
+            (-0.60, 0.70, -0.8, 2.5), (0.60, 0.70, 1.6, 2.5),
+            (0.0, 0.72, 0.3, 2.6), (-0.18, 0.66, 0.2, 2.4),
+            (0.35, 0.66, 1.3, 2.4),
+        ):
+            bx = cx + u * hw * 0.48
+            by = top + 2.4 + 0.3 * abs(u)
+            tip_y = min(top + frac * (bot - top), nape_limit)
+            spikes.append((2, (bx, by), (bx + sweep, tip_y), bw))
+        # Mid-skull rooted locks (hang from ~25% down) fill bald mid-back
+        for (u, frac, sweep, bw, ly) in (
+            (-0.70, 0.62, -1.4, 3.4, 0), (-0.40, 0.66, -0.4, 3.6, 0),
+            (-0.10, 0.68, 0.4, 3.8, 1), (0.20, 0.67, 1.2, 3.6, 1),
+            (0.50, 0.64, 2.0, 3.4, 0), (0.75, 0.60, 2.8, 3.2, 0),
+            (-0.55, 0.58, -0.8, 3.0, 2), (-0.25, 0.64, 0.2, 3.2, 2),
+            (0.05, 0.61, 0.8, 3.2, 2), (0.35, 0.65, 1.6, 3.0, 2),
+            (0.60, 0.56, 2.4, 2.8, 2),
+        ):
+            bx = cx + u * hw * 0.48
+            by = top + 0.25 * (bot - top) + 0.2 * abs(u)
+            tip_y = min(top + frac * (bot - top), nape_limit)
+            spikes.append((ly, (bx, by), (bx + sweep, tip_y), bw))
+        # Lateral mid-skull fill: close the bald side gaps above the ears
+        for (u, frac, sweep, bw, ly) in (
+            (-1.05, 0.58, -2.0, 3.6, 0), (-0.88, 0.64, -1.2, 3.8, 0),
+            (-0.72, 0.66, -0.5, 4.0, 1), (0.72, 0.66, 0.8, 4.0, 1),
+            (0.88, 0.64, 1.6, 3.8, 0), (1.05, 0.58, 2.4, 3.6, 0),
+            (-0.95, 0.55, -1.6, 3.4, 2), (-0.80, 0.62, -0.8, 3.6, 2),
+            (0.80, 0.62, 1.2, 3.6, 2), (0.95, 0.55, 2.0, 3.4, 2),
+            (-1.00, 0.50, -1.0, 3.2, 1), (1.00, 0.50, 1.4, 3.2, 1),
+            (-0.82, 0.68, -0.3, 3.4, 2), (0.82, 0.68, 0.6, 3.4, 2),
+        ):
+            bx = cx + u * hw * 0.58
+            by = top + 0.18 * (bot - top) + 0.15 * abs(u)
+            tip_y = min(top + frac * (bot - top), nape_limit)
+            spikes.append((ly, (bx, by), (bx + sweep, tip_y), bw))
+        # Coverage locks across full width at ~ear depth (narrower so tips
+        # stay distinct spikes, not a flat fused rectangle)
+        for (u, frac, sweep, bw, ly) in (
+            (-0.90, 0.62, -1.5, 3.2, 0), (-0.60, 0.68, -0.6, 3.4, 0),
+            (-0.30, 0.71, 0.2, 3.6, 1), (0.0, 0.72, 0.5, 3.6, 1),
+            (0.30, 0.71, 1.2, 3.6, 1), (0.60, 0.68, 2.0, 3.4, 0),
+            (0.90, 0.62, 2.8, 3.2, 0),
+            (-0.75, 0.58, -1.0, 3.0, 2), (-0.45, 0.66, -0.2, 3.2, 2),
+            (-0.15, 0.70, 0.4, 3.2, 2), (0.15, 0.70, 1.0, 3.2, 2),
+            (0.45, 0.66, 1.8, 3.2, 2), (0.75, 0.58, 2.5, 3.0, 2),
+            # spaced tip points with skin gaps between
+            (-0.82, 0.64, -1.2, 2.4, 2), (-0.52, 0.55, -0.4, 2.4, 2),
+            (-0.22, 0.73, 0.3, 2.6, 2), (0.08, 0.56, 0.8, 2.4, 2),
+            (0.38, 0.73, 1.5, 2.6, 2), (0.68, 0.55, 2.2, 2.4, 2),
+            (0.92, 0.64, 2.8, 2.4, 2),
+        ):
+            bx = cx + u * hw * 0.56
+            by = top + 0.12 * (bot - top)
+            tip_y = min(top + frac * (bot - top), nape_limit)
             spikes.append((ly, (bx, by), (bx + sweep, tip_y), bw))
     elif direction in PROFILE:
         back_sign = -fx
