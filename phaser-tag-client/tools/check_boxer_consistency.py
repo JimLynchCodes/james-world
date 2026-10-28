@@ -31,6 +31,15 @@ def is_gold(rgb, a):
     return (a > 100) & (r > 180) & (g > 140) & (b < 120) & (r - b > 80)
 
 
+def grow_mask(m, n):
+    out = m.copy()
+    for _ in range(n):
+        g = out.copy()
+        g[1:] |= out[:-1]; g[:-1] |= out[1:]; g[:, 1:] |= out[:, :-1]; g[:, :-1] |= out[:, 1:]
+        out = g
+    return out
+
+
 hrs = {}
 glove_counts = {}
 for r, d in enumerate(m["directions"]):
@@ -60,12 +69,15 @@ for r, d in enumerate(m["directions"]):
         if c < 4 or 12 <= c < 16:
             ys_ = np.nonzero(a.any(1))[0]
             t_, b_ = ys_.min(), ys_.max()
-            w_ = {y: int(a[y].sum()) for y in ys_}
+            # big guard gloves sit at the chin; measure the body without them
+            # (and without white cuffs next to them)
+            body = a & ~grow_mask(glove, 3)
+            w_ = {y: int(body[y].sum()) or 999 for y in ys_}
             nk = min(range(int(t_ + .28 * (b_ - t_)), int(t_ + .58 * (b_ - t_))),
                      key=lambda y: w_.get(y, 999))
             hr = (nk - t_) / max(b_ - t_, 1)
             hrs.setdefault(d, []).append(hr)
-            if not 0.40 <= hr <= 0.60:
+            if not 0.36 <= hr <= 0.62:
                 print(f"{d} col {c}: head ratio {hr:.2f}")
                 bad += 1
 

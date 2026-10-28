@@ -1,8 +1,8 @@
 {
   "image": "kid_boxer.png",
   "frameWidth": 136,
-  "frameHeight": 110,
-  "baselineY": 106,
+  "frameHeight": 112,
+  "baselineY": 108,
   "anchorX": 68,
   "columns": 30,
   "directions": [
