@@ -47,7 +47,7 @@ ASSETS = HERE.parent / "public" / "assets"
 
 SS = 4
 OW, OH = 128, 124          # output frame
-HEAD_SCALE = 1.36
+HEAD_SCALE = 1.35
 ARM_R = 3.5
 BACK_D = 12.5
 TORSO_D = 15.0
@@ -423,28 +423,47 @@ def rebuild_head(L, rgb, union, direction, wp, eyes_o):
     hair_cap = _rbox_sdf(Xs, Yo, cx, cy - 0.1, hw + 0.35, hh + 0.15, (hw + 0.35) * 0.95) < 0
     crown_cut = top + 4.6  # above this, only painted spikes count
     if direction in BACK:
+        # Full head of hair from behind: cover the entire skull (no crown hole,
+        # no eye-band stripe). Only ears + a short nape of neck show skin.
         ey = top + 0.55 * (bot - top)
-        hl = top + 0.82 * (bot - top)
-        hair = hair_cap & (Yo < hl + 0.8 * np.cos(np.clip((Xo - cx) / hw, -1, 1) * 1.1))
-        hair &= Yo > crown_cut - 0.8  # leave upper crown to spikes
-        ear_y = top + 0.55 * (bot - top)
-        ears = [(cx - hw - 0.5, ear_y), (cx + hw + 0.5, ear_y)]
+        nape = bot - 0.9
+        hair = hair_cap & (Yo < nape)
+        # slight dip at the nape center so a little neck peeks under hair
+        hair &= ~((Yo > nape - 1.6) & (np.abs(Xo - cx) < hw * 0.28))
+        ear_y = top + 0.52 * (bot - top)
+        ears = [(cx - hw - 0.85, ear_y), (cx + hw + 0.85, ear_y)]
     elif direction in PROFILE:
+        # Full scalp coverage (no headband / bald dome). Hair covers the whole
+        # top + back of the skull down to the nape. Skin only on the face
+        # (forehead under bangs, eye/glasses, nose, mouth) and the near ear.
         ey = eyes_o[0][1] if eyes_o else top + 0.55 * (bot - top)
-        hl = ey - 5.2
-        back = fx * (Xo - cx) < -hw * 0.35
-        hair = hair_cap & ((Yo < hl + 1.4 * np.clip(-fx * (Xo - cx) / hw, 0, 1)) | (back & (Yo < ey + 3.0)))
-        # keep back-of-head fill; cut only the upper front crown dome
-        frontish = fx * (Xo - cx) > -hw * 0.15
-        hair &= ~(frontish & (Yo < crown_cut))
-        ears = [(cx - fx * hw * 0.22, ey + 1.0)]
+        bang_line = ey - 4.2  # bangs end above glasses
+        nape = bot - 0.6
+        hair = hair_cap & (Yo < nape)
+        # face window: forward of the ear line, below bangs — keep as skin
+        face_x = fx * (Xo - cx) > -hw * 0.08
+        face_y = (Yo > bang_line) & (Yo < bot - 0.4)
+        hair &= ~(face_x & face_y)
+        # upper-front crown above bangs is spikes-only silhouette (valleys),
+        # but the back/top of the skull stays solid hair (no bald dome)
+        front_crown = (fx * (Xo - cx) > hw * 0.15) & (Yo < crown_cut)
+        hair &= ~front_crown
+        ears = [(cx - fx * hw * 0.18, ey + 1.0)]
     else:
         ey = np.mean([e[1] for e in eyes_o]) if eyes_o else top + 0.55 * (bot - top)
         hl = ey - 7.4  # keep underfill well above glasses
         edge = np.clip((np.abs(Xo - (cx + fx * 0.8)) / hw - 0.72) / 0.28, 0, 1)
         hair = hair_cap & (Yo < hl + 2.2 * edge)
-        # bangs/sides stay; central crown above cut is spikes-only
-        hair &= (Yo > crown_cut) | (np.abs(Xo - (cx + fx * 0.6)) > hw * 0.62)
+        if fx == 0:
+            # front: bangs/sides stay; central crown above cut is spikes-only
+            hair &= (Yo > crown_cut) | (np.abs(Xo - (cx + fx * 0.6)) > hw * 0.62)
+        else:
+            # diagonal (SE/SW): no bald dome — fill back of skull solid down
+            # to the nape; only the forward crown keeps spike valleys
+            front_half = fx * (Xo - cx) > hw * 0.05
+            hair &= ~((Yo < crown_cut) & front_half)
+            back = fx * (Xo - cx) < -hw * 0.1
+            hair |= hair_cap & back & (Yo < bot - 0.7)
         # never let underfill reach the glasses/eye band
         hair &= ~((Yo > ey - 3.4) & (Yo < ey + 3.0) & (np.abs(Xo - (cx + fx * 0.4)) < hw * 0.95))
         ears = [(cx - hw - 0.1, ey + 0.8), (cx + hw + 0.1, ey + 0.8)]
@@ -516,6 +535,15 @@ def rebuild_head(L, rgb, union, direction, wp, eyes_o):
                        (cx + (hw + 14.0), top + hh * 0.4), 5.0))
         spikes.append((2, (cx + hw * 0.45, top + hh * 0.55),
                        (cx + (hw + 8.0), top + hh * 0.72), 4.2))
+        # downward mid-back locks so the scalp fill reads as hair, not a dome
+        for (u, drop, bw, ly) in (
+            (-0.55, 6.5, 5.0, 0), (-0.15, 7.2, 5.4, 1),
+            (0.25, 7.5, 5.6, 1), (0.65, 6.8, 5.0, 0),
+            (-0.35, 5.0, 4.6, 2), (0.45, 5.2, 4.6, 2),
+        ):
+            bx = cx + u * hw * 0.55
+            by = top + 3.0
+            spikes.append((ly, (bx, by), (bx + u * 1.2, by + drop), bw))
     elif direction in PROFILE:
         back_sign = -fx
         # Sora profile: long thick back sweeps, uneven lengths, bangs above glass
@@ -558,6 +586,22 @@ def rebuild_head(L, rgb, union, direction, wp, eyes_o):
                        (cx - fx * (hw + 5.0), ey + 4.2), 3.8))
         spikes.append((1, (cx - fx * hw * 0.28, top + hh * 0.56),
                        (cx - fx * (hw + 2.0), ey + 6.2), 3.2))
+        # cover the bald dome: spikes rooted on the crown sweeping back+up,
+        # plus downward locks over the nape so no skin shows above/behind hairline
+        for (u, back, lift, bw, ly) in (
+            (0.1, 6.0, 8.2, 5.8, 1), (0.4, 9.5, 7.0, 5.6, 2),
+            (0.7, 12.0, 4.8, 5.2, 1), (1.0, 13.5, 2.2, 4.8, 0),
+        ):
+            bx = cx + back_sign * hw * (0.05 + 0.25 * u)
+            by = top + 1.6 + 0.8 * u
+            spikes.append((ly, (bx, by), (bx + back_sign * back, by - lift), bw))
+        for (u, drop, bw) in (
+            (0.15, 5.5, 4.8), (0.45, 6.5, 5.0), (0.75, 7.0, 4.6),
+        ):
+            bx = cx + back_sign * hw * (0.2 + 0.35 * u)
+            by = top + hh * 0.15
+            spikes.append((0, (bx, by),
+                           (bx + back_sign * (2.0 + 2.5 * u), by + drop), bw))
     else:
         # FRONT / DIAG — Sora: FEWER long thick tapered chunks, ASYM fan
         # (sweeps more to viewer's RIGHT / +x). Silhouette ~2 heads wide.
@@ -709,19 +753,32 @@ def rebuild_head(L, rgb, union, direction, wp, eyes_o):
     hair_px = hc[..., 3] > 40
     # allow spikes beyond the skull a bit, not below chin
     hair_px &= Yo < bot + 0.3
-    # keep bangs ABOVE the glasses/eyes — clear hair in the eye band
-    # (central forehead strip from just above brows down through lenses)
-    eye_band = (Yo > ey - 3.2) & (Yo < ey + 3.2) & (np.abs(Xo - (cx + fx * 0.4)) < hw * 0.92)
-    hair_px &= ~eye_band
-    # also wipe those pixels from the canvas so shade RGB does not bleed
-    if eye_band.any():
-        ca = np.array(hc, dtype=np.uint8, copy=True)
-        ca[eye_band] = 0
-        hair_canvas = Image.fromarray(ca, "RGBA")
-        hc = ca
-    hair |= hair_px
-    # strip eye band from hair mask too (hair_cap underfill must not cover eyes)
-    hair &= ~eye_band
+    # FRONT only: keep bangs ABOVE the glasses/eyes. Never strip an eye band
+    # on BACK (that punched an orange skin stripe through the scalp) or on
+    # PROFILE (that thinned the hair into a headband).
+    if direction in FRONT:
+        eye_band = ((Yo > ey - 3.2) & (Yo < ey + 3.2)
+                    & (np.abs(Xo - (cx + fx * 0.4)) < hw * 0.92))
+        hair_px &= ~eye_band
+        if eye_band.any():
+            ca = np.array(hc, dtype=np.uint8, copy=True)
+            ca[eye_band] = 0
+            hair_canvas = Image.fromarray(ca, "RGBA")
+            hc = ca
+        hair |= hair_px
+        hair &= ~eye_band
+    else:
+        hair |= hair_px
+    # keep ears as skin (hair underfill/spikes must not paint over them)
+    for ex_, ey_ in ears:
+        ear_disc = ((Xo - ex_) / 1.45) ** 2 + ((Yo - ey_) / 2.05) ** 2 < 1
+        hair &= ~ear_disc
+        hair_px &= ~ear_disc
+        if ear_disc.any():
+            ca = np.array(hc, dtype=np.uint8, copy=True)
+            ca[ear_disc] = 0
+            hair_canvas = Image.fromarray(ca, "RGBA")
+            hc = ca
     # rebuild allm after spikes
     ear = np.zeros_like(head)
     for ex_, ey_ in ears:
