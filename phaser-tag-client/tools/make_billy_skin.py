@@ -47,7 +47,7 @@ ASSETS = HERE.parent / "public" / "assets"
 
 SS = 4
 OW, OH = 128, 124          # output frame
-HEAD_SCALE = 1.38
+HEAD_SCALE = 1.34
 ARM_R = 3.5
 BACK_D = 12.5
 TORSO_D = 15.0
@@ -67,7 +67,7 @@ FACE = {"E": (1, 0), "SE": (0.7, 0.7), "S": (0, 1), "SW": (-0.7, 0.7),
 
 BG, HAIR, SKIN, HAND, SLEEVE, JACKET, PANTS, SHOE = range(8)
 COL = {
-    HAIR: (22, 24, 32),
+    HAIR: (22, 26, 36),
     SKIN: (210, 158, 128),
     HAND: (210, 158, 128),
     SLEEVE: (96, 99, 114),
@@ -87,7 +87,11 @@ POCKET_HI = (128, 131, 146)
 ZIP = (170, 173, 182)
 HEM = (62, 64, 75)
 PANTS_BACK = (16, 16, 19)
-HAIR_HI = (72, 78, 98)
+HAIR_HI = (118, 128, 158)      # crisp highlight streak on lit edge (readable at 1x)
+HAIR_LIT = (62, 70, 92)        # light side of a front spike
+HAIR_MID = (30, 34, 48)        # mid-tone / mid-layer fill
+HAIR_BACK = (12, 14, 20)       # recessed back-layer fill
+HAIR_SHADE = (6, 8, 12)        # underside / cast-shadow
 GLASS = (14, 14, 17)
 BROW = (22, 18, 18)
 STACHE = (22, 16, 14)
@@ -413,13 +417,16 @@ def rebuild_head(L, rgb, union, direction, wp, eyes_o):
         ey = eyes_o[0][1] if eyes_o else top + 0.55 * (bot - top)
         nose = ((Xo - (cx + fx * (hw + 0.2))) / 1.1) ** 2 + ((Yo - (ey + 2.6)) / 1.4) ** 2 < 1
         head |= nose
-    hair_cap = _rbox_sdf(Xs, Yo, cx, cy - 0.35, hw + 0.45, hh + 0.65, (hw + 0.45) * 0.96) < 0
-    # Sora-style base hairline: fuller rounded cap, then many radiating
-    # spikes layered on (up / out / back / cheek frames + bangs).
+    # Flat underfill only on the skull / bangs zone — NOT the crown.
+    # Cloud's silhouette needs deep valleys between spikes; a filled dome
+    # above the hairline reads as a 2D blob. Spikes alone form the crown.
+    hair_cap = _rbox_sdf(Xs, Yo, cx, cy - 0.1, hw + 0.35, hh + 0.15, (hw + 0.35) * 0.95) < 0
+    crown_cut = top + 5.2  # above this, only painted spikes count
     if direction in BACK:
         ey = top + 0.55 * (bot - top)
         hl = top + 0.82 * (bot - top)
         hair = hair_cap & (Yo < hl + 0.8 * np.cos(np.clip((Xo - cx) / hw, -1, 1) * 1.1))
+        hair &= Yo > crown_cut - 0.8  # leave upper crown to spikes
         ear_y = top + 0.55 * (bot - top)
         ears = [(cx - hw - 0.5, ear_y), (cx + hw + 0.5, ear_y)]
     elif direction in PROFILE:
@@ -427,191 +434,287 @@ def rebuild_head(L, rgb, union, direction, wp, eyes_o):
         hl = ey - 5.2
         back = fx * (Xo - cx) < -hw * 0.35
         hair = hair_cap & ((Yo < hl + 1.4 * np.clip(-fx * (Xo - cx) / hw, 0, 1)) | (back & (Yo < ey + 3.0)))
+        # keep back-of-head fill; cut only the upper front crown dome
+        frontish = fx * (Xo - cx) > -hw * 0.15
+        hair &= ~(frontish & (Yo < crown_cut))
         ears = [(cx - fx * hw * 0.22, ey + 1.0)]
     else:
         ey = np.mean([e[1] for e in eyes_o]) if eyes_o else top + 0.55 * (bot - top)
         hl = ey - 6.8
         edge = np.clip((np.abs(Xo - (cx + fx * 0.8)) / hw - 0.68) / 0.32, 0, 1)
         hair = hair_cap & (Yo < hl + 2.8 * edge)
+        # bangs/sides stay; central crown above cut is spikes-only
+        hair &= (Yo > crown_cut) | (np.abs(Xo - (cx + fx * 0.6)) > hw * 0.55)
         ears = [(cx - hw - 0.1, ey + 0.8), (cx + hw + 0.1, ey + 0.8)]
         if fx:
             ears = [ears[0] if fx > 0 else ears[1]]
-    # --- Sora-style voluminous radiating spikes (black) ---
-    # many medium spikes forming a rounder fuller crown: up, out to the
-    # sides, back, bangs to the glasses, longer cheek-framing locks.
-    # Tips clipped to stay in-frame; lengths tuned for head-ratio <= 0.495.
-    sp_im = Image.new("L", (W, H), 0)
-    sp_d = ImageDraw.Draw(sp_im)
-    y_glass = ey - 3.6  # bangs stop at ~top of glasses, never cover eyes
+    # --- Cloud/Sora VOLUMETRIC layered spikes (black) ---
+    # Fewer, THICK chunky spikes like the Cloud ref: big messy crown sweeping
+    # up/out/back, layered back(darker)->mid->front(lighter). Each spike has
+    # a lit half + shaded half + crisp highlight streak + strong outline, and
+    # casts a small shadow onto spikes behind it. Bangs = chunky forehead locks.
+    y_glass = ey - 3.6
 
-    def spike(base, tip, half_w):
+    def _clamp_tip(tx, ty):
+        return (float(np.clip(tx, 1.0, (W / SS) - 1.0)),
+                float(np.clip(ty, 0.4, (H / SS) - 1.5)))
+
+    def _spike_geom(base, tip, half_w):
         bx, by = base
-        tx, ty = tip
-        tx = float(np.clip(tx, 1.5, (W / SS) - 1.5))
-        ty = float(np.clip(ty, 1.2, (H / SS) - 1.5))
+        tx, ty = _clamp_tip(*tip)
         dx, dy = tx - bx, ty - by
         L_ = math.hypot(dx, dy) or 1.0
         px_, py_ = -dy / L_ * half_w, dx / L_ * half_w
-        sp_d.polygon([(S(bx + px_), S(by + py_)), (S(tx), S(ty)),
-                      (S(bx - px_), S(by - py_))], fill=255)
+        # light from upper-left → lit rim toward (-1,-1)
+        lit_sign = 1 if (-px_ - py_) >= (px_ + py_) else -1
+        return (bx, by, tx, ty, px_, py_, lit_sign, L_, dx, dy)
+
+    spikes = []  # (layer, base, tip, half_w)  layer 0=back 1=mid 2=front
 
     if direction in BACK:
-        # dense sunburst of radiating spikes all around the crown
-        for i, (ang, ln, bw) in enumerate((
-            (-85, 7.0, 2.4), (-65, 8.0, 2.7), (-45, 9.0, 2.9),
-            (-28, 9.8, 3.1), (-12, 10.2, 3.3), (0, 10.4, 3.4),
-            (12, 10.2, 3.3), (28, 9.8, 3.1), (45, 9.0, 2.9),
-            (65, 8.0, 2.7), (85, 7.0, 2.4),
-        )):
+        # big sunburst crown — fewer thicker spikes
+        for ang, ln, bw in (
+            (-85, 7.2, 3.6), (-55, 9.0, 4.2), (-25, 10.2, 4.6),
+            (5, 10.6, 4.8), (35, 10.0, 4.5), (65, 8.6, 4.0),
+            (90, 7.0, 3.5),
+        ):
             rad = math.radians(ang)
             bx = cx + math.sin(rad) * hw * 0.22
-            by = top + 3.2 + abs(math.sin(rad)) * 1.0
+            by = top + 3.4 + abs(math.sin(rad)) * 0.9
             tip = (bx + math.sin(rad) * ln, by - math.cos(rad) * ln * 0.82)
-            spike((bx, by), tip, bw)
-        # mid-side horizontal spikes + lower cheek-level flares
-        for sd in (-1, 1):
-            spike((cx + sd * hw * 0.7, top + hh * 0.35),
-                  (cx + sd * (hw + 5.2), top + hh * 0.28), 2.4)
-            spike((cx + sd * hw * 0.65, top + hh * 0.5),
-                  (cx + sd * (hw + 4.2), top + hh * 0.55), 2.1)
-            spike((cx + sd * hw * 0.55, top + hh * 0.62),
-                  (cx + sd * (hw + 2.8), top + hh * 0.78), 1.9)
-    elif direction in PROFILE:
-        # full round Sora crown in profile: many spikes up/out/back + bangs + cheek
-        back_sign = -fx
-        # dense crown ring (up and back) — rounder, fuller than Cloud sweep
-        for (u, back, lift, bw) in (
-            (-0.25, 0.5, 6.5, 2.6), (-0.05, 2.0, 7.8, 2.9),
-            (0.15, 3.8, 8.2, 3.1), (0.35, 5.5, 7.5, 3.0),
-            (0.55, 7.2, 6.0, 2.8), (0.72, 8.5, 4.2, 2.6),
-            (0.9, 9.0, 2.2, 2.4), (1.08, 8.0, 0.4, 2.1),
-            (1.25, 6.0, -1.2, 1.9),
+            spikes.append((0, (bx, by), tip, bw))
+        for ang, ln, bw in (
+            (-70, 7.8, 4.0), (-40, 9.0, 4.5), (-12, 9.8, 4.8),
+            (18, 9.6, 4.7), (48, 8.6, 4.3), (78, 7.2, 3.8),
         ):
-            bx = cx + back_sign * hw * (0.0 + 0.38 * max(0, u))
-            by = top + 2.5 + 1.6 * max(0, u)
-            tip = (bx + back_sign * back, by - lift)
-            spike((bx, by), tip, bw)
-        # upward spikes near the top-front of the crown (round fullness)
+            rad = math.radians(ang)
+            bx = cx + math.sin(rad) * hw * 0.32
+            by = top + 2.8 + abs(math.sin(rad)) * 1.0
+            tip = (bx + math.sin(rad) * ln, by - math.cos(rad) * ln * 0.88)
+            spikes.append((1, (bx, by), tip, bw))
+        for ang, ln, bw in (
+            (-50, 8.4, 4.2), (-22, 9.6, 4.8), (5, 10.0, 5.0),
+            (32, 9.4, 4.6), (60, 8.0, 4.0),
+        ):
+            rad = math.radians(ang)
+            bx = cx + math.sin(rad) * hw * 0.38
+            by = top + 2.4 + abs(math.sin(rad)) * 1.1
+            tip = (bx + math.sin(rad) * ln * 0.95, by - math.cos(rad) * ln * 0.9)
+            spikes.append((2, (bx, by), tip, bw))
+        for sd in (-1, 1):
+            spikes.append((0, (cx + sd * hw * 0.7, top + hh * 0.38),
+                           (cx + sd * (hw + 5.5), top + hh * 0.28), 3.2))
+            spikes.append((1, (cx + sd * hw * 0.62, top + hh * 0.5),
+                           (cx + sd * (hw + 4.8), top + hh * 0.52), 3.0))
+            spikes.append((2, (cx + sd * hw * 0.52, top + hh * 0.62),
+                           (cx + sd * (hw + 3.2), top + hh * 0.85), 2.6))
+    elif direction in PROFILE:
+        back_sign = -fx
+        # Cloud-like: long back sweeps + tall crown + front bangs
+        for (u, back, lift, bw) in (
+            (0.05, 5.0, 8.0, 3.8), (0.35, 7.5, 7.5, 4.2),
+            (0.65, 9.5, 5.5, 4.0), (0.95, 9.5, 2.8, 3.4),
+            (1.2, 7.0, 0.2, 2.8),
+        ):
+            bx = cx + back_sign * hw * (0.05 + 0.42 * u)
+            by = top + 2.6 + 1.6 * u
+            spikes.append((0, (bx, by), (bx + back_sign * back, by - lift), bw))
+        for (u, back, lift, bw) in (
+            (-0.05, 2.0, 8.8, 4.0), (0.2, 4.5, 9.5, 4.4),
+            (0.45, 7.0, 8.2, 4.2), (0.7, 9.0, 6.0, 3.8),
+            (0.95, 9.8, 3.4, 3.2),
+        ):
+            bx = cx + back_sign * hw * (0.0 + 0.4 * max(0, u))
+            by = top + 2.2 + 1.5 * max(0, u)
+            spikes.append((1, (bx, by), (bx + back_sign * back, by - lift), bw))
         for (u, fwd, lift, bw) in (
-            (0.0, 0.5, 7.0, 2.7), (0.25, 2.2, 6.5, 2.6),
-            (0.5, 3.5, 5.0, 2.4), (0.75, 4.0, 3.2, 2.2),
+            (0.0, 1.0, 8.8, 4.0), (0.28, 3.0, 8.0, 3.8),
+            (0.52, 4.5, 6.2, 3.4),
         ):
             bx = cx + fx * hw * (0.05 + 0.2 * u)
-            by = top + 2.4
-            tip = (bx + fx * fwd, by - lift)
-            spike((bx, by), tip, bw)
-        # spiky bangs over the forehead (stop at glasses)
+            by = top + 2.1
+            spikes.append((2, (bx, by), (bx + fx * fwd, by - lift), bw))
+        # chunky bangs falling over forehead
         for (u, drop, bw) in (
-            (-0.25, -0.25, 2.9), (0.05, -0.05, 3.0), (0.3, 0.25, 2.8),
-            (0.55, 0.7, 2.5), (0.8, 1.2, 2.2),
+            (-0.15, -0.3, 3.8), (0.15, -0.1, 4.0), (0.45, 0.4, 3.6),
+            (0.75, 1.0, 3.0),
         ):
-            bx = cx + fx * hw * (0.0 + 0.22 * abs(u))
-            by = top + 2.4
-            tip = (cx + fx * (hw * 0.55 + 1.3 * u), min(y_glass + drop, ey - 2.0))
-            spike((bx, by), tip, bw)
-        # side flares + longer cheek-framing locks
-        spike((cx - fx * hw * 0.0, top + hh * 0.22),
-              (cx - fx * (hw + 5.0), top - 0.3), 2.5)
-        spike((cx - fx * hw * 0.05, top + hh * 0.35),
-              (cx - fx * (hw + 4.2), top + hh * 0.35), 2.3)
-        spike((cx - fx * hw * 0.15, top + hh * 0.48),
-              (cx - fx * (hw + 2.5), ey + 4.0), 2.1)
-        spike((cx - fx * hw * 0.25, top + hh * 0.55),
-              (cx - fx * (hw + 1.2), ey + 6.0), 1.9)
+            bx = cx + fx * hw * (0.0 + 0.2 * abs(u))
+            by = top + 2.1
+            tip = (cx + fx * (hw * 0.5 + 1.4 * u), min(y_glass + drop, ey - 1.8))
+            spikes.append((2, (bx, by), tip, bw))
+        spikes.append((1, (cx - fx * hw * 0.0, top + hh * 0.2),
+                       (cx - fx * (hw + 5.5), top - 0.4), 3.4))
+        spikes.append((2, (cx - fx * hw * 0.08, top + hh * 0.34),
+                       (cx - fx * (hw + 4.4), top + hh * 0.36), 3.0))
+        spikes.append((2, (cx - fx * hw * 0.18, top + hh * 0.48),
+                       (cx - fx * (hw + 2.4), ey + 4.8), 2.8))
+        spikes.append((1, (cx - fx * hw * 0.28, top + hh * 0.56),
+                       (cx - fx * (hw + 1.1), ey + 6.8), 2.4))
     else:
-        # FRONT / DIAG: dense round crown of many spikes radiating out
-        # crown ring 1 (tall-ish, slightly outward)
+        # FRONT / DIAG — Cloud silhouette: asymmetric messy crown lean,
+        # fewer THICK spikes, chunky bangs, layered depth.
+        lean = 1.2  # bias sweep toward viewer's left (Cloud lean)
+        # back layer — recessed darker spikes peeking between fronts
         for (u, ln, sweep, bw) in (
-            (-1.05, 6.2, -4.0, 2.4), (-0.75, 7.5, -2.8, 2.7),
-            (-0.45, 8.4, -1.5, 3.0), (-0.15, 8.8, -0.3, 3.2),
-            (0.15, 8.8, 0.5, 3.2), (0.45, 8.4, 1.7, 3.0),
-            (0.75, 7.5, 3.0, 2.7), (1.05, 6.2, 4.2, 2.4),
+            (-1.15, 6.8, -5.0, 3.8), (-0.7, 8.4, -3.3, 4.2),
+            (-0.25, 9.0, -1.0, 4.4), (0.25, 8.8, 1.5, 4.4),
+            (0.7, 7.6, 3.5, 4.0), (1.15, 6.0, 5.0, 3.5),
         ):
-            bx = cx + u * hw * 0.55 + fx * 0.4
-            by = top + 2.8 + 0.9 * u * u
-            tip = (bx + sweep + fx * 0.5, by - ln)
-            spike((bx, by), tip, bw)
-        # outer ring: more side/diagonal flares for round fullness
+            bx = cx + u * hw * 0.48 + fx * 0.3
+            by = top + 3.6 + 0.85 * u * u
+            spikes.append((0, (bx, by), (bx + sweep - lean + fx * 0.4, by - ln), bw))
+        # mid layer
         for (u, ln, sweep, bw) in (
-            (-1.15, 4.5, -5.0, 2.2), (-0.9, 5.5, -4.2, 2.3),
-            (0.9, 5.5, 4.4, 2.3), (1.15, 4.5, 5.2, 2.2),
+            (-1.0, 7.8, -4.4, 4.2), (-0.55, 9.6, -2.5, 4.7),
+            (-0.1, 10.2, -0.4, 5.0), (0.35, 9.8, 1.9, 4.8),
+            (0.8, 8.4, 3.8, 4.2), (1.1, 6.6, 5.0, 3.6),
         ):
-            bx = cx + u * hw * 0.6 + fx * 0.3
-            by = top + 3.5 + 0.6 * abs(u)
-            tip = (bx + sweep, by - ln * 0.7)
-            spike((bx, by), tip, bw)
-        # thick spiky bangs — stop at top of glasses, never cover eyes
+            bx = cx + u * hw * 0.52 + fx * 0.4
+            by = top + 3.2 + 0.85 * u * u
+            spikes.append((1, (bx, by), (bx + sweep - lean + fx * 0.5, by - ln), bw))
+        # front crown — CHUNKIEST / tallest (Cloud's big messy spikes)
+        for (u, ln, sweep, bw) in (
+            (-0.9, 8.8, -3.6, 4.6), (-0.45, 10.4, -1.7, 5.2),
+            (-0.05, 11.0, 0.3, 5.4), (0.4, 10.4, 2.1, 5.0),
+            (0.85, 8.6, 3.9, 4.4),
+        ):
+            bx = cx + u * hw * 0.55 + fx * 0.45
+            by = top + 3.4 + 0.7 * u * u  # base lower so tip can reach near frame top
+            spikes.append((2, (bx, by), (bx + sweep - lean * 0.7 + fx * 0.55, by - ln), bw))
+        # outer side flares
+        for (u, ln, sweep, bw, ly) in (
+            (-1.25, 5.8, -5.8, 3.4, 0), (-1.1, 6.6, -5.2, 3.6, 1),
+            (1.1, 6.4, 5.4, 3.6, 1), (1.25, 5.6, 6.0, 3.4, 0),
+        ):
+            bx = cx + u * hw * 0.55 + fx * 0.25
+            by = top + 3.4 + 0.5 * abs(u)
+            spikes.append((ly, (bx, by), (bx + sweep, by - ln * 0.78), bw))
+        # chunky bangs (front) — thick locks over forehead, stop at glasses
         for (u, tip_y_off, bw) in (
-            (-0.85, 0.55, 2.5), (-0.5, 0.05, 2.9), (-0.15, -0.25, 3.1),
-            (0.2, -0.2, 3.1), (0.55, 0.15, 2.8), (0.9, 0.65, 2.4),
+            (-0.75, 0.4, 3.6), (-0.35, -0.15, 4.2), (0.05, -0.35, 4.4),
+            (0.4, -0.15, 4.2), (0.8, 0.5, 3.5),
         ):
-            bx = cx + u * hw * 0.45 + fx * 0.3
+            bx = cx + u * hw * 0.4 + fx * 0.3
+            by = top + 2.1
+            tipy = min(y_glass + tip_y_off, ey - 1.8)
+            spikes.append((2, (bx, by), (cx + u * hw * 0.2 + fx * 0.8, tipy), bw))
+        # mid bangs peeking
+        for (u, tip_y_off, bw) in (
+            (-0.55, 0.25, 3.2), (0.1, -0.05, 3.4), (0.6, 0.4, 3.2),
+        ):
+            bx = cx + u * hw * 0.38 + fx * 0.25
             by = top + 2.4
-            tipy = min(y_glass + tip_y_off, ey - 2.0)
-            tip = (cx + u * hw * 0.25 + fx * 0.8, tipy)
-            spike((bx, by), tip, bw)
-        # longer cheek-framing spikes (Sora jaw locks) + temple flares
+            tipy = min(y_glass + tip_y_off + 0.35, ey - 1.6)
+            spikes.append((1, (bx, by), (cx + u * hw * 0.18 + fx * 0.6, tipy), bw))
+        # cheek-framing locks
         for sd in (-1, 1):
-            spike((cx + sd * hw * 0.82 + fx * 0.2, top + hh * 0.26),
-                  (cx + sd * (hw + 5.0) + fx * 0.2, top + hh * 0.05), 2.5)
-            spike((cx + sd * hw * 0.78 + fx * 0.2, top + hh * 0.38),
-                  (cx + sd * (hw + 3.8) + fx * 0.2, top + hh * 0.42), 2.2)
-            spike((cx + sd * hw * 0.72 + fx * 0.2, top + hh * 0.48),
-                  (cx + sd * (hw + 1.6) + fx * 0.2, ey + 5.5), 2.1)
-            spike((cx + sd * hw * 0.65 + fx * 0.2, top + hh * 0.55),
-                  (cx + sd * (hw + 0.6) + fx * 0.2, ey + 7.0), 1.8)
-    tuft = np.asarray(sp_im) > 127
-    hair |= tuft & (Yo < bot + 0.2)
+            spikes.append((0, (cx + sd * hw * 0.85 + fx * 0.15, top + hh * 0.28),
+                           (cx + sd * (hw + 5.4) + fx * 0.15, top + hh * 0.05), 3.2))
+            spikes.append((1, (cx + sd * hw * 0.78 + fx * 0.2, top + hh * 0.38),
+                           (cx + sd * (hw + 4.2) + fx * 0.2, top + hh * 0.42), 3.0))
+            spikes.append((2, (cx + sd * hw * 0.7 + fx * 0.2, top + hh * 0.48),
+                           (cx + sd * (hw + 2.0) + fx * 0.2, ey + 5.8), 2.8))
+            spikes.append((1, (cx + sd * hw * 0.62 + fx * 0.2, top + hh * 0.56),
+                           (cx + sd * (hw + 0.8) + fx * 0.2, ey + 7.4), 2.4))
+
+    layer_fill = {0: HAIR_BACK, 1: HAIR_MID, 2: COL[HAIR]}
+    layer_lit = {0: HAIR_MID, 1: HAIR_LIT, 2: HAIR_LIT}
+    layer_hi = {0: HAIR_LIT, 1: HAIR_HI, 2: HAIR_HI}
+
+    hair_canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    occ = np.zeros((H, W), dtype=bool)
+
+    for layer, base, tip, half_w in sorted(spikes, key=lambda t: t[0]):
+        bx, by, tx, ty, px_, py_, lit_sign, L_, dx, dy = _spike_geom(base, tip, half_w)
+        # wide-base triangle (chunky Cloud spike)
+        full = [
+            (S(bx + px_), S(by + py_)),
+            (S(tx), S(ty)),
+            (S(bx - px_), S(by - py_)),
+        ]
+        # lit / shade halves split along midline; bias mid slightly into shade
+        # so lit half reads larger (Cloud's bright rims)
+        mid_bx = bx - lit_sign * px_ * 0.08
+        mid_by = by - lit_sign * py_ * 0.08
+        lit_poly = [
+            (S(bx + lit_sign * px_), S(by + lit_sign * py_)),
+            (S(tx), S(ty)),
+            (S(mid_bx), S(mid_by)),
+        ]
+        shade_poly = [
+            (S(bx - lit_sign * px_), S(by - lit_sign * py_)),
+            (S(tx), S(ty)),
+            (S(mid_bx), S(mid_by)),
+        ]
+
+        sp_m = Image.new("L", (W, H), 0)
+        smd = ImageDraw.Draw(sp_m)
+        smd.polygon(full, fill=255)
+        sp_arr = np.asarray(sp_m) > 127
+
+        if occ.any() and sp_arr.any():
+            k = max(3, int(SS * 1.4) | 1)
+            dil = np.asarray(sp_m.filter(ImageFilter.MaxFilter(k))) > 127
+            shadow = dil & occ & ~sp_arr
+            if shadow.any():
+                ca = np.array(hair_canvas, dtype=np.uint8, copy=True)
+                for c_i, c_v in enumerate(HAIR_SHADE):
+                    ch = ca[..., c_i].astype(np.float32)
+                    ch[shadow] = ch[shadow] * 0.35 + c_v * 0.65
+                    ca[..., c_i] = np.clip(ch, 0, 255).astype(np.uint8)
+                hair_canvas = Image.fromarray(ca, "RGBA")
+
+        layer_im = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        ld = ImageDraw.Draw(layer_im)
+        fill = layer_fill[layer]
+        lit = layer_lit[layer]
+        hi = layer_hi[layer]
+        shade_col = HAIR_SHADE if layer == 2 else tuple(max(0, c - 8) for c in fill)
+        # solid underpaint then halves for clean lit/shade split
+        ld.polygon(full, fill=fill + (255,))
+        ld.polygon(shade_poly, fill=shade_col + (255,))
+        ld.polygon(lit_poly, fill=lit + (255,))
+        # crisp highlight streak along lit ridge
+        hx0 = bx + lit_sign * px_ * 0.62
+        hy0 = by + lit_sign * py_ * 0.62
+        hx1 = bx + dx * 0.78 + lit_sign * px_ * 0.22
+        hy1 = by + dy * 0.78 + lit_sign * py_ * 0.22
+        ld.line([(S(hx0), S(hy0)), (S(hx1), S(hy1))],
+                fill=hi + (255,), width=max(2, int(S(0.85))))
+        # strong dark outline around the whole spike
+        ld.line(full + [full[0]], fill=LINE + (255,), width=max(2, int(S(1.0))))
+
+        hair_canvas = Image.alpha_composite(hair_canvas, layer_im)
+        occ |= sp_arr
+
+    # stamp hair canvas into rgb / hair mask / labels
+    hc = np.asarray(hair_canvas)
+    hair_px = hc[..., 3] > 40
+    # allow spikes beyond the skull a bit, not below chin
+    hair_px &= Yo < bot + 0.3
+    hair |= hair_px
+    # rebuild allm after spikes
     ear = np.zeros_like(head)
     for ex_, ey_ in ears:
         ear |= ((Xo - ex_) / 1.3) ** 2 + ((Yo - ey_) / 1.9) ** 2 < 1
     allm = head | hair | ear
-    # do not grow over the body below the chin
     allm &= Yo < bot + 0.6
     skinm = (head & ~hair) | ear
     L[allm & skinm] = SKIN
     L[allm & ~skinm] = HAIR
     union |= allm
     rgb[allm & skinm] = COL[SKIN]
-    rgb[allm & ~skinm] = COL[HAIR]
-    # Sora-style flat shading: blue-black / dark-grey highlights along
-    # the upper edges of many radiating spikes.
-    sp_hi = Image.new("L", (W, H), 0)
-    shd = ImageDraw.Draw(sp_hi)
-    if direction in BACK:
-        for ang, ln in ((-50, 7.0), (-25, 8.0), (-5, 8.2), (20, 8.0), (45, 7.0), (70, 6.0)):
-            rad = math.radians(ang)
-            bx = cx + math.sin(rad) * hw * 0.2
-            by = top + 3.4
-            shd.line([(S(bx), S(by)),
-                      (S(bx + math.sin(rad) * ln * 0.8), S(by - math.cos(rad) * ln * 0.75))],
-                     fill=255, width=max(1, int(S(0.75))))
-    elif direction in PROFILE:
-        back_sign = -fx
-        for u, back, lift in ((0.1, 4.0, 6.5), (0.4, 6.5, 5.5), (0.7, 8.0, 3.5), (1.0, 7.0, 1.2)):
-            bx = cx + back_sign * hw * (0.08 + 0.4 * u)
-            by = top + 3.0 + 1.6 * u
-            shd.line([(S(bx), S(by)), (S(bx + back_sign * back * 0.8), S(by - lift * 0.8))],
-                     fill=255, width=max(1, int(S(0.75))))
-        shd.line([(S(cx + fx * hw * 0.15), S(top + 3.0)),
-                  (S(cx + fx * hw * 0.5), S(ey - 3.8))], fill=255, width=max(1, int(S(0.65))))
-    else:
-        for u, ln, sweep in ((-0.7, 6.5, -2.4), (-0.35, 7.5, -1.0), (0.0, 7.8, 0.2),
-                             (0.35, 7.5, 1.2), (0.7, 6.5, 2.6)):
-            bx = cx + u * hw * 0.55 + fx * 0.4
-            by = top + 2.8
-            shd.line([(S(bx), S(by)), (S(bx + sweep), S(by - ln * 0.8))],
-                     fill=255, width=max(1, int(S(0.75))))
-        for u in (-0.45, -0.05, 0.35, 0.7):
-            shd.line([(S(cx + u * hw * 0.45), S(top + 2.8)),
-                      (S(cx + u * hw * 0.25), S(ey - 3.8))],
-                     fill=255, width=max(1, int(S(0.6))))
-        # cheek-lock highlights
-        for sd in (-1, 1):
-            shd.line([(S(cx + sd * hw * 0.75), S(top + hh * 0.4)),
-                      (S(cx + sd * (hw + 1.2)), S(ey + 4.5))],
-                     fill=255, width=max(1, int(S(0.55))))
-    rgb[(np.asarray(sp_hi) > 127) & hair & allm] = HAIR_HI
+    # where hair canvas has coverage, use its shaded RGB; else flat HAIR
+    for c_i in range(3):
+        ch = rgb[..., c_i]
+        src = hc[..., c_i]
+        ch[hair_px] = src[hair_px]
+        rgb[..., c_i] = ch
+    # flat fill any hair mask pixels the canvas missed (cap gaps)
+    miss = hair & allm & ~hair_px
+    rgb[miss] = COL[HAIR]
+
     for ex_, ey_ in ears:
         inner_e = ((Xo - ex_) / 0.6) ** 2 + ((Yo - ey_) / 1.0) ** 2 < 1
         rgb[inner_e & allm & ~hair] = SKIN_SHADE
