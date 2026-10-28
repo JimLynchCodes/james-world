@@ -134,6 +134,75 @@ for label, d, d_mirror in (("NW/NE", "NW", "NE"),):
         else:
             print(f"{label} jab offsets OK: {off1:.1f} vs {off2:.1f}")
 
+# Trunks: red / gold / white only — no black interior (thin darker-red edge OK).
+pad = m["baselineY"] - 96
+for r, d in enumerate(m["directions"]):
+    for c in range(im.shape[1] // fw):
+        f = im[r * fh:(r + 1) * fh, c * fw:(c + 1) * fw]
+        a = f[..., 3] >= 200
+        if not a.any():
+            continue
+        rgb = f[..., :3].astype(int)
+        rr, gg, bb = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+        lum = (rr + gg + bb) / 3.0
+        is_red = (rr > 90) & (rr > gg + 20) & (rr > bb + 20)
+        # Exact waistband colors (not shoe gold)
+        is_wb = (
+            ((np.abs(rr - 232) <= 12) & (np.abs(gg - 200) <= 16) & (np.abs(bb - 72) <= 16))
+            | ((np.abs(rr - 250) <= 12) & (np.abs(gg - 236) <= 16) & (np.abs(bb - 160) <= 20))
+        )
+        is_gold = is_wb | ((rr > 200) & (gg > 170) & (bb < 140) & (rr - bb > 70) & (gg - bb > 50) & (lum > 150))
+        is_white = (lum >= 160) | ((rr > 180) & (gg > 180) & (bb > 170))
+        wb_ys = [y for y in range(pad + 70, pad + 88) if int((is_wb[y] & a[y]).sum()) >= 3]
+        if wb_ys:
+            trunk_y0 = min(wb_ys)
+            # Keep only the first contiguous waistband cluster (ignore shoe gold lower down).
+            run = [trunk_y0]
+            y = trunk_y0 + 1
+            while y in wb_ys and y <= trunk_y0 + 4:
+                run.append(y)
+                y += 1
+            trunk_y1 = min(max(run) + 4, trunk_y0 + 7, fh)
+        else:
+            trunk_y0, trunk_y1 = pad + 74, pad + 82
+        zone = a.copy()
+        zone[:trunk_y0] = False
+        zone[trunk_y1:] = False
+        zone &= ~is_glove(rgb, f[..., 3])
+        # Restrict to columns that have red/gold/white trunk cloth on this row
+        # (drops hanging-arm silhouettes that share the y-band).
+        for y in range(trunk_y0, min(trunk_y1, fh)):
+            cloth = (is_red[y] | is_gold[y] | is_white[y]) & a[y]
+            if not cloth.any():
+                zone[y] = False
+                continue
+            xs = np.nonzero(cloth)[0]
+            x0, x1 = int(xs.min()) - 1, int(xs.max()) + 2
+            mask = np.zeros(fw, dtype=bool)
+            mask[max(0, x0):min(fw, x1)] = True
+            zone[y] &= mask
+        if not zone.any():
+            continue
+        allowed = is_red | is_gold | is_white
+        dark = zone & (lum < 70) & ~allowed
+        # Silhouette edge of the opaque body on each row is allowed if red-ish outline
+        edge = np.zeros_like(dark)
+        for y in range(trunk_y0, min(trunk_y1, fh)):
+            xs = np.nonzero(a[y])[0]
+            if len(xs) >= 2:
+                edge[y, xs.min()] = True
+                edge[y, xs.max()] = True
+                if len(xs) >= 4:
+                    edge[y, xs.min() + 1] = True
+                    edge[y, xs.max() - 1] = True
+            elif len(xs) == 1:
+                edge[y, xs[0]] = True
+        bad_px = dark & ~edge
+        n = int(bad_px.sum())
+        if n > 2:
+            print(f"{d} col {c}: {n} black/near-black trunk pixels (want red/gold/white only)")
+            bad += 1
+
 print("glove px median", {d: int(np.median(v)) for d, v in glove_counts.items()})
 print("head ratio", {d: round(float(np.median(v)), 3) for d, v in hrs.items()})
 print("boxer consistency: problems =", bad)

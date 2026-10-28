@@ -46,11 +46,13 @@ PROFILE = {"E": 1, "W": -1}
 BACK = {"NW": -1, "N": 0, "NE": 1}
 
 TRUNK = (200, 28, 42)
-TRUNK_SHADE = (148, 16, 28)
+TRUNK_SHADE = (168, 36, 48)       # soft red shade — never black
 TRUNK_HI = (236, 78, 90)
+TRUNK_LINE = (120, 18, 28)        # thin darker-red outline (no black)
 WAIST = (232, 200, 72)
 WAIST_HI = (250, 236, 160)
-TRIM = (248, 240, 210)
+TRIM = (248, 240, 210)            # white / cream seams + leg openings
+TRIM_SHADE = (210, 210, 214)      # light grey shading in place of black
 SHOE_RED = (214, 36, 48)
 SHOE_WHITE = (248, 248, 246)
 SHOE_GOLD = (224, 184, 56)
@@ -371,7 +373,7 @@ def recolor(f, g):
             if len(ys):
                 top[ys.min():min(ys.min() + 3, ys.max() + 1), x] = True
         top &= shorts
-        # gold side trim along left/right edge of the trunks (below waistband)
+        # white side seams + white leg-opening trim (no black)
         for y in range(h):
             xs = np.nonzero(shorts[y] & ~top[y])[0]
             if len(xs) < 3:
@@ -379,9 +381,36 @@ def recolor(f, g):
             out[y, xs.min(), :3] = TRIM
             out[y, xs.max(), :3] = TRIM
         bot = shorts & ~np.roll(shorts, -1, 0) & (yy > waist + 3)
-        out[bot, :3] = TRUNK_SHADE
+        out[bot, :3] = TRIM
+        seam = shorts & ~top & (np.abs(xx + 0.5 - g.hip_cx) < 1.2) & (yy > waist + 2)
+        out[seam, :3] = TRIM_SHADE
         gloss = shorts & ~top & (np.abs(xx + 0.5 - g.hip_cx) < 4) & (yy < waist + 6)
         out[gloss, :3] = np.clip(out[gloss, :3] * 1.08, 0, 255)
+
+    # Scrub leftover black / near-black in the trunk band → white or soft red.
+    # Trunks must be red + gold + white only (Jim: "no black in the shorts").
+    trunk_zone = a & (yy >= waist) & (yy <= trunk_bot + 1) & (yy < g.hem - 1)
+    if trunk_zone.any():
+        rr, gg, bb = out[..., 0].astype(float), out[..., 1].astype(float), out[..., 2].astype(float)
+        t_lum = (rr + gg + bb) / 3.0
+        # anything darker than soft red shade gets scrubbed
+        dark = trunk_zone & (t_lum < 100)
+        is_gold = (rr > 170) & (gg > 130) & (bb < 140) & (rr - bb > 60)
+        is_white = (t_lum >= 160) | ((rr > 180) & (gg > 180) & (bb > 170))
+        is_red = (rr > 100) & (rr > gg + 25) & (rr > bb + 25) & (t_lum >= 70)
+        dark = dark & ~is_gold & ~is_white & ~is_red
+        edge = np.zeros_like(dark)
+        for y in range(h):
+            xs = np.nonzero(trunk_zone[y])[0]
+            if len(xs) < 2:
+                continue
+            edge[y, xs.min()] = True
+            edge[y, xs.max()] = True
+        out[dark & edge, :3] = TRUNK_LINE
+        interior_dark = dark & ~edge
+        reddish = interior_dark & (rr > gg + 15) & (rr > bb + 15)
+        out[interior_dark & ~reddish, :3] = TRIM
+        out[reddish, :3] = TRUNK_SHADE
 
     # --- high-top shoes on existing shoe pixels ---
     sole = np.zeros_like(shoes)
@@ -415,8 +444,33 @@ def recolor(f, g):
         if cuff.any():
             out[cuff, :3] = SHOE_GOLD
 
-    near_cloth = line & grow(shirt | shorts | shoes, a, 1) & ~head
-    out[near_cloth, :3] = LINE
+    # Outline: black LINE on tee/shoes only. Trunks get thinner darker-red edge.
+    near_tee_shoe = line & grow(shirt | shoes, a, 1) & ~head & ~shorts
+    out[near_tee_shoe, :3] = LINE
+    near_trunk = line & grow(shorts, a, 1) & ~head & shorts
+    out[near_trunk, :3] = TRUNK_LINE
+    # Re-scrub waistband rows that LINE might still have blackened
+    wb_rows = a & (yy >= waist) & (yy <= waist + 2)
+    line_on_wb = wb_rows & (out[..., 0] < 60) & (out[..., 1] < 50) & (out[..., 2] < 50)
+    out[line_on_wb, :3] = WAIST
+    # Final trunk scrub after outline so no black survives on shorts
+    trunk_zone2 = a & (yy >= waist) & (yy <= trunk_bot + 1) & (yy < g.hem - 1)
+    if trunk_zone2.any():
+        rr, gg, bb = out[..., 0].astype(float), out[..., 1].astype(float), out[..., 2].astype(float)
+        t_lum = (rr + gg + bb) / 3.0
+        is_gold = (rr > 170) & (gg > 130) & (bb < 140) & (rr - bb > 60)
+        is_white = (t_lum >= 160) | ((rr > 180) & (gg > 180) & (bb > 170))
+        is_red = (rr > 90) & (rr > gg + 20) & (rr > bb + 20)
+        bad = trunk_zone2 & (t_lum < 70) & ~is_gold & ~is_white & ~is_red
+        edge = np.zeros_like(bad)
+        for y in range(h):
+            xs = np.nonzero(trunk_zone2[y])[0]
+            if len(xs) >= 2:
+                edge[y, xs.min()] = True
+                edge[y, xs.max()] = True
+        out[bad & edge, :3] = TRUNK_LINE
+        out[bad & ~edge & ((rr > gg + 10) & (rr > bb + 10)), :3] = TRUNK_SHADE
+        out[bad & ~edge & ~((rr > gg + 10) & (rr > bb + 10)), :3] = TRIM
     return to_u8_simple(out), waist
 
 
@@ -473,6 +527,22 @@ def glove_parts(sh, elbow, hand, skin, gr, jabbing=False):
     hi = (hand[0] - gr * 0.28, hand[1] - gr * 0.32)
     spec = (hand[0] - gr * 0.38, hand[1] - gr * 0.42)
     shade = (hand[0] + gr * 0.22, hand[1] + gr * 0.28)
+    # Thumb bump: top-inner of the fist (toward shoulder / body center, above midline).
+    inward_x = 1.0 if sh[0] >= hand[0] else -1.0
+    # Slight mix with arm-perpendicular so jabbing gloves still read.
+    nx, ny = -uy, ux
+    if nx * (sh[0] - hand[0]) + ny * (sh[1] - hand[1]) < 0:
+        nx, ny = -nx, -ny
+    nx = 0.55 * nx + 0.45 * inward_x
+    ny = 0.35 * ny - 0.75  # strong upward bias (y+ is down)
+    nn = math.hypot(nx, ny) or 1.0
+    nx, ny = nx / nn, ny / nn
+    tr = max(3.0, gr * 0.52)
+    thumb = (hand[0] + nx * (gr * 1.05), hand[1] + ny * (gr * 1.00))
+    thumb_shade = (thumb[0] + nx * 0.6 + ux * 0.2, thumb[1] + ny * 0.6 + uy * 0.2)
+    thumb_hi = (thumb[0] - nx * 0.55 - 0.15, thumb[1] - ny * 0.55 - 0.35)
+    seam_a = (hand[0] + nx * (gr * 0.42), hand[1] + ny * (gr * 0.28))
+    seam_b = (thumb[0] - nx * (tr * 0.25), thumb[1] - ny * (tr * 0.25))
     if jabbing:
         u0, u1, f0, f1 = 5.0, 4.5, 4.3, 3.8
     else:
@@ -487,6 +557,10 @@ def glove_parts(sh, elbow, hand, skin, gr, jabbing=False):
         (disc_fn(cuff_c, 2.2), CUFF_SHADE),
         (disc_fn(hand, gr), GLOVE),
         (disc_fn(shade, gr * 0.55), GLOVE_SHADE),
+        (disc_fn(thumb, tr), GLOVE),
+        (disc_fn(thumb_shade, tr * 0.55), GLOVE_SHADE),
+        (capsule_fn(seam_a, 0.7, seam_b, 0.55), GLOVE_SHADE),
+        (disc_fn(thumb_hi, tr * 0.32), GLOVE_HI),
         (disc_fn(hi, gr * 0.34), GLOVE_HI),
         (disc_fn(spec, gr * 0.15), GLOVE_SPEC),
     ]
@@ -639,6 +713,30 @@ def boxify(frame, direction, anim, col, meta):
             if c is not big and c.sum() < 30:
                 res[c] = 0
     res = solidify(res, (int(g.neck), int(g.hem) - 1))
+    # Final trunk scrub after gloves/ARM_LINE so shorts stay red/gold/white.
+    yy = np.arange(h)[:, None]
+    trunk_bot = min(int(g.hem) - 4, int(waist) + 12)
+    zone = (res[..., 3] >= 200) & (yy >= int(waist)) & (yy <= trunk_bot)
+    if zone.any():
+        rr = res[..., 0].astype(float)
+        gg = res[..., 1].astype(float)
+        bb = res[..., 2].astype(float)
+        lum = (rr + gg + bb) / 3.0
+        is_gold = (rr > 170) & (gg > 130) & (bb < 140) & (rr - bb > 60)
+        is_white = (lum >= 160) | ((rr > 180) & (gg > 180) & (bb > 170))
+        is_red = (rr > 90) & (rr > gg + 20) & (rr > bb + 20)
+        is_glove = (rr > 140) & (rr > gg + 40) & (rr > bb + 40) & (gg < 120)
+        bad = zone & (lum < 70) & ~is_gold & ~is_white & ~is_red & ~is_glove
+        edge = np.zeros_like(bad)
+        for y in range(h):
+            xs = np.nonzero(zone[y])[0]
+            if len(xs) >= 2:
+                edge[y, xs.min()] = True
+                edge[y, xs.max()] = True
+        res[bad & edge, :3] = TRUNK_LINE
+        reddish = bad & ~edge & (rr > gg + 10) & (rr > bb + 10)
+        res[reddish, :3] = TRUNK_SHADE
+        res[bad & ~edge & ~reddish, :3] = TRIM
     return res
 
 
