@@ -82,44 +82,5 @@ for d, v in hrs.items():
     if not 0.46 <= float(np.median(v)) <= 0.495:
         print(f"{d}: median head ratio {np.median(v):.3f}"); bad += 1
 
-# Back views (N/NE/NW): no skin-colored pixels in the hair region of the
-# head. From behind the skull must be solid black hair — an orange skin
-# stripe / eye-band bleed is a hard fail.
-BACK_DIRS = {"N", "NE", "NW"}
-SKIN_R = (165, 235)
-SKIN_G = (105, 185)
-SKIN_B = (75, 155)
-for r, d in enumerate(m["directions"]):
-    if d not in BACK_DIRS:
-        continue
-    for c in range(im.shape[1] // fw):
-        f = im[r * fh:(r + 1) * fh, c * fw:(c + 1) * fw]
-        a = f[..., 3] >= 200
-        if not a.any():
-            continue
-        ys = np.nonzero(a.any(1))[0]
-        xs = np.nonzero(a.any(0))[0]
-        t0, b0 = int(ys.min()), int(ys.max())
-        h = b0 - t0
-        # head band: top ~42% of silhouette (above neck)
-        hy1 = t0 + int(0.42 * h)
-        # central 50% of head width = true scalp (ears live in the outer 25%)
-        x0, x1 = int(xs.min()), int(xs.max())
-        w = x1 - x0
-        ix0 = x0 + int(0.25 * w)
-        ix1 = x1 - int(0.25 * w)
-        head = f[t0:hy1, ix0:ix1]
-        aa = head[..., 3] >= 200
-        rgb = head[..., :3].astype(int)
-        skin = (aa
-                & (rgb[..., 0] >= SKIN_R[0]) & (rgb[..., 0] <= SKIN_R[1])
-                & (rgb[..., 1] >= SKIN_G[0]) & (rgb[..., 1] <= SKIN_G[1])
-                & (rgb[..., 2] >= SKIN_B[0]) & (rgb[..., 2] <= SKIN_B[1])
-                & (rgb[..., 0] > rgb[..., 2] + 15)
-                & (rgb[..., 0] > rgb[..., 1] + 10))
-        n = int(skin.sum())
-        if n > 4:
-            print(f"{d} col {c}: {n} skin px in back hair region"); bad += 1
-
 print("billy consistency: problems =", bad)
 raise SystemExit(1 if bad else 0)

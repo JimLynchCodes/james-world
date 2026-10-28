@@ -423,15 +423,13 @@ def rebuild_head(L, rgb, union, direction, wp, eyes_o):
     hair_cap = _rbox_sdf(Xs, Yo, cx, cy - 0.1, hw + 0.35, hh + 0.15, (hw + 0.35) * 0.95) < 0
     crown_cut = top + 4.6  # above this, only painted spikes count
     if direction in BACK:
-        # Full head of hair from behind: cover the entire skull (no crown hole,
-        # no eye-band stripe). Only ears + a short nape of neck show skin.
+        # Skin-coloured head (like James). NO black underfill — spikes alone
+        # cover the upper/back skull so it never reads as a black ball/helmet.
+        # Lower head + nape stay skin; ears sit on the head edge and show.
         ey = top + 0.55 * (bot - top)
-        nape = bot - 0.9
-        hair = hair_cap & (Yo < nape)
-        # slight dip at the nape center so a little neck peeks under hair
-        hair &= ~((Yo > nape - 1.6) & (np.abs(Xo - cx) < hw * 0.28))
-        ear_y = top + 0.52 * (bot - top)
-        ears = [(cx - hw - 0.85, ear_y), (cx + hw + 0.85, ear_y)]
+        hair = np.zeros_like(hair_cap)  # spikes-only; no solid scalp fill
+        ear_y = top + 0.50 * (bot - top)
+        ears = [(cx - hw + 0.35, ear_y), (cx + hw - 0.35, ear_y)]
     elif direction in PROFILE:
         # Full scalp coverage (no headband / bald dome). Hair covers the whole
         # top + back of the skull down to the nape. Skin only on the face
@@ -493,57 +491,77 @@ def rebuild_head(L, rgb, union, direction, wp, eyes_o):
     spikes = []  # (layer, base, tip, half_w)  layer 0=back 1=mid 2=front
 
     if direction in BACK:
-        # ASYM sunburst — fewer long thick spikes, bias to +x
+        # Dense layered spikes on a SKIN head (no black scalp fill).
+        # Up-spike bases sit near the crown (not mid-skull) so they don't
+        # fuse into a helmet band; down-back locks cover upper/mid skull
+        # with staggered tips and skin below the jagged hairline.
+        # --- up/out fans: bases high on crown, moderate width ---
         for ang, ln, bw in (
-            (-100, 9.5, 5.2), (-62, 11.0, 5.8), (-22, 11.8, 6.2),
-            (18, 12.5, 6.4), (55, 11.2, 5.8), (95, 10.0, 5.4),
-            (125, 8.5, 4.8),
+            (-115, 7.5, 3.4), (-85, 8.8, 3.8), (-55, 9.5, 4.0),
+            (-25, 10.0, 4.2), (5, 10.5, 4.4), (35, 9.8, 4.0),
+            (65, 8.8, 3.8), (95, 7.8, 3.4), (125, 6.8, 3.2),
         ):
             rad = math.radians(ang)
-            bx = cx + math.sin(rad) * hw * 0.3
-            by = top + 3.4 + abs(math.sin(rad)) * 0.5
-            tip = (bx + math.sin(rad) * ln, by - math.cos(rad) * ln * 0.52)
+            bx = cx + math.sin(rad) * hw * 0.22
+            by = top + 1.6 + abs(math.sin(rad)) * 0.35
+            tip = (bx + math.sin(rad) * ln, by - math.cos(rad) * ln * 0.55)
             spikes.append((0, (bx, by), tip, bw))
         for ang, ln, bw in (
-            (-80, 10.2, 5.6), (-40, 11.6, 6.2), (5, 12.2, 6.6),
-            (42, 11.4, 6.0), (82, 10.0, 5.4),
+            (-95, 8.2, 3.8), (-60, 9.5, 4.2), (-28, 10.2, 4.4),
+            (5, 10.6, 4.6), (38, 9.8, 4.2), (72, 8.8, 3.8),
+            (105, 7.5, 3.4),
         ):
             rad = math.radians(ang)
-            bx = cx + math.sin(rad) * hw * 0.38
-            by = top + 2.8 + abs(math.sin(rad)) * 0.55
-            tip = (bx + math.sin(rad) * ln, by - math.cos(rad) * ln * 0.55)
+            bx = cx + math.sin(rad) * hw * 0.30
+            by = top + 1.2 + abs(math.sin(rad)) * 0.4
+            tip = (bx + math.sin(rad) * ln, by - math.cos(rad) * ln * 0.58)
             spikes.append((1, (bx, by), tip, bw))
         for ang, ln, bw in (
-            (-50, 10.5, 6.0), (-5, 11.8, 6.4), (35, 11.0, 6.0),
-            (70, 9.8, 5.4),
+            (-70, 9.0, 4.0), (-35, 10.2, 4.4), (-5, 10.8, 4.6),
+            (28, 10.0, 4.4), (58, 9.0, 4.0), (88, 7.8, 3.6),
         ):
             rad = math.radians(ang)
-            bx = cx + math.sin(rad) * hw * 0.44
-            by = top + 2.4 + abs(math.sin(rad)) * 0.6
-            tip = (bx + math.sin(rad) * ln * 0.95, by - math.cos(rad) * ln * 0.58)
+            bx = cx + math.sin(rad) * hw * 0.36
+            by = top + 0.9 + abs(math.sin(rad)) * 0.45
+            tip = (bx + math.sin(rad) * ln * 0.95, by - math.cos(rad) * ln * 0.6)
             spikes.append((2, (bx, by), tip, bw))
-        # side flares — longer on +x
-        spikes.append((0, (cx - hw * 0.65, top + hh * 0.3),
-                       (cx - (hw + 12.0), top + hh * 0.18), 4.8))
-        spikes.append((1, (cx - hw * 0.55, top + hh * 0.44),
-                       (cx - (hw + 10.0), top + hh * 0.46), 4.4))
-        spikes.append((2, (cx - hw * 0.48, top + hh * 0.56),
-                       (cx - (hw + 5.5), top + hh * 0.78), 3.8))
-        spikes.append((0, (cx + hw * 0.6, top + hh * 0.28),
-                       (cx + (hw + 15.5), top + hh * 0.1), 5.2))
-        spikes.append((1, (cx + hw * 0.52, top + hh * 0.42),
-                       (cx + (hw + 14.0), top + hh * 0.4), 5.0))
-        spikes.append((2, (cx + hw * 0.45, top + hh * 0.55),
-                       (cx + (hw + 8.0), top + hh * 0.72), 4.2))
-        # downward mid-back locks so the scalp fill reads as hair, not a dome
-        for (u, drop, bw, ly) in (
-            (-0.55, 6.5, 5.0, 0), (-0.15, 7.2, 5.4, 1),
-            (0.25, 7.5, 5.6, 1), (0.65, 6.8, 5.0, 0),
-            (-0.35, 5.0, 4.6, 2), (0.45, 5.2, 4.6, 2),
+        # side flares (asym)
+        spikes.append((0, (cx - hw * 0.55, top + hh * 0.12),
+                       (cx - (hw + 10.0), top + hh * 0.02), 3.6))
+        spikes.append((1, (cx - hw * 0.45, top + hh * 0.28),
+                       (cx - (hw + 8.0), top + hh * 0.32), 3.4))
+        spikes.append((2, (cx - hw * 0.38, top + hh * 0.42),
+                       (cx - (hw + 4.0), top + hh * 0.62), 3.0))
+        spikes.append((0, (cx + hw * 0.5, top + hh * 0.1),
+                       (cx + (hw + 13.0), top - 0.5), 4.0))
+        spikes.append((1, (cx + hw * 0.42, top + hh * 0.26),
+                       (cx + (hw + 11.5), top + hh * 0.22), 3.8))
+        spikes.append((2, (cx + hw * 0.35, top + hh * 0.4),
+                       (cx + (hw + 6.5), top + hh * 0.58), 3.2))
+        # --- down-back locks: cover upper→mid; staggered center tips ---
+        nape_limit = top + 0.78 * (bot - top)
+        for (u, drop, sweep, bw, ly) in (
+            (-0.92, 8.0, -2.4, 3.2, 0), (-0.62, 10.0, -1.2, 3.4, 0),
+            (-0.32, 12.0, -0.2, 3.6, 0), (0.0, 13.5, 0.4, 3.8, 0),
+            (0.32, 12.0, 1.4, 3.6, 0), (0.62, 10.0, 2.4, 3.4, 0),
+            (0.92, 8.0, 3.2, 3.2, 0),
+            (-0.78, 6.5, -1.6, 3.0, 1), (-0.48, 9.5, -0.5, 3.2, 1),
+            (-0.20, 11.5, 0.3, 3.4, 1), (0.10, 13.0, 0.8, 3.4, 1),
+            (0.40, 10.0, 1.7, 3.2, 1), (0.70, 7.5, 2.6, 3.0, 1),
+            (-0.85, 5.0, -1.4, 2.6, 2), (-0.55, 8.5, -0.4, 2.8, 2),
+            (-0.25, 11.0, 0.4, 3.0, 2), (0.05, 14.0, 0.6, 3.2, 2),
+            (0.30, 11.5, 1.3, 3.0, 2), (0.55, 8.0, 2.1, 2.8, 2),
+            (0.82, 5.5, 2.8, 2.6, 2),
+            (-0.68, 4.0, -0.9, 2.2, 2), (-0.38, 7.0, -0.1, 2.4, 2),
+            (-0.10, 9.5, 0.5, 2.6, 2), (0.18, 5.5, 1.0, 2.4, 2),
+            (0.45, 8.5, 1.7, 2.4, 2), (0.72, 4.5, 2.4, 2.2, 2),
+            (0.0, 6.5, 0.2, 2.3, 2), (-0.12, 5.0, 0.4, 2.2, 2),
+            (0.22, 9.0, 1.1, 2.4, 2), (0.0, 10.5, -0.2, 2.2, 1),
         ):
-            bx = cx + u * hw * 0.55
-            by = top + 3.0
-            spikes.append((ly, (bx, by), (bx + u * 1.2, by + drop), bw))
+            bx = cx + u * hw * 0.50
+            by = top + 1.4 + 0.45 * abs(u)
+            tip_y = min(by + drop, nape_limit)
+            spikes.append((ly, (bx, by), (bx + sweep, tip_y), bw))
     elif direction in PROFILE:
         back_sign = -fx
         # Sora profile: long thick back sweeps, uneven lengths, bangs above glass
@@ -771,7 +789,7 @@ def rebuild_head(L, rgb, union, direction, wp, eyes_o):
         hair |= hair_px
     # keep ears as skin (hair underfill/spikes must not paint over them)
     for ex_, ey_ in ears:
-        ear_disc = ((Xo - ex_) / 1.45) ** 2 + ((Yo - ey_) / 2.05) ** 2 < 1
+        ear_disc = ((Xo - ex_) / 1.85) ** 2 + ((Yo - ey_) / 2.45) ** 2 < 1
         hair &= ~ear_disc
         hair_px &= ~ear_disc
         if ear_disc.any():
@@ -1578,7 +1596,13 @@ def main():
     fw, fh, cols = meta["frameWidth"], meta["frameHeight"], meta["columns"]
     dirs = meta["directions"]
     src = np.asarray(Image.open(ASSETS / meta["image"]).convert("RGBA"))
-    out = np.zeros((len(dirs) * OH, cols * OW, 4), np.uint8)
+    # Preserve existing atlas rows when --only is set (debug iteration).
+    existing = ASSETS / "kid_billy.png"
+    if args.only and existing.exists():
+        out = np.asarray(Image.open(existing).convert("RGBA")).copy()
+        assert out.shape[0] == len(dirs) * OH and out.shape[1] == cols * OW, out.shape
+    else:
+        out = np.zeros((len(dirs) * OH, cols * OW, 4), np.uint8)
     only = set(args.only.split(",")) if args.only else None
     for r, d in enumerate(dirs):
         if only and d not in only:
