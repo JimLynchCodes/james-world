@@ -4,7 +4,7 @@ across standing frames within a direction; head ratio chibi-like; NW tag
 mirrors NE (jab extends opposite ways); no hanging base-arm skin outside
 the glove-arm masks at hip/side level; idle/walk/run high peek-a-boo guard
 (gloves cover mouth, eyes clear); bare torso is peach skin (not tee grey)
-matching face tone."""
+matching face tone; no glove pixels over the head on N/NE/NW."""
 import json
 from pathlib import Path
 
@@ -289,7 +289,15 @@ for r, d in enumerate(m["directions"]):
         al = f[..., 3]
         glove = is_glove(rgb, al)
         # Ignore shoe/trunk red: only gloves in the upper 70% of the frame.
-        glove = glove & (np.arange(fh)[:, None] < int(fh * 0.72))
+        glove_upper = glove & (np.arange(fh)[:, None] < int(fh * 0.72))
+        # Back views: gloves sit behind the head, so only elbows / a side peek
+        # remain visible — do not require a full high-guard glove blob up top.
+        if d in ("N", "NE", "NW"):
+            if glove_upper.sum() + glove.sum() < 30:
+                print(f"{d} col {c}: back-guard gloves/arms missing ({glove.sum()} px)")
+                bad += 1
+            continue
+        glove = glove_upper
         if glove.sum() < 20:
             print(f"{d} col {c}: high-guard gloves missing in upper frame ({glove.sum()} px)")
             bad += 1
@@ -330,6 +338,77 @@ for r, d in enumerate(m["directions"]):
             bad += 1
         if grey_n > 12:
             print(f"{d} col {c}: leftover tee-grey on torso ({grey_n} px)")
+            bad += 1
+
+
+# Back views (N/NE/NW): gloves are in front of the face, so the head must
+# occlude them — no glove pixels over the interior of the hair on idle/walk/
+# run and jab start/end (mid-jab may extend past the head).
+anims = m.get("animations", {})
+idle_r = range(anims.get("idle", {}).get("start", 0),
+               anims.get("idle", {}).get("start", 0) + anims.get("idle", {}).get("count", 4))
+walk_r = range(anims["walk"]["start"], anims["walk"]["start"] + anims["walk"]["count"]) if "walk" in anims else range(0)
+run_r = range(anims["run"]["start"], anims["run"]["start"] + anims["run"]["count"]) if "run" in anims else range(0)
+tag = anims.get("tag") or anims.get("jab")
+tag_cols = []
+if tag:
+    tag_cols = [tag["start"], tag["start"] + tag["count"] - 1]
+check_cols = set(idle_r) | set(walk_r) | set(run_r) | set(tag_cols)
+
+for r, d in enumerate(m["directions"]):
+    if d not in ("N", "NE", "NW"):
+        continue
+    for c in range(im.shape[1] // fw):
+        if c not in check_cols:
+            continue
+        f = im[r * fh:(r + 1) * fh, c * fw:(c + 1) * fw]
+        a = f[..., 3] >= 200
+        if not a.any():
+            continue
+        rgb = f[..., :3].astype(int)
+        # Strict glove (exclude peach face/ear skin that loosely matches red).
+        rr, gch, bb = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+        glove = (
+            (f[..., 3] > 100)
+            & (rr > 180)
+            & (gch < 80)
+            & (rr - gch > 100)
+            & (rr - bb > 90)
+        )
+        if not glove.any():
+            continue
+        # Hair/skull interior only (brown), not the whole opaque bbox — edge
+        # peek past the face on NE/NW is allowed.
+        neck_y = pad + 52
+        yy = np.arange(fh)[:, None]
+        hair = (
+            a
+            & (yy <= neck_y)
+            & (yy >= pad + 14)
+            & (rgb[..., 0] < 140)
+            & (rgb[..., 1] < 110)
+            & (rgb[..., 2] < 90)
+            & (rgb[..., 0] > 30)
+        )
+        if not hair.any():
+            continue
+        # Inset so a side peek does not fail the check. On NE/NW the near
+        # glove may legitimately peek past the facing face edge.
+        hy, hx = np.nonzero(hair)
+        lo, hi = int(hx.min()) + 4, int(hx.max()) - 3
+        if d == "NE":
+            hi = int(hx.max()) - 12  # facing east: allow peek on right
+        elif d == "NW":
+            lo = int(hx.min()) + 12  # facing west: allow peek on left
+        if lo >= hi:
+            continue
+        interior = np.zeros((fh, fw), dtype=bool)
+        interior[hy.min(): hy.max() + 1, lo:hi] = True
+        overlap = int((glove & interior & (yy <= neck_y)).sum())
+        # N: essentially zero; NE/NW may keep a small facing-side sliver.
+        limit = 2 if d == "N" else 16
+        if overlap > limit:
+            print(f"{d} col {c}: {overlap} glove px over head interior (want behind head)")
             bad += 1
 
 print("glove px median", {d: int(np.median(v)) for d, v in glove_counts.items()})

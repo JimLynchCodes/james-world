@@ -16,7 +16,9 @@ Composite onto James's real base frame (do NOT redraw the body):
     single complete shaded arm from each shoulder. Idle / walk / breathe /
     run: tight peek-a-boo guard — both gloves side-by-side covering mouth/
     chin just below the eyes (eyes + upper face stay visible); elbows
-    tucked; side views show the near arm only; back shows elbows/arms up;
+    tucked; side views show the near glove IN FRONT of the face (past
+    the nose); back views draw gloves behind the head (elbows visible,
+    optional side peek on NE/NW);
   * tag is a 6-frame JAB: near arm snaps out from the high guard and
     returns to it. Far glove stays in guard. NW mirrors NE.
 
@@ -599,24 +601,46 @@ def glove_radius(g):
 def shoulder(g, direction, side):
     # Slightly raised for peek-a-boo.
     if direction in PROFILE:
-        return (g.head_cx - PROFILE[direction] * 0.2, g.neck + 2.2)
+        # Sit the shoulder on the chest (slightly rear of center) so the
+        # forearm clearly runs forward to a glove in front of the face.
+        return (g.head_cx - PROFILE[direction] * 2.5, g.neck + 3.5)
+    if direction in BACK or direction == "N":
+        # Flare shoulders so elbows read outside the torso when hands are
+        # tucked under the head (forward guard from behind).
+        return (g.head_cx + (side or 1) * 9.0, g.neck + 3.5)
     return (g.head_cx + (side or 1) * 6.6, g.neck + 2.2)
 
 
 def guard_hand(sh, direction, side, bounce=0.0, gr=8.0, g=None):
-    """Tight peek-a-boo: gloves side-by-side covering mouth/chin; eyes clear."""
-    # Mouth ≈ neck-9; glove top (hand_y - gr) sits just under the eyes.
+    """Tight peek-a-boo: gloves cover mouth/chin; eyes clear.
+
+    Profile: glove in FRONT of the face, past the nose on the facing side.
+    Back (N/NE/NW): hands sit at the mouth (under the head); the head layer
+    is stamped over them so only elbows / a side peek remain.
+    """
     neck = g.neck if g is not None else sh[1] - 2.2
     cx = g.head_cx if g is not None else sh[0]
+    hw = g.head_hw if g is not None else 18.0
     mouth_y = neck - 9.0 + bounce * 0.35
     s = side or 1
     if direction in PROFILE:
         fx = PROFILE[direction]
-        # Near glove covers the mouth from the side, a touch forward of the face.
-        return (cx + fx * (gr * 0.25 + 1.0), mouth_y)
-    if direction in BACK or direction == "N":
-        # Back: gloves beside the head at face height so elbows/forearms read.
-        return (cx + s * (gr * 0.70 + 1.2), mouth_y + 1.0)
+        # Nose tip ≈ facing edge of the head; put the fist past it so the
+        # glove clearly protrudes forward of the mouth/nose.
+        tip = cx + fx * (hw * 1.05)
+        return (tip + fx * (gr * 0.55), mouth_y)
+    if direction == "N":
+        # Deep under the skull — fully occluded; elbows flare from shoulders.
+        return (cx + s * (gr * 0.12), mouth_y + 3.5)
+    if direction in BACK:
+        # Chin / cheek height (wider head) so the crown does not fight the gloves.
+        chin_y = neck - 4.0 + bounce * 0.35
+        facing = BACK[direction]
+        if s == facing:
+            # Near glove tucked under the cheek; a sliver may survive past the
+            # face edge after the head stamp.
+            return (cx + s * (hw * 0.55), chin_y)
+        return (cx + s * (gr * 0.15), chin_y + 1.0)
     # Front / ¾: fists nearly touching in front of the mouth.
     face_bias = FRONT.get(direction, 0) * 1.0
     return (cx + s * (gr * 0.90) + face_bias, mouth_y)
@@ -708,8 +732,9 @@ def glove_parts(sh, elbow, hand, skin, gr, jabbing=False):
 
 
 def draw_arm(size, sh, hand, skin, gr, jabbing=False, head_cx=None):
-    # Slightly longer limbs so the high guard reaches mouth level with tucked elbows.
-    L1, L2 = 10.5, 10.0
+    # Long enough for a forward profile guard (fist past the nose) and a
+    # high peek-a-boo on the front views.
+    L1, L2 = 13.5, 12.5
     e1 = ik(sh, hand, L1, L2, 1)
     e2 = ik(sh, hand, L1, L2, -1)
     cx = head_cx if head_cx is not None else sh[0]
@@ -855,6 +880,67 @@ def erase_base_arms(f, g):
     return out
 
 
+
+def head_occluder_mask(rc, g):
+    """Head/hair occlusion for back-view gloves held in front of the face.
+
+    Opaque head silhouette, grown, plus a filled ellipse over the skull so
+    gloves beside a tapered crown still hide under hair.
+    """
+    h, w = rc.shape[:2]
+    yy = np.arange(h)[:, None]
+    xx = np.arange(w)[None, :]
+    sil = (rc[..., 3] >= 128) & (yy <= g.neck + 2)
+    sil = grow(sil, np.ones((h, w), dtype=bool), 2) & (yy <= g.neck + 5)
+    top = max(0, int(g.neck) - 38)
+    cy = (top + g.neck) * 0.52
+    rx = max(g.head_hw * 1.15, 18.0)
+    ry = max((g.neck - top) * 0.58, 15.0)
+    ellipse = ((xx - g.head_cx) / rx) ** 2 + ((yy - cy) / ry) ** 2 <= 1.0
+    ellipse &= yy <= g.neck + 4
+    return sil | ellipse
+
+
+def stamp_head_over(res, rc, g, direction=None):
+    """Put James's head back on top so back-view gloves sit behind it.
+
+    Restores opaque head/hair over anything under it, then clears only
+    leftover glove/cuff pixels that still sit inside the head's span
+    (arms/elbows outside the hair are kept so jab forearms stay connected).
+    """
+    head = head_occluder_mask(rc, g)
+    out = res.copy()
+    opaque = rc[..., 3] >= 128
+    # Restore James's real head/hair wherever the base was opaque.
+    out[head & opaque] = rc[head & opaque]
+
+    h, w = res.shape[:2]
+    yy = np.arange(h)[:, None]
+    xx = np.arange(w)[None, :]
+    rgb = out[..., :3].astype(int)
+    a = out[..., 3]
+    glove = (a >= 200) & (rgb[..., 0] > 160) & (rgb[..., 1] < 110) & (
+        rgb[..., 0] > rgb[..., 1] + 60
+    )
+    cuff = (a >= 200) & (rgb.sum(-1) / 3.0 > 200) & (yy < g.neck + 2) & (yy > g.neck - 30)
+    band = (yy <= g.neck + 1) & (yy >= g.neck - 36)
+    half = g.head_hw * 1.05
+    span = (xx >= g.head_cx - half) & (xx <= g.head_cx + half)
+    # NE/NW: leave a peek strip past the facing face edge.
+    if direction in ("NE", "NW"):
+        facing = BACK[direction]
+        if facing > 0:
+            span &= xx <= g.head_cx + g.head_hw * 0.90
+        else:
+            span &= xx >= g.head_cx - g.head_hw * 0.90
+    # Also clear glove/cuff in the occluder but outside opaque hair (crown gap).
+    hide = (band & span & (glove | cuff)) | (head & ~opaque & (glove | cuff))
+    restore = hide & opaque
+    out[restore] = rc[restore]
+    out[hide & ~opaque] = 0
+    return out
+
+
 def boxify(frame, direction, anim, col, meta):
     """Composite Boxer onto James: erase base arms, recolor tee/shorts/shoes,
     then draw complete shoulder→glove arms. Body silhouette is never redrawn."""
@@ -912,6 +998,11 @@ def boxify(frame, direction, anim, col, meta):
 
     res = to_u8(out)
     res[res[..., 3] < 8] = 0
+    # Back views: gloves are held in FRONT of the face, so the head must
+    # occlude them. Stamp James's head/hair back on top (elbows below the
+    # neck stay visible; NE/NW may keep a side peek past the head edge).
+    if direction in BACK or direction == "N":
+        res = stamp_head_over(res, rc, g, direction)
     comps = components8(res[..., 3] > 40)
     if comps:
         big = max(comps, key=lambda c: c.sum())
@@ -919,6 +1010,9 @@ def boxify(frame, direction, anim, col, meta):
             if c is not big and c.sum() < 30:
                 res[c] = 0
     res = solidify(res, (int(g.neck), int(g.hem) - 1))
+    # Solidify can re-bleed glove into the skull — re-stamp head after it.
+    if direction in BACK or direction == "N":
+        res = stamp_head_over(res, rc, g, direction)
     # Final trunk scrub after gloves/ARM_LINE so shorts stay red/gold/white.
     yy = np.arange(h)[:, None]
     trunk_bot = min(int(g.hem) - 4, int(waist) + 12)
