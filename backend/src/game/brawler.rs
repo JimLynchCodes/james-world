@@ -494,11 +494,11 @@ impl BrawlerWorld {
                 if p.dead || p.invuln > 0.0 {
                     continue;
                 }
+                // Only subtract HP here. Marking `dead` belongs in `advance` so
+                // `BrawlerEvent::PlayerDied` is emitted (client needs that to
+                // fade out and return to the playground).
                 p.hp = (p.hp - dmg).max(0.0);
                 p.invuln = 0.55;
-                if p.hp <= 0.0 {
-                    p.dead = true;
-                }
             }
         }
     }
@@ -831,5 +831,85 @@ mod tests {
         }
         w.resolve_player_attacks();
         assert!(w.enemies[0].hp < 40.0);
+    }
+
+    #[test]
+    fn lethal_damage_emits_player_died_once() {
+        let mut w = BrawlerWorld::new();
+        let a = Uuid::new_v4();
+        w.join(a, "James 1".into(), skin(), cos());
+        w.enemies.clear();
+        // Fatal HP with dead still false — the old bug set `dead` in tick_enemies
+        // and then skipped emitting PlayerDied.
+        w.players.get_mut(&a).unwrap().hp = 0.0;
+        assert!(!w.players[&a].dead);
+        let events = w.advance(0.05);
+        assert!(w.players[&a].dead);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(e, BrawlerEvent::PlayerDied { player_id } if *player_id == a))
+                .count(),
+            1,
+            "PlayerDied must fire so the client can leave the brawler"
+        );
+        let events2 = w.advance(0.05);
+        assert!(!events2
+            .iter()
+            .any(|e| matches!(e, BrawlerEvent::PlayerDied { .. })));
+    }
+
+    #[test]
+    fn enemy_kill_emits_player_died() {
+        let mut w = BrawlerWorld::new();
+        let a = Uuid::new_v4();
+        w.join(a, "James 1".into(), skin(), cos());
+        w.enemies.clear();
+        {
+            let p = w.players.get_mut(&a).unwrap();
+            p.x = 200.0;
+            p.y = GROUND_Y;
+            p.hp = 1.0;
+            p.invuln = 0.0;
+        }
+        w.next_enemy_id += 1;
+        w.enemies.push(Enemy {
+            id: w.next_enemy_id,
+            kind: EnemyKind::Grunt,
+            x: 205.0,
+            y: GROUND_Y,
+            hp: 40.0,
+            facing: std::f32::consts::PI,
+            attack_cooldown: 0.0,
+            hit_flash: 0.0,
+        });
+        let events = w.advance(0.05);
+        assert!(w.players[&a].dead, "player should be dead after lethal hit");
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, BrawlerEvent::PlayerDied { player_id } if *player_id == a)),
+            "enemy kill must emit PlayerDied for the playground return path"
+        );
+    }
+
+    #[test]
+    fn last_player_leave_after_death_resets_room() {
+        let mut w = BrawlerWorld::new();
+        let a = Uuid::new_v4();
+        w.join(a, "James 1".into(), skin(), cos());
+        w.players.get_mut(&a).unwrap().hp = 0.0;
+        let events = w.advance(0.05);
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, BrawlerEvent::PlayerDied { .. })));
+        w.leave(a);
+        assert!(w.is_empty());
+        assert_eq!(w.wave, 0);
+        assert!(w.enemies.is_empty());
+        let b = Uuid::new_v4();
+        w.join(b, "James 2".into(), skin(), cos());
+        assert!(!w.players[&b].dead);
+        assert!((w.players[&b].hp - PLAYER_MAX_HP).abs() < 0.01);
     }
 }

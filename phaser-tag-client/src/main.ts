@@ -10,6 +10,7 @@ import { PLAYER_RADIUS, PLAY_AREA, WORLD_HEIGHT, WORLD_WIDTH } from "./world";
 import { GameAudio, type Sfx } from "./audio";
 import { consumeAttackPulse, shouldQueueBrawlerAttack } from "./brawlerAttack";
 import { BrawlerWorldScene, type BrawlerHooks } from "./brawlerWorld";
+import { shouldLeaveBrawler } from "./brawlerLeave";
 import { CROWN, loadSavedCosmetic, saveCosmetic, toCosmetic, type Cosmetic } from "./cosmetics";
 import { SecretDungeonScene, type DungeonHooks } from "./secretDungeon";
 import {
@@ -1045,15 +1046,33 @@ class GameScene extends Phaser.Scene {
   }
 
   private leaveBrawlerToPlayground() {
-    if (!this.inBrawler) return;
-    this.socket.send({ type: "LeaveBrawler", data: {} });
-    this.scene.stop("BrawlerWorld");
-    this.brawlerScene = null;
+    if (!shouldLeaveBrawler(this.inBrawler)) return;
+    // Flip first so a second Died/Won/Leave cannot re-enter while we tear down.
     this.inBrawler = false;
     this.brawlerAttackPulse = false;
+    this.brawlerScene = null;
     document.body.classList.remove("in-brawler");
-    this.scene.wake();
-    this.socket.send({ type: "SetAway", data: { away: false } });
+    try {
+      this.socket.send({ type: "LeaveBrawler", data: {} });
+    } catch {
+      /* socket may already be closing */
+    }
+    // Stop the brawler scene if it is still up (safe when already stopped).
+    if (this.scene.get("BrawlerWorld")) {
+      this.scene.stop("BrawlerWorld");
+    }
+    // Wake the schoolyard by key — GameScene was slept on enter, and calling
+    // wake() with no key from a deferred callback is unreliable.
+    if (this.scene.isSleeping("GameScene")) {
+      this.scene.wake("GameScene");
+    } else if (!this.sys.isActive()) {
+      this.scene.wake("GameScene");
+    }
+    try {
+      this.socket.send({ type: "SetAway", data: { away: false } });
+    } catch {
+      /* ignore */
+    }
     this.tagQueued = false;
     this.held.clear();
     this.joystick = { x: 0, y: 0 };
@@ -1068,12 +1087,13 @@ class GameScene extends Phaser.Scene {
       this.player.y = spot.y;
       this.localTargetX = spot.x;
       this.localTargetY = spot.y;
+    }
+    if (this.player) {
       this.player.setCosmetic(this.localCosmetic);
       this.player.setDrawn(true);
-      this.cameras.main.centerOn(spot.x, spot.y);
-    } else {
-      this.player?.setCosmetic(this.localCosmetic);
-      this.player?.setDrawn(true);
+      this.player.update();
+      // Snap follow onto the playground kid so they are visible immediately.
+      this.snapCameraToLocalPlayer();
     }
   }
 

@@ -5,6 +5,12 @@
 import Phaser from "phaser";
 import type { GameAudio } from "./audio";
 import { shouldPlayAttackAnim } from "./brawlerAttack";
+import {
+  shouldBeginDeath,
+  shouldBeginWin,
+  shouldDrawBrawlerPeer,
+  type BrawlerEnding,
+} from "./brawlerLeave";
 import { toCosmetic, type Cosmetic } from "./cosmetics";
 import { onLocaleChange, t } from "./i18n";
 import { KidAvatar } from "./kid";
@@ -169,7 +175,7 @@ export class BrawlerWorldScene extends Phaser.Scene {
   private bossLabel!: Phaser.GameObjects.Text;
   private banner!: Phaser.GameObjects.Text;
   private goLabel!: Phaser.GameObjects.Text;
-  private ending: "none" | "dying" | "winning" | "done" = "none";
+  private ending: BrawlerEnding = "none";
   private fade?: Phaser.GameObjects.Rectangle;
   private unsubLocale: (() => void) | null = null;
   private left = false;
@@ -213,11 +219,13 @@ export class BrawlerWorldScene extends Phaser.Scene {
     }
 
     this.buildHud();
+    // fillAlpha must be 1 — GameObject.alpha multiplies it; a 0 fill never shows.
     this.fade = this.add
-      .rectangle(0, 0, this.scale.width, this.scale.height, 0x000000, 0)
+      .rectangle(0, 0, this.scale.width, this.scale.height, 0x000000, 1)
       .setOrigin(0, 0)
       .setScrollFactor(0)
-      .setDepth(1000);
+      .setDepth(1000)
+      .setAlpha(0);
 
     this.scale.on(Phaser.Scale.Events.RESIZE, this.onResize, this);
     this.unsubLocale = onLocaleChange(() => this.refreshHudText());
@@ -345,10 +353,25 @@ export class BrawlerWorldScene extends Phaser.Scene {
         this.applySnapshot(message.data);
         break;
       case "BrawlerPlayerDied":
-        if (message.data.player_id === this.localId) this.beginDeath();
+        if (
+          shouldBeginDeath({
+            isLocal: message.data.player_id === this.localId,
+            dead: true,
+            ending: this.ending,
+          })
+        ) {
+          this.beginDeath();
+        }
         break;
       case "BrawlerWon":
-        if (this.localId && message.data.player_ids.includes(this.localId)) this.beginWin();
+        if (
+          shouldBeginWin({
+            isLocalWinner: !!(this.localId && message.data.player_ids.includes(this.localId)),
+            ending: this.ending,
+          })
+        ) {
+          this.beginWin();
+        }
         break;
       default:
         break;
@@ -378,7 +401,7 @@ export class BrawlerWorldScene extends Phaser.Scene {
       peer.wasAttacking = p.attacking;
       if (p.dead) peer.avatar.sprite.setAngle(90);
       else peer.avatar.sprite.setAngle(0);
-      peer.avatar.setDrawn(!p.dead || this.ending === "dying");
+      peer.avatar.setDrawn(shouldDrawBrawlerPeer({ dead: p.dead, ending: this.ending }));
       peer.avatar.update();
       if (p.id === this.localId) {
         this.localHp = p.hp;
@@ -392,6 +415,10 @@ export class BrawlerWorldScene extends Phaser.Scene {
         }
         this.cameras.main.centerOn(camX, 180);
         this.bg.tilePositionX = camX * 0.25;
+        // Belt-and-suspenders: if Died was missed, snapshot still starts the exit.
+        if (shouldBeginDeath({ isLocal: true, dead: p.dead, ending: this.ending })) {
+          this.beginDeath();
+        }
       }
     }
     for (const [id, peer] of this.peers) {
@@ -505,7 +532,8 @@ export class BrawlerWorldScene extends Phaser.Scene {
       onComplete: () => {
         this.ending = "done";
         this.left = true;
-        this.hooks.onDied();
+        // Defer so we do not stop this scene from inside its own tween callback.
+        this.time.delayedCall(0, () => this.hooks.onDied());
       },
     });
   }
@@ -532,7 +560,7 @@ export class BrawlerWorldScene extends Phaser.Scene {
       onComplete: () => {
         this.ending = "done";
         this.left = true;
-        this.hooks.onWon();
+        this.time.delayedCall(0, () => this.hooks.onWon());
       },
     });
   }
