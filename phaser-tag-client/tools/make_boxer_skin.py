@@ -263,7 +263,7 @@ def strip_arms(f, g, direction, sides, waist=None, hem=None):
 
 
 def sculpt_torso(out, torso, g, direction, base_skin, waist, xx, yy):
-    """Cartoon pecs / six-pack / obliques (front) or scapulae / spine (back).
+    """Cartoon pecs / six-pack / obliques (front) or V-taper back (N/NE/NW).
 
     Every shade is a multiple of base_skin so the torso matches face + arms.
     Soft and sparse — readable at sprite scale, not a photo redraw.
@@ -280,76 +280,124 @@ def sculpt_torso(out, torso, g, direction, base_skin, waist, xx, yy):
             out[mask, :3] = np.clip(out[mask, :3] * k, 0, 255)
 
     if direction in BACK or direction == "N":
-        # Shoulder blades
+        # Flatten to face peach first so residual tee/arm light peach cannot
+        # leave the back brighter than the head/ears. Stay inside the torso
+        # core — lateral arm-fill stubs at the hips must not become peach or
+        # they trip the hanging-arm consistency check.
+        core = torso & (np.abs(xx + 0.5 - cx) < 10.0)
+        if core.any():
+            out[core, :3] = base[None]
+
+        # Broad traps: soft ridge from neck base out toward each shoulder.
+        for sx in (-1.0, 1.0):
+            trap = torso & (yy > g.neck + 1) & (yy < g.neck + 10)
+            dx = (xx + 0.5 - cx) * sx
+            trap &= (dx > 0.8) & (dx < 9.0)
+            # Under-trap shade (lower edge of the trap shelf)
+            under = trap & (yy > g.neck + 5.5) & (dx > 2.0)
+            mul(under, 0.88)
+            # Upper trap highlight near the neck→shoulder slope
+            ridge = trap & (yy < g.neck + 5.5) & (dx > 1.5) & (dx < 7.0)
+            add_hi(ridge, 1.04)
+
+        # Deltoid / outer-shoulder mass (reads as broad shoulders)
+        for sx in (-1.0, 1.0):
+            cy = g.neck + 5.0
+            px = cx + sx * 7.8
+            d2 = ((xx + 0.5 - px) ** 2) / 10.0 + ((yy + 0.5 - cy) ** 2) / 8.0
+            delt = torso & (d2 < 1.0) & (yy > g.neck + 1) & (yy < g.neck + 12)
+            mul(delt & (d2 > 0.40), 0.90)
+            add_hi(delt & (d2 < 0.28), 1.05)
+
+        # Shoulder blades — oval pads either side of the spine
+        for sx in (-4.6, 4.6):
+            cy = g.neck + 11.0
+            d2 = ((xx + 0.5 - (cx + sx)) ** 2) / 16.0 + ((yy + 0.5 - cy) ** 2) / 14.0
+            blade = torso & (d2 < 1.0) & (yy > g.neck + 5) & (yy < g.neck + 22)
+            mul(blade & (d2 > 0.32), 0.87)          # blade rim shadow
+            add_hi(blade & (d2 < 0.28) & (yy < cy + 1), 1.05)
+
+        # Defined spine groove (full length of the bare back)
+        spine = torso & (np.abs(xx + 0.5 - cx) < 1.15) & (yy > g.neck + 4) & (yy < waist - 1)
+        mul(spine, 0.82)
+        # Soft para-spinal shade just beside the groove
+        for sx in (-1.0, 1.0):
+            para = torso & (np.abs(xx + 0.5 - (cx + sx * 1.8)) < 1.1)
+            para &= (yy > g.neck + 6) & (yy < waist - 2)
+            mul(para, 0.93)
+
+        # Lat V-taper: outer mid-back darkens and angles in toward the waist
+        for sx in (-1.0, 1.0):
+            dx = (xx + 0.5 - cx) * sx
+            lat = torso & (dx > 4.2) & (dx < 11.5)
+            lat &= (yy > g.neck + 10) & (yy < waist - 0.5)
+            # Stronger shade farther out + lower (V read)
+            mul(lat & (dx > 6.5), 0.86)
+            mul(lat & (dx <= 6.5), 0.91)
+            # Soft diagonal lat slash (cartoon lat fiber)
+            for i in range(3):
+                yy0 = g.neck + 12 + i * 3.4
+                slash = lat & (np.abs(yy - yy0 + dx * 0.22) < 0.75)
+                mul(slash, 0.88)
+
+        # Narrow waist shade just above the trunks (locks the V)
+        waist_band = torso & (yy > waist - 4) & (yy < waist)
+        mul(waist_band & (np.abs(xx + 0.5 - cx) > 3.5), 0.90)
+
+    else:
+        # Front / profile / ¾ — pecs
         for sx in (-4.2, 4.2):
-            cy = g.neck + 9.5
-            d2 = ((xx + 0.5 - (cx + sx)) ** 2) / 15.0 + ((yy + 0.5 - cy) ** 2) / 12.0
-            blade = torso & (d2 < 1.0) & (yy > g.neck + 3) & (yy < g.neck + 20)
-            mul(blade & (d2 > 0.35), 0.90)
-            add_hi(blade & (d2 < 0.30) & (yy < cy), 1.05)
-        # Spine furrow
-        spine = torso & (np.abs(xx + 0.5 - cx) < 1.05) & (yy > g.neck + 5) & (yy < waist - 1)
-        mul(spine, 0.86)
-        # Side taper / lat shadow
+            # On profile, only the near pec reads; bias toward facing.
+            if direction in PROFILE and sx * PROFILE[direction] < 0:
+                continue
+            cy = g.neck + 8.5
+            px = cx + sx
+            if direction in FRONT:
+                px += FRONT[direction] * 1.2
+            d2 = ((xx + 0.5 - px) ** 2) / 17.0 + ((yy + 0.5 - cy) ** 2) / 8.5
+            pec = torso & (d2 < 1.0) & (yy > g.neck + 3) & (yy < g.neck + 15)
+            mul(pec & (yy >= cy + 0.5), 0.88)          # under-pec shadow
+            add_hi(pec & (yy < cy - 0.5) & (d2 < 0.40), 1.06)  # upper highlight
+            # Outer pec falloff toward armpit
+            outer = pec & ((xx + 0.5 - cx) * (1 if sx > 0 else -1) > abs(sx) * 0.55)
+            mul(outer, 0.92)
+
+        # Sternum cleft
+        sternum = torso & (np.abs(xx + 0.5 - cx) < 1.0) & (yy > g.neck + 5) & (yy < g.neck + 14)
+        if direction not in PROFILE:
+            mul(sternum, 0.84)
+
+        # Six-pack: linea alba + 3 horizontal grooves + soft pads
+        abs_top = g.neck + 14.5
+        abs_bot = float(waist) - 1.5
+        if abs_bot > abs_top + 4 and direction not in PROFILE:
+            linea = torso & (np.abs(xx + 0.5 - cx) < 0.85) & (yy > abs_top) & (yy < abs_bot)
+            mul(linea, 0.84)
+            n_rows = 3
+            for i in range(n_rows):
+                by = abs_top + 2.0 + i * max((abs_bot - abs_top - 2.0) / n_rows, 3.5)
+                if by >= abs_bot - 0.5:
+                    break
+                groove = torso & (np.abs(yy - by) <= 0.65) & (np.abs(xx + 0.5 - cx) < 5.2)
+                mul(groove, 0.86)
+                # Pad highlight just above each groove (left + right)
+                for sx in (-2.6, 2.6):
+                    pad = torso & (np.abs(xx + 0.5 - (cx + sx)) < 2.0)
+                    pad &= (yy > by - 3.2) & (yy < by - 0.6)
+                    add_hi(pad, 1.05)
+
+        # Obliques / serratus — soft V along the sides
         for sx in (-1, 1):
-            side = torso & ((xx + 0.5 - cx) * sx > 5.5) & ((xx + 0.5 - cx) * sx < 10.0)
-            side &= (yy > g.neck + 8) & (yy < waist - 1)
-            mul(side, 0.90)
-        return
-
-    # Front / profile / ¾ — pecs
-    for sx in (-4.2, 4.2):
-        # On profile, only the near pec reads; bias toward facing.
-        if direction in PROFILE and sx * PROFILE[direction] < 0:
-            continue
-        cy = g.neck + 8.5
-        px = cx + sx
-        if direction in FRONT:
-            px += FRONT[direction] * 1.2
-        d2 = ((xx + 0.5 - px) ** 2) / 17.0 + ((yy + 0.5 - cy) ** 2) / 8.5
-        pec = torso & (d2 < 1.0) & (yy > g.neck + 3) & (yy < g.neck + 15)
-        mul(pec & (yy >= cy + 0.5), 0.88)          # under-pec shadow
-        add_hi(pec & (yy < cy - 0.5) & (d2 < 0.40), 1.06)  # upper highlight
-        # Outer pec falloff toward armpit
-        outer = pec & ((xx + 0.5 - cx) * (1 if sx > 0 else -1) > abs(sx) * 0.55)
-        mul(outer, 0.92)
-
-    # Sternum cleft
-    sternum = torso & (np.abs(xx + 0.5 - cx) < 1.0) & (yy > g.neck + 5) & (yy < g.neck + 14)
-    if direction not in PROFILE:
-        mul(sternum, 0.84)
-
-    # Six-pack: linea alba + 3 horizontal grooves + soft pads
-    abs_top = g.neck + 14.5
-    abs_bot = float(waist) - 1.5
-    if abs_bot > abs_top + 4 and direction not in PROFILE:
-        linea = torso & (np.abs(xx + 0.5 - cx) < 0.85) & (yy > abs_top) & (yy < abs_bot)
-        mul(linea, 0.84)
-        n_rows = 3
-        for i in range(n_rows):
-            by = abs_top + 2.0 + i * max((abs_bot - abs_top - 2.0) / n_rows, 3.5)
-            if by >= abs_bot - 0.5:
-                break
-            groove = torso & (np.abs(yy - by) <= 0.65) & (np.abs(xx + 0.5 - cx) < 5.2)
-            mul(groove, 0.86)
-            # Pad highlight just above each groove (left + right)
-            for sx in (-2.6, 2.6):
-                pad = torso & (np.abs(xx + 0.5 - (cx + sx)) < 2.0)
-                pad &= (yy > by - 3.2) & (yy < by - 0.6)
-                add_hi(pad, 1.05)
-
-    # Obliques / serratus — soft V along the sides
-    for sx in (-1, 1):
-        if direction in PROFILE and sx * PROFILE[direction] < 0:
-            continue
-        obl = torso & ((xx + 0.5 - cx) * sx > 4.8) & ((xx + 0.5 - cx) * sx < 9.2)
-        obl &= (yy > g.neck + 11) & (yy < waist - 1)
-        mul(obl, 0.92)
-        # slight diagonal slash for serratus read
-        for i in range(3):
-            yy0 = g.neck + 12 + i * 3.2
-            slash = obl & (np.abs(yy - yy0 - (xx + 0.5 - cx) * sx * 0.15) < 0.7)
-            mul(slash, 0.90)
+            if direction in PROFILE and sx * PROFILE[direction] < 0:
+                continue
+            obl = torso & ((xx + 0.5 - cx) * sx > 4.8) & ((xx + 0.5 - cx) * sx < 9.2)
+            obl &= (yy > g.neck + 11) & (yy < waist - 1)
+            mul(obl, 0.92)
+            # slight diagonal slash for serratus read
+            for i in range(3):
+                yy0 = g.neck + 12 + i * 3.2
+                slash = obl & (np.abs(yy - yy0 - (xx + 0.5 - cx) * sx * 0.15) < 0.7)
+                mul(slash, 0.90)
 
     # Lock torso median luminance to base_skin so face/arms/torso match.
     over = torso & (out[..., :3].mean(-1) < base.mean() * 0.70)
@@ -433,10 +481,14 @@ def recolor(f, g, direction="S"):
     if shirt.any():
         # Flat skin fill — shading comes from sculpt, not tee luminance (avoids grey).
         out[shirt, :3] = base_skin[None]
-        # Soft top-light so the chest isn't a flat stamp.
+        # Soft top-light so the chest isn't a flat stamp. Back views stay flatter
+        # so face/ear peach and the torso stay in the same palette.
         ref_y = float(g.neck + 4)
         span = max(float(waist - g.neck), 1.0)
-        k = np.clip(1.04 - 0.10 * (yy[shirt] - ref_y) / span, 0.92, 1.06)
+        if direction in BACK or direction == "N":
+            k = np.clip(1.01 - 0.06 * (yy[shirt] - ref_y) / span, 0.94, 1.02)
+        else:
+            k = np.clip(1.04 - 0.10 * (yy[shirt] - ref_y) / span, 0.92, 1.06)
         out[shirt, :3] = np.clip(out[shirt, :3] * k[:, None], 0, 255)
     torso = (shirt | (skin & (yy > g.neck + 3) & (yy < waist))) & a & ~head
     # Also recolor any residual mid-tone tee cloth the shirt mask missed.
@@ -485,6 +537,21 @@ def recolor(f, g, direction="S"):
             else:
                 out[y, band, :3] = WAIST
             out[y, band, 3] = 255
+        # Erase leftover peach arm-fill stubs beside the hips (outside the
+        # waistband span). Recolor painted them when erase_base_arms filled
+        # hanging-arm holes with tee colour.
+        for y in range(int(waist), min(int(waist) + 10, h)):
+            row_a = out[y, :, 3] >= 128
+            rr = out[y, :, 0]; gg = out[y, :, 1]; bb = out[y, :, 2]
+            peach = row_a & (rr > 140) & (rr > bb + 20) & (rr > gg + 8) & (gg > 70) & (bb > 50)
+            peach &= (rr + gg + bb) / 3.0 < 160  # not white trim / gold hi
+            outside = np.zeros(w, dtype=bool)
+            outside[: max(x_lo - 1, 0)] = True
+            outside[min(x_hi + 2, w):] = True
+            kill = peach & outside
+            if kill.any():
+                out[y, kill, :3] = TRUNK
+                out[y, kill, 3] = 255
     if shorts.any():
         top = np.zeros_like(shorts)
         for x in range(w):
@@ -711,11 +778,15 @@ def glove_parts(sh, elbow, hand, skin, gr, jabbing=False):
     if jabbing:
         u0, u1, f0, f1 = 5.4, 4.8, 4.6, 4.0
     else:
-        u0, u1, f0, f1 = 5.0, 4.4, 4.2, 3.7
+        u0, u1, f0, f1 = 5.2, 4.6, 4.2, 3.7
     skin2 = tuple(int(v * 0.86) for v in skin)
+    skin3 = tuple(int(v * 0.80) for v in skin)
+    # Inner triceps shade (inside the capsule) — mass without widening hips.
+    mid = (sh[0] * 0.55 + elbow[0] * 0.45, sh[1] * 0.55 + elbow[1] * 0.45)
     return [
         (capsule_fn(sh, u0, elbow, u1), skin),
         (capsule_fn(sh, u0 * 0.55, elbow, u1 * 0.55), skin2),
+        (disc_fn(mid, u0 * 0.35), skin3),
         (capsule_fn(elbow, f0, wrist, f1), skin),
         (capsule_fn(elbow, f0 * 0.55, wrist, f1 * 0.55), skin2),
         (disc_fn(cuff_c, 3.4), CUFF),
@@ -1037,6 +1108,35 @@ def boxify(frame, direction, anim, col, meta):
         reddish = bad & ~edge & (rr > gg + 10) & (rr > bb + 10)
         res[reddish, :3] = TRUNK_SHADE
         res[bad & ~edge & ~reddish, :3] = TRIM
+    # Final hip scrub AFTER solidify (which can re-bleed peach stubs). Convert
+    # mid-tone peach beside the gold waistband into trunk red so the
+    # hanging-arm check stays clean. Brighter peach (lum>=160) is already
+    # ignored by the checker; our face-matched palette is darker.
+    rr0 = res[..., 0].astype(np.float64)
+    gg0 = res[..., 1].astype(np.float64)
+    bb0 = res[..., 2].astype(np.float64)
+    al0 = res[..., 3]
+    gold0 = (al0 >= 128) & (rr0 > 180) & (gg0 > 140) & (bb0 < 140) & (rr0 - bb0 > 60)
+    wb_lo = wb_hi = None
+    for y in range(max(int(waist) - 2, 0), min(int(waist) + 5, h)):
+        xs = np.nonzero(gold0[y])[0]
+        if len(xs) >= 8:
+            wb_lo, wb_hi = int(xs.min()), int(xs.max())
+            break
+    if wb_lo is not None:
+        for y in range(max(int(waist) - 1, 0), min(int(waist) + 12, h)):
+            peach = (
+                (al0[y] >= 128) & (rr0[y] > 140) & (rr0[y] > bb0[y] + 20)
+                & (rr0[y] > gg0[y] + 8) & (gg0[y] > 70) & (bb0[y] > 50)
+                & ((rr0[y] + gg0[y] + bb0[y]) / 3.0 < 200)
+            )
+            # Skip saturated glove red
+            peach &= ~((rr0[y] > 160) & (rr0[y] - gg0[y] > 70) & (gg0[y] < 110))
+            kill = peach.copy()
+            kill[max(wb_lo - 2, 0): min(wb_hi + 3, w)] = False
+            if kill.any():
+                res[y, kill, :3] = TRUNK
+                res[y, kill, 3] = 255
     return res
 
 
