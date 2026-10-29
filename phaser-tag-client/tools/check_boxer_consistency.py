@@ -2,7 +2,9 @@
 gloves present in every frame; gold waistband present; torso width stable
 across standing frames within a direction; head ratio chibi-like; NW tag
 mirrors NE (jab extends opposite ways); no hanging base-arm skin outside
-the glove-arm masks at hip/side level."""
+the glove-arm masks at hip/side level; idle/walk/run high peek-a-boo guard
+(gloves cover mouth, eyes clear); bare torso is peach skin (not tee grey)
+matching face tone."""
 import json
 from pathlib import Path
 
@@ -70,7 +72,7 @@ for r, d in enumerate(m["directions"]):
         if c < 4 or 12 <= c < 16:
             ys_ = np.nonzero(a.any(1))[0]
             t_, b_ = ys_.min(), ys_.max()
-            # big guard gloves sit at the chin; measure the body without them
+            # high peek-a-boo gloves sit over the mouth; measure body without them
             # (and without white cuffs next to them)
             body = a & ~grow_mask(glove, 3)
             w_ = {y: int(body[y].sum()) or 999 for y in ys_}
@@ -78,7 +80,7 @@ for r, d in enumerate(m["directions"]):
                      key=lambda y: w_.get(y, 999))
             hr = (nk - t_) / max(b_ - t_, 1)
             hrs.setdefault(d, []).append(hr)
-            if not 0.34 <= hr <= 0.62:
+            if not 0.30 <= hr <= 0.64:
                 print(f"{d} col {c}: head ratio {hr:.2f}")
                 bad += 1
 
@@ -265,6 +267,69 @@ for r, d in enumerate(m["directions"]):
             stray += len(outside)
         if stray > 3:
             print(f"{d} col {c}: {stray} stray skin-arm px outside glove-arm masks (hip/side)")
+            bad += 1
+
+
+# High peek-a-boo guard on idle / walk / run: gloves sit at mouth level
+# (centroid in the face band) and some upper-face / eye pixels stay clear.
+guard_anims = []
+for name, spec in m.get("animations", {}).items():
+    if name in ("idle", "walk", "run", "breathe"):
+        guard_anims.extend(range(spec["start"], spec["start"] + spec["count"]))
+guard_anims = sorted(set(guard_anims))
+for r, d in enumerate(m["directions"]):
+    for c in guard_anims:
+        if c * fw >= im.shape[1]:
+            continue
+        f = im[r * fh:(r + 1) * fh, c * fw:(c + 1) * fw]
+        a = f[..., 3] >= 200
+        if not a.any():
+            continue
+        rgb = f[..., :3].astype(int)
+        al = f[..., 3]
+        glove = is_glove(rgb, al)
+        # Ignore shoe/trunk red: only gloves in the upper 70% of the frame.
+        glove = glove & (np.arange(fh)[:, None] < int(fh * 0.72))
+        if glove.sum() < 20:
+            print(f"{d} col {c}: high-guard gloves missing in upper frame ({glove.sum()} px)")
+            bad += 1
+            continue
+        ys = np.nonzero(glove)[0]
+        cy = float(ys.mean())
+        # Mouth/face band relative to padded kid (top~14, neck~57).
+        if not (pad + 28 <= cy <= pad + 58):
+            print(f"{d} col {c}: glove centroid y={cy:.1f} not in high-guard face band")
+            bad += 1
+        # Eyes / upper face clear: opaque non-glove pixels above bulk of gloves.
+        bulk_top = int(np.percentile(ys, 15))
+        upper = a & (np.arange(fh)[:, None] < bulk_top) & (np.arange(fh)[:, None] > pad + 18)
+        clear = upper & ~glove
+        if clear.sum() < 25:
+            print(f"{d} col {c}: upper face covered by gloves ({clear.sum()} clear px)")
+            bad += 1
+
+# Bare torso is peach skin (not leftover grey/blue tee), every standing frame.
+for r, d in enumerate(m["directions"]):
+    for c in list(range(4)) + list(range(12, 16)):
+        f = im[r * fh:(r + 1) * fh, c * fw:(c + 1) * fw]
+        a = f[..., 3] >= 200
+        if not a.any():
+            continue
+        rgb = f[..., :3].astype(int)
+        rr, gg, bb = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+        glove = is_glove(rgb, f[..., 3])
+        # Mid-torso band below neck / above waistband.
+        band = a & ~glove & (np.arange(fh)[:, None] >= pad + 58) & (np.arange(fh)[:, None] <= pad + 76)
+        if band.sum() < 30:
+            continue
+        peach = band & (rr > 150) & (rr > bb + 15) & (gg > 85) & (bb > 50)
+        grey_tee = band & (np.abs(rr.astype(int) - gg.astype(int)) < 25) & (bb + 5 >= rr) & (rr < 140)
+        peach_n, grey_n = int(peach.sum()), int(grey_tee.sum())
+        if peach_n < band.sum() * 0.35:
+            print(f"{d} col {c}: torso not peach skin ({peach_n}/{band.sum()} peach)")
+            bad += 1
+        if grey_n > 12:
+            print(f"{d} col {c}: leftover tee-grey on torso ({grey_n} px)")
             bad += 1
 
 print("glove px median", {d: int(np.median(v)) for d, v in glove_counts.items()})

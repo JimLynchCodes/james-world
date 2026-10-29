@@ -10,12 +10,15 @@ Composite onto James's real base frame (do NOT redraw the body):
   * navy shorts → shiny red boxing trunks with a gold/white waistband that
     sits ON the hips (same width as the torso), gold side trim, mid-thigh;
   * shoes → red / white / gold high-tops with laces (same footprint);
-  * glossy RED boxing gloves (~½ head width) with white cuffs on a single
-    complete shaded arm from each shoulder. Idle / walk / breathe / run:
-    high-ish guard at chest height so the whole face stays visible; side
-    views show the near arm only;
-  * tag is a 6-frame JAB: shaded near arm + glove snaps forward and
-    retracts. Far glove stays in guard. NW mirrors NE.
+  * bare torso painted in EXACT face/arm skin tone with cartoon pecs,
+    six-pack, obliques (front) and scapulae/spine shading (back);
+  * glossy RED boxing gloves (~½ head width) with white cuffs + thumbs on a
+    single complete shaded arm from each shoulder. Idle / walk / breathe /
+    run: tight peek-a-boo guard — both gloves side-by-side covering mouth/
+    chin just below the eyes (eyes + upper face stay visible); elbows
+    tucked; side views show the near arm only; back shows elbows/arms up;
+  * tag is a 6-frame JAB: near arm snaps out from the high guard and
+    returns to it. Far glove stays in guard. NW mirrors NE.
 
 Requires: Python 3 + Pillow + numpy.  Usage:
     python3 tools/make_boxer_skin.py [--preview /tmp/boxer_preview.png]
@@ -256,7 +259,110 @@ def strip_arms(f, g, direction, sides, waist=None, hem=None):
     return out
 
 
-def recolor(f, g):
+
+def sculpt_torso(out, torso, g, direction, base_skin, waist, xx, yy):
+    """Cartoon pecs / six-pack / obliques (front) or scapulae / spine (back).
+
+    Every shade is a multiple of base_skin so the torso matches face + arms.
+    Soft and sparse — readable at sprite scale, not a photo redraw.
+    """
+    cx = g.head_cx
+    base = np.asarray(base_skin, dtype=float)
+
+    def mul(mask, k):
+        if mask.any():
+            out[mask, :3] = np.clip(out[mask, :3] * k, 0, 255)
+
+    def add_hi(mask, k):
+        if mask.any():
+            out[mask, :3] = np.clip(out[mask, :3] * k, 0, 255)
+
+    if direction in BACK or direction == "N":
+        # Shoulder blades
+        for sx in (-4.2, 4.2):
+            cy = g.neck + 9.5
+            d2 = ((xx + 0.5 - (cx + sx)) ** 2) / 15.0 + ((yy + 0.5 - cy) ** 2) / 12.0
+            blade = torso & (d2 < 1.0) & (yy > g.neck + 3) & (yy < g.neck + 20)
+            mul(blade & (d2 > 0.35), 0.90)
+            add_hi(blade & (d2 < 0.30) & (yy < cy), 1.05)
+        # Spine furrow
+        spine = torso & (np.abs(xx + 0.5 - cx) < 1.05) & (yy > g.neck + 5) & (yy < waist - 1)
+        mul(spine, 0.86)
+        # Side taper / lat shadow
+        for sx in (-1, 1):
+            side = torso & ((xx + 0.5 - cx) * sx > 5.5) & ((xx + 0.5 - cx) * sx < 10.0)
+            side &= (yy > g.neck + 8) & (yy < waist - 1)
+            mul(side, 0.90)
+        return
+
+    # Front / profile / ¾ — pecs
+    for sx in (-4.2, 4.2):
+        # On profile, only the near pec reads; bias toward facing.
+        if direction in PROFILE and sx * PROFILE[direction] < 0:
+            continue
+        cy = g.neck + 8.5
+        px = cx + sx
+        if direction in FRONT:
+            px += FRONT[direction] * 1.2
+        d2 = ((xx + 0.5 - px) ** 2) / 17.0 + ((yy + 0.5 - cy) ** 2) / 8.5
+        pec = torso & (d2 < 1.0) & (yy > g.neck + 3) & (yy < g.neck + 15)
+        mul(pec & (yy >= cy + 0.5), 0.88)          # under-pec shadow
+        add_hi(pec & (yy < cy - 0.5) & (d2 < 0.40), 1.06)  # upper highlight
+        # Outer pec falloff toward armpit
+        outer = pec & ((xx + 0.5 - cx) * (1 if sx > 0 else -1) > abs(sx) * 0.55)
+        mul(outer, 0.92)
+
+    # Sternum cleft
+    sternum = torso & (np.abs(xx + 0.5 - cx) < 1.0) & (yy > g.neck + 5) & (yy < g.neck + 14)
+    if direction not in PROFILE:
+        mul(sternum, 0.84)
+
+    # Six-pack: linea alba + 3 horizontal grooves + soft pads
+    abs_top = g.neck + 14.5
+    abs_bot = float(waist) - 1.5
+    if abs_bot > abs_top + 4 and direction not in PROFILE:
+        linea = torso & (np.abs(xx + 0.5 - cx) < 0.85) & (yy > abs_top) & (yy < abs_bot)
+        mul(linea, 0.84)
+        n_rows = 3
+        for i in range(n_rows):
+            by = abs_top + 2.0 + i * max((abs_bot - abs_top - 2.0) / n_rows, 3.5)
+            if by >= abs_bot - 0.5:
+                break
+            groove = torso & (np.abs(yy - by) <= 0.65) & (np.abs(xx + 0.5 - cx) < 5.2)
+            mul(groove, 0.86)
+            # Pad highlight just above each groove (left + right)
+            for sx in (-2.6, 2.6):
+                pad = torso & (np.abs(xx + 0.5 - (cx + sx)) < 2.0)
+                pad &= (yy > by - 3.2) & (yy < by - 0.6)
+                add_hi(pad, 1.05)
+
+    # Obliques / serratus — soft V along the sides
+    for sx in (-1, 1):
+        if direction in PROFILE and sx * PROFILE[direction] < 0:
+            continue
+        obl = torso & ((xx + 0.5 - cx) * sx > 4.8) & ((xx + 0.5 - cx) * sx < 9.2)
+        obl &= (yy > g.neck + 11) & (yy < waist - 1)
+        mul(obl, 0.92)
+        # slight diagonal slash for serratus read
+        for i in range(3):
+            yy0 = g.neck + 12 + i * 3.2
+            slash = obl & (np.abs(yy - yy0 - (xx + 0.5 - cx) * sx * 0.15) < 0.7)
+            mul(slash, 0.90)
+
+    # Lock torso median luminance to base_skin so face/arms/torso match.
+    over = torso & (out[..., :3].mean(-1) < base.mean() * 0.70)
+    if over.any():
+        out[over, :3] = base * 0.82
+    if torso.any():
+        cur = float(np.median(out[torso, :3].mean(-1)))
+        tgt = float(base.mean())
+        if cur > 1 and abs(cur - tgt) > 6:
+            # Gentle lift/sink toward face peach; keep relative sculpt contrast.
+            k = np.clip(0.55 + 0.45 * (tgt / cur), 0.88, 1.14)
+            out[torso, :3] = np.clip(out[torso, :3] * k, 0, 255)
+
+
+def recolor(f, g, direction="S"):
     """In-place: tee → bare chest + pec/abs; dark shorts → red trunks with
     gold waistband ON the hips (same width as the torso); shoes → R/W/G
     high-tops. Legs, silhouette, face, hair untouched."""
@@ -300,35 +406,45 @@ def recolor(f, g):
     # shoe pixels sometimes include leftover navy — keep only below hem
     out = f.copy().astype(np.float64)
 
-    # --- chest: paint shirt as James's own skin, then pec/abs ---
-    sk_src = skin & (yy > g.neck + 2) & (yy < waist)
+    # --- chest: paint shirt as EXACT face/arm peach skin, then sculpt ---
+    # Strict peach sample only (loose_skinlike on the back catches hair → brown).
+    strict = skin_mask(f)
+    rr0, gg0, bb0 = f[..., 0].astype(float), f[..., 1].astype(float), f[..., 2].astype(float)
+    peach = (
+        (rr0 > 150) & (rr0 > bb0 + 18) & (rr0 > gg0 + 4) & (gg0 > 90) & (bb0 > 55)
+        & (f[..., 3] >= 128)
+    )
+    face_sk = strict & peach & (yy > g.top + 8) & (yy <= g.neck - 2)
+    leg_sk = strict & peach & (yy >= int(g.hem)) & (yy < int(g.hem) + 12)
+    if face_sk.sum() >= 12:
+        sk_src = face_sk
+    elif leg_sk.sum() >= 12:
+        sk_src = leg_sk
+    else:
+        sk_src = strict & peach
     if sk_src.any():
         px = f[sk_src][:, :3].astype(float)
-        px = px[px.sum(1) >= np.percentile(px.sum(1), 45)]
-        base_skin = np.median(px, 0) if len(px) else np.array([220.0, 160.0, 120.0])
+        px = px[px.sum(1) >= np.percentile(px.sum(1), 35)]
+        base_skin = np.median(px, 0) if len(px) else np.array([230.0, 160.0, 115.0])
     else:
-        base_skin = np.array([220.0, 160.0, 120.0])
+        base_skin = np.array([230.0, 160.0, 115.0])
     if shirt.any():
-        ref = np.percentile(lum[shirt], 75) or 1.0
-        k = np.clip(0.88 + 0.18 * lum[shirt] / ref, 0.86, 1.05)
-        out[shirt, :3] = base_skin[None] * k[:, None]
+        # Flat skin fill — shading comes from sculpt, not tee luminance (avoids grey).
+        out[shirt, :3] = base_skin[None]
+        # Soft top-light so the chest isn't a flat stamp.
+        ref_y = float(g.neck + 4)
+        span = max(float(waist - g.neck), 1.0)
+        k = np.clip(1.04 - 0.10 * (yy[shirt] - ref_y) / span, 0.92, 1.06)
+        out[shirt, :3] = np.clip(out[shirt, :3] * k[:, None], 0, 255)
     torso = (shirt | (skin & (yy > g.neck + 3) & (yy < waist))) & a & ~head
+    # Also recolor any residual mid-tone tee cloth the shirt mask missed.
+    leftover = a & ~skin & ~head & (yy > g.neck + 2) & (yy < waist)
+    leftover &= (lum > 35) & (lum < 150) & (np.abs(r_ - g_) < 35) & (b_ >= r_ - 10)
+    if leftover.any():
+        out[leftover, :3] = base_skin[None]
+        torso |= leftover
     if torso.any():
-        cx = g.head_cx
-        for sx in (-4.5, 4.5):
-            d2 = ((xx + 0.5 - (cx + sx)) ** 2) / 20.0 + ((yy + 0.5 - (g.neck + 9.0)) ** 2) / 10.0
-            pec = torso & (d2 < 1.0) & (yy > g.neck + 4) & (yy < g.neck + 15)
-            out[pec, :3] *= 0.86
-        mid = torso & (np.abs(xx + 0.5 - cx) < 3.4) & (yy > g.neck + 14) & (yy < waist - 1)
-        for by in (g.neck + 16, g.neck + 21, g.neck + 26):
-            band = mid & (np.abs(yy - by) <= 1)
-            out[band, :3] *= 0.82
-        crease = mid & (np.abs(xx + 0.5 - cx) < 0.85)
-        out[crease, :3] *= 0.84
-        for sx in (-1, 1):
-            side = torso & ((xx + 0.5 - cx) * sx > 5.0) & ((xx + 0.5 - cx) * sx < 9.0)
-            side &= (yy > g.neck + 10) & (yy < waist - 2)
-            out[side, :3] *= 0.90
+        sculpt_torso(out, torso, g, direction, base_skin, waist, xx, yy)
 
     def paint(m, col, lo=0.82, hi=1.05):
         if not m.any():
@@ -481,26 +597,39 @@ def glove_radius(g):
 
 
 def shoulder(g, direction, side):
+    # Slightly raised for peek-a-boo.
     if direction in PROFILE:
-        return (g.head_cx - PROFILE[direction] * 0.3, g.neck + 4.5)
-    return (g.head_cx + (side or 1) * 7.2, g.neck + 4.5)
+        return (g.head_cx - PROFILE[direction] * 0.2, g.neck + 2.2)
+    return (g.head_cx + (side or 1) * 6.6, g.neck + 2.2)
 
 
-def guard_hand(sh, direction, side, bounce=0.0, gr=8.0):
-    """Mid-chest / upper-rib guard — whole face + chin stay clear."""
+def guard_hand(sh, direction, side, bounce=0.0, gr=8.0, g=None):
+    """Tight peek-a-boo: gloves side-by-side covering mouth/chin; eyes clear."""
+    # Mouth ≈ neck-9; glove top (hand_y - gr) sits just under the eyes.
+    neck = g.neck if g is not None else sh[1] - 2.2
+    cx = g.head_cx if g is not None else sh[0]
+    mouth_y = neck - 9.0 + bounce * 0.35
+    s = side or 1
     if direction in PROFILE:
         fx = PROFILE[direction]
-        return (sh[0] + fx * (6.5 + gr * 0.1), sh[1] + 11.0 + bounce)
-    out = (side or 1) * (8.0 + gr * 0.05)
-    return (sh[0] + out * 0.85, sh[1] + 11.0 + bounce)
+        # Near glove covers the mouth from the side, a touch forward of the face.
+        return (cx + fx * (gr * 0.25 + 1.0), mouth_y)
+    if direction in BACK or direction == "N":
+        # Back: gloves beside the head at face height so elbows/forearms read.
+        return (cx + s * (gr * 0.70 + 1.2), mouth_y + 1.0)
+    # Front / ¾: fists nearly touching in front of the mouth.
+    face_bias = FRONT.get(direction, 0) * 1.0
+    return (cx + s * (gr * 0.90) + face_bias, mouth_y)
 
 
-JAB_REACH = [10.0, 14.5, 20.0, 25.0, 16.5, 11.0]
+JAB_REACH = [11.0, 15.5, 21.5, 27.0, 17.5, 12.0]
 JAB_ANG = {
     "profile": [-48, -28, -8, 4, -16, -42],
     "front":   [-60, -38, -14, 0, -20, -54],
     "back":    [-95, -72, -44, -18, -50, -88],
 }
+# Blend from high-guard → full extend → back to guard across the 6 jab frames.
+JAB_BLEND = [0.10, 0.42, 0.82, 1.00, 0.52, 0.12]
 
 
 def jab_pose(direction, p_idx, side):
@@ -519,6 +648,17 @@ def jab_pose(direction, p_idx, side):
     return math.radians(a), JAB_REACH[p_idx]
 
 
+def jab_hand(g, direction, side, p_idx, gr):
+    """Jab extends from the high guard and returns to it."""
+    sh = shoulder(g, direction, side)
+    guard = guard_hand(sh, direction, side, 0.0, gr, g)
+    ang, R = jab_pose(direction, p_idx, side)
+    ext = (sh[0] + math.cos(ang) * R, sh[1] + math.sin(ang) * R)
+    t = JAB_BLEND[min(p_idx, len(JAB_BLEND) - 1)]
+    return (guard[0] + (ext[0] - guard[0]) * t,
+            guard[1] + (ext[1] - guard[1]) * t)
+
+
 def glove_parts(sh, elbow, hand, skin, gr, jabbing=False):
     ex, ey = hand[0] - elbow[0], hand[1] - elbow[1]
     en = math.hypot(ex, ey) or 1.0
@@ -528,14 +668,14 @@ def glove_parts(sh, elbow, hand, skin, gr, jabbing=False):
     hi = (hand[0] - gr * 0.28, hand[1] - gr * 0.32)
     spec = (hand[0] - gr * 0.38, hand[1] - gr * 0.42)
     shade = (hand[0] + gr * 0.22, hand[1] + gr * 0.28)
-    # Thumb bump: top-inner of the fist (toward shoulder / body center, above midline).
+    # Thumb bump: inner side of the fist (toward face / body center). Mild
+    # upward bias so high-guard thumbs don't climb over the eyes.
     inward_x = 1.0 if sh[0] >= hand[0] else -1.0
-    # Slight mix with arm-perpendicular so jabbing gloves still read.
     nx, ny = -uy, ux
     if nx * (sh[0] - hand[0]) + ny * (sh[1] - hand[1]) < 0:
         nx, ny = -nx, -ny
-    nx = 0.55 * nx + 0.45 * inward_x
-    ny = 0.35 * ny - 0.75  # strong upward bias (y+ is down)
+    nx = 0.60 * nx + 0.50 * inward_x
+    ny = 0.40 * ny - 0.30
     nn = math.hypot(nx, ny) or 1.0
     nx, ny = nx / nn, ny / nn
     tr = max(3.0, gr * 0.52)
@@ -567,10 +707,12 @@ def glove_parts(sh, elbow, hand, skin, gr, jabbing=False):
     ]
 
 
-def draw_arm(size, sh, hand, skin, gr, jabbing=False):
-    L1, L2 = 9.0, 8.5
+def draw_arm(size, sh, hand, skin, gr, jabbing=False, head_cx=None):
+    # Slightly longer limbs so the high guard reaches mouth level with tucked elbows.
+    L1, L2 = 10.5, 10.0
     e1 = ik(sh, hand, L1, L2, 1)
     e2 = ik(sh, hand, L1, L2, -1)
+    cx = head_cx if head_cx is not None else sh[0]
     if jabbing:
         def off(e):
             dx, dy = hand[0] - sh[0], hand[1] - sh[1]
@@ -581,19 +723,24 @@ def draw_arm(size, sh, hand, skin, gr, jabbing=False):
         mid = (sh[0] + (hand[0] - sh[0]) * t, sh[1] + (hand[1] - sh[1]) * t)
         elbow = (elbow[0] * 0.35 + mid[0] * 0.65, elbow[1] * 0.35 + mid[1] * 0.65)
     else:
-        # prefer elbow that hangs a bit below for a natural guard
-        elbow = e1 if e1[1] >= e2[1] else e2
+        # Peek-a-boo: prefer the elbow that sits lower AND more lateral (ribs).
+        def tuck(e):
+            return e[1] * 1.4 + abs(e[0] - cx) * 0.8
+        elbow = e1 if tuck(e1) >= tuck(e2) else e2
     return shapes_layer(size, glove_parts(sh, elbow, hand, skin, gr, jabbing), ARM_LINE, 1.0)
 
 
 def skin_rgb_of(f):
+    """Median peach face/leg skin — same palette used for torso + glove arms."""
     sk = skin_mask(f)
-    if sk.any():
-        px = f[sk][:, :3].astype(int)
-        px = px[px.sum(1) >= np.percentile(px.sum(1), 50)]
-        rgb = tuple(int(v) for v in np.median(px, 0))
-        return tuple(int(v * k) for v, k in zip(rgb, (0.97, 0.88, 0.82)))
-    return (246, 182, 132)
+    if not sk.any():
+        return (230, 160, 115)
+    rr, gg, bb = f[..., 0].astype(int), f[..., 1].astype(int), f[..., 2].astype(int)
+    peach = sk & (rr > 150) & (rr > bb + 18) & (rr > gg + 4) & (gg > 90) & (bb > 55)
+    src = peach if peach.sum() >= 12 else sk
+    px = f[src][:, :3].astype(int)
+    px = px[px.sum(1) >= np.percentile(px.sum(1), 40)]
+    return tuple(int(v) for v in np.median(px, 0)) if len(px) else (230, 160, 115)
 
 
 def bounce_of(anim, col, meta):
@@ -738,7 +885,7 @@ def boxify(frame, direction, anim, col, meta):
     g = Geometry(body)
 
     # 3) Recolor in place (tee→chest, navy→trunks+gold waistband, shoes→high-tops).
-    rc, waist = recolor(body, g)
+    rc, waist = recolor(body, g, direction)
     g = Geometry(rc)
 
     skin = skin_rgb_of(rc)
@@ -751,18 +898,17 @@ def boxify(frame, direction, anim, col, meta):
         if direction not in PROFILE:
             far = -side
             sh_f = shoulder(g, direction, far)
-            hd_f = guard_hand(sh_f, direction, far, 0.0, gr)
-            out = over(out, down(draw_arm(size, sh_f, hd_f, skin, gr, False)))
+            hd_f = guard_hand(sh_f, direction, far, 0.0, gr, g)
+            out = over(out, down(draw_arm(size, sh_f, hd_f, skin, gr, False, g.head_cx)))
         sh_n = shoulder(g, direction, side)
-        ang, R = jab_pose(direction, p, side)
-        hd_n = (sh_n[0] + math.cos(ang) * R, sh_n[1] + math.sin(ang) * R)
-        out = over(out, down(draw_arm(size, sh_n, hd_n, skin, gr * 1.05, True)))
+        hd_n = jab_hand(g, direction, side, p, gr)
+        out = over(out, down(draw_arm(size, sh_n, hd_n, skin, gr * 1.05, True, g.head_cx)))
     else:
         show = [side] if direction in PROFILE else [1, -1]
         for s in show:
             sh = shoulder(g, direction, s)
-            hd = guard_hand(sh, direction, s, bounce, gr)
-            out = over(out, down(draw_arm(size, sh, hd, skin, gr, False)))
+            hd = guard_hand(sh, direction, s, bounce, gr, g)
+            out = over(out, down(draw_arm(size, sh, hd, skin, gr, False, g.head_cx)))
 
     res = to_u8(out)
     res[res[..., 3] < 8] = 0
