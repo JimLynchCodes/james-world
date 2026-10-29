@@ -138,4 +138,10 @@ export const viVN: Messages = {
   "cave.line2": "BẠN CÓ THỂ CÓ CÁI NÀY.",
   "bsod.aria": "Lỗi: Nhiệm vụ chưa được làm.",
   "bsod.text": "Đã phát hiện sự cố và James World đã bị tắt để tránh gây hại\ncho máy tính của bạn.\n\nLỗi: Nhiệm vụ chưa được làm.\n\nNếu đây là lần đầu bạn thấy màn hình lỗi này,\nhãy khởi động lại máy tính. Nếu màn hình này xuất hiện lại,\nhãy làm theo các bước sau:\n\nKiểm tra xem phần cứng hoặc phần mềm mới đã được cài đúng chưa.\nNếu đây là bản cài mới, hãy hỏi nhà sản xuất phần cứng hoặc phần mềm\nvề các bản cập nhật James World mà bạn có thể cần.\n\nNếu sự cố vẫn tiếp diễn, hãy tắt hoặc gỡ phần cứng hoặc phần mềm mới cài.\nTắt các tùy chọn bộ nhớ BIOS như bộ nhớ đệm hoặc shadowing. Nếu bạn cần\ndùng Chế độ An toàn để gỡ hoặc tắt các thành phần, hãy khởi động lại máy,\nnhấn F8 để chọn Tùy chọn Khởi động Nâng cao, rồi chọn Chế độ An toàn.\n\nThông tin kỹ thuật:\n\n*** STOP: 0x0000007B (0xC0000034, 0x00000000, 0x00000000, 0x00000000)\n\n\nNhấn phím bất kỳ hoặc chạm để tiếp tục ",
+
+  "brawler.fighter": "Đấu sĩ",
+  "brawler.wave": "ĐỢT {n}",
+  "brawler.boss": "TRÙM",
+  "brawler.go": "ĐI →",
+  "brawler.win": "BẠN THẮNG!"
 };

@@ -138,4 +138,10 @@ export const filPH: Messages = {
   "cave.line2": "MAPAPASAIYO ITO.",
   "bsod.aria": "Error: Wala Pang Quest.",
   "bsod.text": "May nakitang problema at pinatay ang James World para hindi masira\nang iyong computer.\n\nError: Wala Pang Quest.\n\nKung ngayon mo lang nakita ang error screen na ito,\ni-restart ang computer. Kung lumabas ulit ang screen na ito,\nsundin ang mga hakbang na ito:\n\nSiguraduhing maayos ang pagkaka-install ng anumang bagong hardware o software.\nKung bagong install ito, tanungin ang gumawa ng iyong hardware o software\npara sa anumang James World update na maaaring kailangan mo.\n\nKung tuloy pa rin ang problema, i-disable o tanggalin ang bagong install na\nhardware o software. I-disable ang mga BIOS memory option gaya ng caching o\nshadowing. Kung kailangan mong gamitin ang Safe Mode para tanggalin o i-disable\nang mga component, i-restart ang computer, pindutin ang F8 para piliin ang\nAdvanced Startup Options, at saka piliin ang Safe Mode.\n\nTeknikal na impormasyon:\n\n*** STOP: 0x0000007B (0xC0000034, 0x00000000, 0x00000000, 0x00000000)\n\n\nPindutin ang kahit anong key o i-tap para magpatuloy ",
+
+  "brawler.fighter": "Mandirigma",
+  "brawler.wave": "ALON {n}",
+  "brawler.boss": "BOSS",
+  "brawler.go": "GO →",
+  "brawler.win": "NANALO KA!"
 };

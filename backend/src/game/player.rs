@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-use super::skin::Skin;
+use super::{cosmetic::Cosmetic, skin::Skin};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Position {
@@ -17,6 +17,9 @@ pub struct Player {
 
     /// Cosmetic outfit chosen by the player (bots keep the default).
     pub skin: Skin,
+
+    /// Opaque cosmetic key (e.g. "crown"), relayed like skin.
+    pub cosmetic: Cosmetic,
 
     pub position: Position,
 
@@ -53,6 +56,8 @@ impl Player {
             name: String::new(),
 
             skin: Skin::default(),
+
+            cosmetic: Cosmetic::default(),
 
             position: Position {
                 x,

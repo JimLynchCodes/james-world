@@ -15,7 +15,7 @@ use tokio::sync::{mpsc, watch};
 use uuid::Uuid;
 
 use crate::{
-    game::skin::Skin,
+    game::{cosmetic::Cosmetic, skin::Skin},
     rooms::room::RoomManager,
     ws::protocol::{
         ClientMessage,
@@ -225,12 +225,13 @@ async fn handle_client_message(
                 .await;
         }
 
-        // Spectator → player. Carries the chosen skin.
+        // Spectator → player. Carries the chosen skin / cosmetic.
         ClientMessage::Join {
             room_id: _,
             skin,
+            cosmetic,
         } => {
-            rooms.join(player_id, skin).await;
+            rooms.join(player_id, skin, cosmetic).await;
         }
 
         ClientMessage::SetSkin {
@@ -243,12 +244,39 @@ async fn handle_client_message(
                 .set_skin(player_id, Skin::parse(&skin));
         }
 
+        ClientMessage::SetCosmetic {
+            cosmetic,
+        } => {
+            rooms
+                .world
+                .lock()
+                .await
+                .set_cosmetic(player_id, Cosmetic::parse(&cosmetic));
+        }
+
         ClientMessage::SetAway { away } => {
             rooms
                 .world
                 .lock()
                 .await
                 .set_away(player_id, away);
+        }
+
+        ClientMessage::JoinBrawler {} => {
+            rooms.join_brawler(player_id).await;
+        }
+
+        ClientMessage::LeaveBrawler {} => {
+            rooms.leave_brawler(player_id).await;
+        }
+
+        ClientMessage::BrawlerInput {
+            seq: _,
+            dx,
+            dy,
+            attack,
+        } => {
+            rooms.brawler_input(player_id, dx, dy, attack).await;
         }
     }
 }

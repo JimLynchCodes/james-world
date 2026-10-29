@@ -17,7 +17,7 @@ import type { Mood, Settings } from "./settings";
 /** Billy's slurp lands on the sip frame of the tag animation (see "billySwing"). */
 export const BILLY_SLURP_DELAY_S = 0.45;
 
-export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "spacemanStep" | "spacemanSwing" | "wizardStep" | "wizardSwing" | "centaurStep" | "centaurSwing" | "tennisStep" | "tennisSwing" | "cobraStep" | "cobraSwing" | "billySwing" | "click" | "blip" | "secret";
+export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "spacemanStep" | "spacemanSwing" | "wizardStep" | "wizardSwing" | "centaurStep" | "centaurSwing" | "tennisStep" | "tennisSwing" | "cobraStep" | "cobraSwing" | "billySwing" | "click" | "blip" | "secret" | "itemGet" | "brawlerHit";
 
 const CROSSFADE_S = 1.5;
 const LOOKAHEAD_S = 0.15;
@@ -863,6 +863,24 @@ export class GameAudio {
         // Short text tick, in the neighbourhood of a cave-message blip.
         syn.tone(t, 980, { type: "square", gain: 0.045 * v, attack: 0.001, release: 0.04, filter: 2800 });
         break;
+
+      case "itemGet": {
+        // Classic rising arpeggio + sparkle (Zelda-ish item fanfare, short).
+        const notes = [523.25, 659.25, 783.99, 1046.5];
+        notes.forEach((freq, i) => {
+          syn.tone(t + i * 0.09, freq, { type: "square", gain: 0.09 * v, attack: 0.005, hold: 0.06, release: 0.18, filter: 4200 });
+          syn.tone(t + i * 0.09, freq * 2, { type: "triangle", gain: 0.04 * v, attack: 0.005, hold: 0.05, release: 0.2, filter: 5000 });
+        });
+        syn.noise(t + 0.05, { filter: "highpass", freq: 5000, q: 0.8, gain: 0.08 * v, attack: 0.01, release: 0.35 });
+        break;
+      }
+      case "brawlerHit": {
+        // Punch: low thud + short whoosh.
+        syn.noise(t, { filter: "bandpass", freq: 280, sweepTo: 120, q: 1.2, gain: 0.35 * v, attack: 0.001, release: 0.12 });
+        syn.tone(t, 90, { type: "sine", gain: 0.18 * v, attack: 0.001, release: 0.1, glideTo: 50 });
+        syn.noise(t + 0.02, { filter: "highpass", freq: 1800, q: 0.7, gain: 0.12 * v, attack: 0.001, release: 0.08 });
+        break;
+      }
       case "secret":
         // The quest sting is a file on the sfx bus; see playSecret.
         break;

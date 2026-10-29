@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { getLocale, isRtl, t } from "./i18n";
+import { crownLiftPx, DEFAULT_COSMETIC, type Cosmetic } from "./cosmetics";
 import { DEFAULT_SKIN, SKINS, SKIN_IDS, type Skin, type SkinSheet } from "./skins";
 import { SPACEMAN_BOOSTERS } from "./spacemanBoosters";
 import { DIRECTIONS, directionFromAngle, nextAvatarAnim, type Direction } from "./tagging";
@@ -321,6 +322,32 @@ const ROLE_COLORS: Record<KidRole, number> = {
  * `x`/`y` are the logical (server) position; the sprite is drawn with its
  * feet slightly below that point and depth-sorted by y.
  */
+
+/** Tiny gold crown drawn above the head when cosmetic === "crown". */
+function ensureCrownTexture(scene: Phaser.Scene) {
+  if (scene.textures.exists("cosmetic-crown")) return;
+  const g = scene.make.graphics({ x: 0, y: 0 });
+  const w = 22;
+  const h = 14;
+  g.fillStyle(0xf5d76e, 1);
+  g.fillRect(1, 8, w - 2, 5);
+  g.fillStyle(0xffe9a0, 1);
+  g.fillTriangle(2, 8, 5, 1, 8, 8);
+  g.fillTriangle(8, 8, 11, 2, 14, 8);
+  g.fillTriangle(14, 8, 17, 1, 20, 8);
+  g.fillStyle(0xe8b84a, 1);
+  g.fillRect(1, 12, w - 2, 2);
+  g.fillStyle(0xff6b6b, 1);
+  g.fillCircle(5, 3, 1.4);
+  g.fillStyle(0x6bcbff, 1);
+  g.fillCircle(11, 3.5, 1.4);
+  g.fillStyle(0x7dffb3, 1);
+  g.fillCircle(17, 3, 1.4);
+  g.generateTexture("cosmetic-crown", w, h);
+  g.destroy();
+  scene.textures.get("cosmetic-crown").setFilter(Phaser.Textures.FilterMode.NEAREST);
+}
+
 export class KidAvatar {
   readonly sprite: Phaser.GameObjects.Sprite;
   /** Coloured ellipse under the feet; stays at the logical position (camera target). */
@@ -341,6 +368,8 @@ export class KidAvatar {
   private lungeTween: Phaser.Tweens.Tween | null = null;
   private readonly feetOffset: number;
   private skin: Skin = DEFAULT_SKIN;
+  private cosmetic: Cosmetic = DEFAULT_COSMETIC;
+  private crown: Phaser.GameObjects.Image | null = null;
   /** Cosmetic low-gravity hop (world px). Never written into x/y. */
   private hop = 0;
   /** Previous frame's hop, so the landing can compress the knees once. */
@@ -450,6 +479,30 @@ export class KidAvatar {
   get currentSkin(): Skin {
     return this.skin;
   }
+
+  setCosmetic(cosmetic: Cosmetic) {
+    if (cosmetic === this.cosmetic) return;
+    this.cosmetic = cosmetic;
+    if (cosmetic === "crown") this.ensureCrown();
+    else if (this.crown) {
+      this.crown.destroy();
+      this.crown = null;
+    }
+    this.update();
+  }
+
+  get currentCosmetic(): Cosmetic {
+    return this.cosmetic;
+  }
+
+  private ensureCrown() {
+    if (this.crown) return;
+    ensureCrownTexture(this.scene);
+    this.crown = this.scene.add.image(this.x, this.y, "cosmetic-crown");
+    this.crown.setOrigin(0.5, 1);
+    this.crown.setDepth(20);
+  }
+
 
   /** On-screen scale. Hi-res sheets divide by pixelScale so the kid stays the same size. */
   private get drawScale(): number {
@@ -760,6 +813,12 @@ export class KidAvatar {
     // sprite so a translucent canopy can cover them too (still readable).
     const depth = 10 + feetY / 10;
     this.sprite.setDepth(depth);
+    if (this.crown && this.cosmetic === "crown") {
+      const crownY = feetY + ly - this.hop - this.artHeight - crownLiftPx(this.skin);
+      this.crown.setPosition(this.x + lx, crownY);
+      this.crown.setDepth(depth + 0.02);
+      this.crown.setVisible(true);
+    }
     this.placeFlames();
     this.syncLabelScale();
     const s = this.labelScale;
@@ -791,6 +850,7 @@ export class KidAvatar {
   setDrawn(visible: boolean) {
     this.sprite.setVisible(visible);
     this.shadow.setVisible(visible);
+    this.crown?.setVisible(visible && this.cosmetic === "crown");
     if (visible) this.update();
     else {
       for (const line of LABEL_LINES) this.labels[line].setVisible(false);
@@ -802,6 +862,8 @@ export class KidAvatar {
     this.lungeTween?.stop();
     this.sprite.destroy();
     this.shadow.destroy();
+    this.crown?.destroy();
+    this.crown = null;
     this.flames?.forEach((flame) => flame.destroy());
     this.flames = null;
     for (const line of LABEL_LINES) this.labels[line].destroy();

@@ -9,6 +9,7 @@ use super::{
     movement,
     player::Player,
     scenery,
+    cosmetic::Cosmetic,
     skin::Skin,
 };
 
@@ -146,6 +147,23 @@ impl World {
             }
             None => false,
         }
+    }
+
+    /// Change a player's opaque cosmetic (e.g. crown). Returns false if unknown.
+    pub fn set_cosmetic(&mut self, id: Uuid, cosmetic: Cosmetic) -> bool {
+        if let Some(player) = self.players.get_mut(&id) {
+            player.cosmetic = cosmetic;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn cosmetic_of(&self, id: &Uuid) -> Cosmetic {
+        self.players
+            .get(id)
+            .map(|p| p.cosmetic.clone())
+            .unwrap_or_default()
     }
 
     pub fn human_count(&self) -> usize {
@@ -755,6 +773,7 @@ impl World {
                     id: player.id,
                     name: player.name.clone(),
                     skin: player.skin.clone(),
+                    cosmetic: player.cosmetic.clone(),
                     x: player.position.x,
                     y: player.position.y,
                     energy: player.energy,
