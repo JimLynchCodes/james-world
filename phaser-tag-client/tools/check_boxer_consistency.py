@@ -498,5 +498,52 @@ for r, d in enumerate(m["directions"]):
 
 print("glove px median", {d: int(np.median(v)) for d, v in glove_counts.items()})
 print("head ratio", {d: round(float(np.median(v)), 3) for d, v in hrs.items()})
+
+# E/W profile: upper arm ≈ forearm (~14–16 each).
+def _profile_seg_lengths():
+    import math
+    lengths = {}
+    for r, d in enumerate(m["directions"]):
+        if d not in ("E", "W"):
+            continue
+        f = im[r * fh:(r + 1) * fh, 0:fw]
+        a = f[..., 3] >= 128
+        if not a.any():
+            continue
+        neck = float(pad + 48)
+        hx = np.nonzero(a[pad + 28])[0]
+        head_cx = float(hx.mean()) if len(hx) else fw / 2.0
+        head_hw = 18.0
+        fx = 1 if d == "E" else -1
+        sh = (head_cx - fx * 2.0, neck + 3.0)
+        tip = head_cx + fx * (head_hw * 0.50)
+        hand = (tip + fx * (8.0 * 0.12), neck + 2.0)
+        L1 = L2 = 15.0
+        dx, dy = hand[0] - sh[0], hand[1] - sh[1]
+        dd = math.hypot(dx, dy) or 1.0
+        dd2 = min(dd, L1 + L2 - 0.05)
+        a_len = (L1 * L1 - L2 * L2 + dd2 * dd2) / (2 * dd2)
+        hh = math.sqrt(max(L1 * L1 - a_len * a_len, 0.0))
+        ux, uy = dx / dd, dy / dd
+        cands = []
+        for bend in (1, -1):
+            px, py = -uy * bend, ux * bend
+            el = (sh[0] + ux * a_len + px * hh, sh[1] + uy * a_len + py * hh)
+            cands.append(el)
+        el = cands[0] if cands[0][1] >= cands[1][1] else cands[1]
+        el = (el[0], max(el[1], sh[1] + 6.0))
+        ua = math.hypot(el[0] - sh[0], el[1] - sh[1])
+        fa = math.hypot(hand[0] - el[0], hand[1] - el[1])
+        lengths[d] = (ua, fa)
+    return lengths
+
+for d, (ua, fa) in _profile_seg_lengths().items():
+    if not (13.0 <= ua <= 17.5 and 13.0 <= fa <= 17.5):
+        print(f"{d}: profile arm segs out of range UA={ua:.1f} FA={fa:.1f} (want ~14–16 each)")
+        bad += 1
+    elif abs(ua - fa) > 3.0:
+        print(f"{d}: profile UA/FA unbalanced {ua:.1f}/{fa:.1f} (want roughly equal)")
+        bad += 1
+
 print("boxer consistency: problems =", bad)
 raise SystemExit(1 if bad else 0)

@@ -693,10 +693,11 @@ def guard_hand(sh, direction, side, bounce=0.0, gr=8.0, g=None):
     s = side or 1
     if direction in PROFILE:
         fx = PROFILE[direction]
-        # Fist in front of the face (past the nose) but not stretched — keep
-        # total arm length close to the front-view guard.
+        # Fist in front of the chin/jaw. Height chosen so equal UA/FA ≈ 15
+        # IK puts the elbow under the shoulder at the ribs (not a long
+        # vertical forearm with a stubby upper arm).
         tip = cx + fx * (hw * 0.48)
-        return (tip + fx * (gr * 0.20), mouth_y + 1.5)
+        return (tip + fx * (gr * 0.12), neck + 2.0 + bounce * 0.35)
     if direction == "N":
         # Just past each ear so a thin glove sliver peeks after the opaque
         # back/head stamp covers everything in front of the body.
@@ -714,6 +715,7 @@ def guard_hand(sh, direction, side, bounce=0.0, gr=8.0, g=None):
 
 
 JAB_REACH = [11.0, 15.5, 21.5, 27.0, 17.5, 12.0]
+JAB_REACH_PROFILE = [10.0, 14.0, 19.0, 24.0, 15.5, 11.0]
 JAB_ANG = {
     "profile": [-48, -28, -8, 4, -16, -42],
     "front":   [-60, -38, -14, 0, -20, -54],
@@ -727,16 +729,19 @@ def jab_pose(direction, p_idx, side):
     if direction in PROFILE:
         angs = JAB_ANG["profile"]
         s = PROFILE[direction]
+        reach = JAB_REACH_PROFILE
     elif direction in FRONT or direction == "S":
         angs = JAB_ANG["front"]
         s = side or 1
+        reach = JAB_REACH
     else:
         angs = JAB_ANG["back"]
         s = side or 1
+        reach = JAB_REACH
     a = angs[p_idx]
     if s < 0:
         a = 180 - a
-    return math.radians(a), JAB_REACH[p_idx]
+    return math.radians(a), reach[p_idx]
 
 
 def jab_hand(g, direction, side, p_idx, gr):
@@ -812,11 +817,17 @@ def guard_elbow_target(sh, hand, direction, side, head_cx):
     """
     s = side or 1
     if direction in PROFILE:
-        fx = PROFILE[direction]
-        # Bent elbow at the ribs — slight rear for a readable L, but short
-        # enough that UA+FA match the other directions (~11 / ~12–14).
-        ex = sh[0] + fx * 0.5
-        ey = sh[1] + 9.5
+        # Equal upper-arm / forearm (~15 each). Down-bent IK between
+        # shoulder and glove so the elbow sits at the upper ribs with the
+        # fist still in front of the face (Jim: not 9.5 / 23).
+        L = 15.0
+        e1 = ik(sh, hand, L, L, 1)
+        e2 = ik(sh, hand, L, L, -1)
+        el = e1 if e1[1] >= e2[1] else e2
+        ex, ey = el[0], el[1]
+        # Keep the bend clearly below the shoulder (readable L / V).
+        ey = max(ey, sh[1] + 6.0)
+        return (ex, ey)
     elif direction == "N":
         # Almost straight under the deltoid — hang close to the torso.
         # Only a hair outward so the elbow reads at the lat edge, not flared.
@@ -843,7 +854,7 @@ def draw_arm(size, sh, hand, skin, gr, jabbing=False, head_cx=None,
     Jab: straighten toward the punch while keeping a readable bend early on.
     """
     # Segment lengths guide jab IK only; guard elbows use an explicit target.
-    L1, L2 = 13.0, 16.0
+    L1, L2 = 15.0, 15.0
     e1 = ik(sh, hand, L1, L2, 1)
     e2 = ik(sh, hand, L1, L2, -1)
     cx = head_cx if head_cx is not None else sh[0]
@@ -870,7 +881,12 @@ def draw_arm(size, sh, hand, skin, gr, jabbing=False, head_cx=None,
         # front of the face, so do not let IK pull the joint back out.
         tgt = guard_elbow_target(sh, hand, direction or "S",
                                  side if side is not None else 1, cx)
-        elbow = (tgt[0], max(tgt[1], sh[1] + 9.0))
+        if direction in PROFILE:
+            # Equal-seg IK already places the elbow below the shoulder; do not
+            # shove it further down (that stretches FA relative to UA).
+            elbow = (tgt[0], max(tgt[1], sh[1] + 6.0))
+        else:
+            elbow = (tgt[0], max(tgt[1], sh[1] + 9.0))
         # Tiny outward clamp relative to the shoulder — keep "slightly out"
         # but never a horizontal flare past ~4px from the shoulder.
         s = side if side is not None else (1 if elbow[0] >= sh[0] else -1)
