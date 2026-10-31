@@ -4,7 +4,7 @@ across standing frames within a direction; head ratio chibi-like; NW tag
 mirrors NE (jab extends opposite ways); no hanging base-arm skin outside
 the glove-arm masks at hip/side level; idle/walk/run high peek-a-boo guard
 (gloves cover mouth, eyes clear); bare torso is peach skin (not tee grey)
-matching face tone; no glove pixels over the head on N/NE/NW."""
+matching face tone; no glove pixels over the head on N/NE/NW; back torso interior is skin/trunk only (no see-through gloves/cuffs)."""
 import json
 from pathlib import Path
 
@@ -395,20 +395,105 @@ for r, d in enumerate(m["directions"]):
         # Inset so a side peek does not fail the check. On NE/NW the near
         # glove may legitimately peek past the facing face edge.
         hy, hx = np.nonzero(hair)
-        lo, hi = int(hx.min()) + 4, int(hx.max()) - 3
+        # Deep interior only — edge peeks past the ears/shoulders are intended.
+        lo, hi = int(hx.min()) + 8, int(hx.max()) - 8
         if d == "NE":
-            hi = int(hx.max()) - 12  # facing east: allow peek on right
+            hi = int(hx.max()) - 14  # facing east: allow peek on right
         elif d == "NW":
-            lo = int(hx.min()) + 12  # facing west: allow peek on left
+            lo = int(hx.min()) + 14  # facing west: allow peek on left
+        elif d == "N":
+            # Jim wants thin glove slivers past both sides; keep deep core clear.
+            lo, hi = int(hx.min()) + 14, int(hx.max()) - 14
         if lo >= hi:
             continue
         interior = np.zeros((fh, fw), dtype=bool)
         interior[hy.min(): hy.max() + 1, lo:hi] = True
         overlap = int((glove & interior & (yy <= neck_y)).sum())
-        # N: essentially zero; NE/NW may keep a small facing-side sliver.
-        limit = 2 if d == "N" else 16
+        # Thin side slivers OK; deep skull interior must stay clear.
+        limit = 6 if d == "N" else 16
         if overlap > limit:
             print(f"{d} col {c}: {overlap} glove px over head interior (want behind head)")
+            bad += 1
+
+
+# Back views: torso interior must be opaque skin/trunk only — no glove, cuff,
+# or forearm showing through the back (Jim: body must not be see-through).
+def is_cuff_px(rgb, a):
+    """White glove cuff only — not peach skin highlights or gold trim."""
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    lum = (r + g + b) / 3.0
+    near_white = (np.abs(r - g) < 25) & (np.abs(g - b) < 30) & (np.abs(r - b) < 30)
+    return (a > 100) & (lum >= 210) & (b > 200) & (r > 200) & (g > 200) & near_white
+
+
+def is_skin_or_trunk(rgb, a):
+    """Accept peach skin, trunk red/gold/white, hair-brown, shoe — not glove."""
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    lum = (r + g + b) / 3.0
+    peach = (a > 100) & (r > 120) & (r > b + 12) & (r > g + 4) & (g > 50) & (b > 35) & (lum < 210)
+    trunk_red = (a > 100) & (r > 90) & (r > g + 20) & (r > b + 20) & (g < 140)
+    gold = (a > 100) & (r > 170) & (g > 130) & (b < 140) & (r - b > 60)
+    white = (a > 100) & ((lum >= 160) | ((r > 180) & (g > 180) & (b > 170)))
+    hair = (a > 100) & (r < 140) & (g < 110) & (b < 90) & (r > 25)
+    line = (a > 100) & (r < 90) & (g < 70) & (b < 60)
+    return peach | trunk_red | gold | white | hair | line
+
+
+for r, d in enumerate(m["directions"]):
+    if d not in ("N", "NE", "NW"):
+        continue
+    for c in range(im.shape[1] // fw):
+        if c not in check_cols:
+            continue
+        # Skip mid-jab frames (arm extends past the body legitimately).
+        if tag and c not in tag_cols and c >= tag["start"] and c < tag["start"] + tag["count"]:
+            continue
+        f = im[r * fh:(r + 1) * fh, c * fw:(c + 1) * fw]
+        a = f[..., 3] >= 200
+        if not a.any():
+            continue
+        rgb = f[..., :3].astype(int)
+        al = f[..., 3]
+        # Strict glove (peach skin must not count).
+        rr, gch, bb = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+        glove = (
+            (al > 100) & (rr > 180) & (gch < 80) & (rr - gch > 100) & (rr - bb > 90)
+        )
+        cuff = is_cuff_px(rgb, al)
+        # Torso band: below neck, ABOVE waistband (trunk red ≈ glove red).
+        # Interior inset excludes side upper-arm silhouette.
+        y0 = pad + 54
+        y1 = pad + 68
+        interior = np.zeros((fh, fw), dtype=bool)
+        for y in range(y0, min(y1, fh)):
+            xs = np.nonzero(a[y])[0]
+            if len(xs) < 12:
+                continue
+            lo, hi = int(xs.min()) + 6, int(xs.max()) - 6
+            if lo < hi:
+                interior[y, lo:hi + 1] = True
+        leak = interior & (glove | cuff)
+        n_leak = int(leak.sum())
+        if n_leak > 4:
+            print(f"{d} col {c}: {n_leak} glove/cuff px inside back torso (see-through)")
+            bad += 1
+        # Also flag non-skin/trunk junk in the deep interior (inset further).
+        deep = np.zeros((fh, fw), dtype=bool)
+        for y in range(y0, min(y1, fh)):
+            xs = np.nonzero(a[y])[0]
+            if len(xs) < 14:
+                continue
+            lo, hi = int(xs.min()) + 6, int(xs.max()) - 6
+            if lo < hi:
+                deep[y, lo:hi + 1] = True
+        ok = is_skin_or_trunk(rgb, al)
+        junk = deep & a & ~ok & ~glove  # glove already counted
+        # Ignore near-black outline crumbs
+        rr, gg, bb = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+        junk &= (rr + gg + bb) > 60
+        n_junk = int(junk.sum())
+        if n_junk > 8:
+            print(f"{d} col {c}: {n_junk} non-skin/trunk px in back torso interior")
             bad += 1
 
 print("glove px median", {d: int(np.median(v)) for d, v in glove_counts.items()})
