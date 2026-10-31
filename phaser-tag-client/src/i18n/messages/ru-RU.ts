@@ -122,6 +122,8 @@ export const ruRU: Messages = {
   "skin.cobra.note": "Ш-ш-шустрый! Ты водишь!",
   "skin.billy": "Billy",
   "skin.billy.note": "Друг Джеймса",
+  "skin.boxer": "Боксёр Джеймс",
+  "skin.boxer.note": "Порхай как бабочка, отмечай как пчела.",
   "settings.credits.heading": "Авторы",
   "credits.bio": "Эту игру сделал James, программист из Нью-Йорка (ещё известный под кучей других имён: Jim, Jimbo, Jimothy и Sir Jims-a-lot).",
   "credits.linkedinLead": "Добавляйся ко мне в LinkedIn:",

@@ -122,6 +122,8 @@ export const itIT: Messages = {
   "skin.cobra.note": "Sss-uper veloce. Ce l'hai tu!",
   "skin.billy": "Billy",
   "skin.billy.note": "Amico di James",
+  "skin.boxer": "James Pugile",
+  "skin.boxer.note": "Vola come una farfalla, tocca come un'ape.",
   "settings.credits.heading": "Crediti",
   "credits.bio": "Questo gioco è stato creato da James, un ingegnere del software che vive a New York (conosciuto anche con tanti altri nomi come Jim, Jimbo, Jimothy e Sir Jims-a-lot).",
   "credits.linkedinLead": "Collegati pure con me su LinkedIn:",

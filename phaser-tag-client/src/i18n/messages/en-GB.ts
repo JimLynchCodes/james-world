@@ -13,6 +13,8 @@ export const enGB: Partial<Messages> = {
   "skin.cobra.note": "Hiss-terically fast. You're it!",
   "skin.billy": "Billy",
   "skin.billy.note": "James's Friend",
+  "skin.boxer": "Boxer James",
+  "skin.boxer.note": "Float like a butterfly, tag like a bee.",
   "settings.sound.moodHelp": "The mood chooses the background music.",
   "mood.chillin.blurb": "Lo-fi hip-hop loop",
   "credits.githubLead": "Have a look at the source code for this game, fork it, and give it a star! 😉",

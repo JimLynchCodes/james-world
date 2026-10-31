@@ -66,6 +66,8 @@ export const esES: Partial<Messages> = {
   "skin.cobra.note": "¡Sss-úper rápido! ¡Tú la llevas!",
   "skin.billy": "Billy",
   "skin.billy.note": "Amigo de James",
+  "skin.boxer": "James Boxeador",
+  "skin.boxer.note": "Flota como una mariposa, etiqueta como una abeja.",
 
   "credits.bio":
     "Este juego lo ha hecho James, un ingeniero de software que vive en Nueva York (también conocido como Jim, Jimbo, Jimothy y Sir Jims-a-lot).",

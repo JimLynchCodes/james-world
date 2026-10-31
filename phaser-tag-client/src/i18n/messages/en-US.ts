@@ -137,6 +137,8 @@ export const enUS = {
   "skin.cobra.note": "Hiss-terically fast. You're it!",
   "skin.billy": "Billy",
   "skin.billy.note": "James's Friend",
+  "skin.boxer": "Boxer James",
+  "skin.boxer.note": "Float like a butterfly, tag like a bee.",
 
   "settings.credits.heading": "Credits",
   "credits.bio":

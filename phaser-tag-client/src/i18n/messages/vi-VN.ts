@@ -122,6 +122,8 @@ export const viVN: Messages = {
   "skin.cobra.note": "Xì xì, nhanh như chớp. Tới lượt bạn!",
   "skin.billy": "Billy",
   "skin.billy.note": "Bạn của James",
+  "skin.boxer": "James Võ Sĩ",
+  "skin.boxer.note": "Bay như bướm, chạm như ong.",
   "settings.credits.heading": "Ghi công",
   "credits.bio": "Trò chơi này do James làm, một kỹ sư phần mềm sống ở thành phố New York (còn được biết đến với nhiều tên khác như Jim, Jimbo, Jimothy và Sir Jims-a-lot).",
   "credits.linkedinLead": "Cứ thoải mái kết nối với mình trên LinkedIn:",
