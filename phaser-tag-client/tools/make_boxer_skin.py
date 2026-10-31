@@ -666,24 +666,25 @@ def glove_radius(g):
 
 
 def shoulder(g, direction, side):
-    # Slightly raised for peek-a-boo.
+    """Attach at the deltoid — not flared out past the torso."""
+    s = side or 1
     if direction in PROFILE:
-        # Sit the shoulder on the chest (slightly rear of center) so the
-        # forearm clearly runs forward to a glove in front of the face.
-        return (g.head_cx - PROFILE[direction] * 2.5, g.neck + 3.5)
+        # Slightly rear of center so the forearm runs forward past the nose.
+        return (g.head_cx - PROFILE[direction] * 2.0, g.neck + 3.0)
     if direction in BACK or direction == "N":
-        # Flare shoulders so elbows read outside the torso when hands are
-        # tucked under the head (forward guard from behind).
-        return (g.head_cx + (side or 1) * 9.0, g.neck + 3.5)
-    return (g.head_cx + (side or 1) * 6.6, g.neck + 2.2)
+        # On the outer deltoid of the back — upper arm hangs straight down
+        # hugging the lat (no gap that reads as a chicken wing).
+        return (g.head_cx + s * 7.5, g.neck + 3.5)
+    # Front / ¾
+    return (g.head_cx + s * 6.8, g.neck + 2.5)
 
 
 def guard_hand(sh, direction, side, bounce=0.0, gr=8.0, g=None):
-    """Tight peek-a-boo: gloves cover mouth/chin; eyes clear.
+    """Tight peek-a-boo: gloves at mouth/chin; elbows hang DOWN (not flared).
 
     Profile: glove in FRONT of the face, past the nose on the facing side.
-    Back (N/NE/NW): hands sit at the mouth (under the head); the head layer
-    is stamped over them so only elbows / a side peek remain.
+    Back (N/NE/NW): hands under each side of the skull (not centered) so the
+    short visible forearm stubs hang nearly vertical — no inward diamond.
     """
     neck = g.neck if g is not None else sh[1] - 2.2
     cx = g.head_cx if g is not None else sh[0]
@@ -692,25 +693,24 @@ def guard_hand(sh, direction, side, bounce=0.0, gr=8.0, g=None):
     s = side or 1
     if direction in PROFILE:
         fx = PROFILE[direction]
-        # Nose tip ≈ facing edge of the head; put the fist past it so the
-        # glove clearly protrudes forward of the mouth/nose.
-        tip = cx + fx * (hw * 1.05)
-        return (tip + fx * (gr * 0.55), mouth_y)
+        # Fist past the nose so the glove clearly sits in front of the face.
+        tip = cx + fx * (hw * 0.95)
+        return (tip + fx * (gr * 0.45), mouth_y + 1.0)
     if direction == "N":
-        # Deep under the skull — fully occluded; elbows flare from shoulders.
-        return (cx + s * (gr * 0.12), mouth_y + 3.5)
+        # Deep under the skull, X-aligned with the hanging upper arm so any
+        # leftover stub is vertical (not an inward diamond / chicken wing).
+        return (sh[0] + s * 0.3, mouth_y + 4.0)
     if direction in BACK:
-        # Chin / cheek height (wider head) so the crown does not fight the gloves.
+        # Chin under the head; stay inside the skull so stamp_head covers them.
         chin_y = neck - 4.0 + bounce * 0.35
         facing = BACK[direction]
         if s == facing:
-            # Near glove tucked under the cheek; a sliver may survive past the
-            # face edge after the head stamp.
-            return (cx + s * (hw * 0.55), chin_y)
-        return (cx + s * (gr * 0.15), chin_y + 1.0)
+            # Slight peek allowed on the facing cheek for NE/NW.
+            return (cx + s * (hw * 0.40), chin_y)
+        return (cx + s * (hw * 0.20), chin_y + 0.5)
     # Front / ¾: fists nearly touching in front of the mouth.
     face_bias = FRONT.get(direction, 0) * 1.0
-    return (cx + s * (gr * 0.90) + face_bias, mouth_y)
+    return (cx + s * (gr * 0.85) + face_bias, mouth_y)
 
 
 JAB_REACH = [11.0, 15.5, 21.5, 27.0, 17.5, 12.0]
@@ -802,10 +802,48 @@ def glove_parts(sh, elbow, hand, skin, gr, jabbing=False):
     ]
 
 
-def draw_arm(size, sh, hand, skin, gr, jabbing=False, head_cx=None):
-    # Long enough for a forward profile guard (fist past the nose) and a
-    # high peek-a-boo on the front views.
-    L1, L2 = 13.5, 12.5
+def guard_elbow_target(sh, hand, direction, side, head_cx):
+    """Elbow DOWN and only slightly out — no chicken-wing flare.
+
+    Upper arm hangs from the shoulder close to the torso to about the
+    bottom of the ribs/lats; forearm then angles up/forward to the glove.
+    From behind: hanging upper arms + tucked side elbows (no horizontal flare).
+    Profile: clear V/L — upper arm down, forearm up/forward to the glove.
+    """
+    s = side or 1
+    if direction in PROFILE:
+        fx = PROFILE[direction]
+        # Down and clearly REAR of the shoulder — readable L/V: upper arm
+        # down to bottom of ribs, forearm forward-up past the nose.
+        ex = sh[0] - fx * 4.5
+        ey = sh[1] + 13.0
+    elif direction == "N":
+        # Almost straight under the deltoid — hang close to the torso.
+        # Only a hair outward so the elbow reads at the lat edge, not flared.
+        ex = sh[0] + s * 0.5
+        ey = sh[1] + 11.5
+    elif direction in BACK:
+        # NE/NW: hang down the lat, slightly out, elbows at bottom of ribs.
+        ex = sh[0] + s * 1.0
+        ey = sh[1] + 11.5
+    else:
+        # Front / ¾: elbows tucked down at the sides of the ribcage.
+        ex = sh[0] + s * 1.0
+        ey = sh[1] + 11.5
+    # Always below the shoulder so the bend reads as down-then-up.
+    ey = max(ey, sh[1] + 9.0)
+    return (ex, ey)
+
+
+def draw_arm(size, sh, hand, skin, gr, jabbing=False, head_cx=None,
+             direction=None, side=None):
+    """Draw a complete shoulder→elbow→glove arm.
+
+    Guard: elbows hang DOWN and slightly out (Jim: no chicken-wing flare).
+    Jab: straighten toward the punch while keeping a readable bend early on.
+    """
+    # Segment lengths guide jab IK only; guard elbows use an explicit target.
+    L1, L2 = 13.0, 16.0
     e1 = ik(sh, hand, L1, L2, 1)
     e2 = ik(sh, hand, L1, L2, -1)
     cx = head_cx if head_cx is not None else sh[0]
@@ -818,11 +856,73 @@ def draw_arm(size, sh, hand, skin, gr, jabbing=False, head_cx=None):
         t = 0.45
         mid = (sh[0] + (hand[0] - sh[0]) * t, sh[1] + (hand[1] - sh[1]) * t)
         elbow = (elbow[0] * 0.35 + mid[0] * 0.65, elbow[1] * 0.35 + mid[1] * 0.65)
+        # Keep a readable downward bend on partial extensions.
+        if direction is not None:
+            tgt = guard_elbow_target(sh, hand, direction, side if side is not None else 1, cx)
+            reach = math.hypot(hand[0] - sh[0], hand[1] - sh[1])
+            t_ext = max(0.0, min(1.0, (reach - 10.0) / 18.0))
+            k = 0.55 * (1.0 - t_ext)
+            elbow = (elbow[0] * (1 - k) + tgt[0] * k,
+                     max(elbow[1] * (1 - k) + tgt[1] * k, sh[1] + 4.0))
     else:
-        # Peek-a-boo: prefer the elbow that sits lower AND more lateral (ribs).
-        def tuck(e):
-            return e[1] * 1.4 + abs(e[0] - cx) * 0.8
-        elbow = e1 if tuck(e1) >= tuck(e2) else e2
+        # Guard pose: lock the elbow to the down-tucked target. Pure IK
+        # prefers a high/lateral "chicken-wing" when the glove sits high in
+        # front of the face, so do not let IK pull the joint back out.
+        tgt = guard_elbow_target(sh, hand, direction or "S",
+                                 side if side is not None else 1, cx)
+        elbow = (tgt[0], max(tgt[1], sh[1] + 9.0))
+        # Tiny outward clamp relative to the shoulder — keep "slightly out"
+        # but never a horizontal flare past ~4px from the shoulder.
+        s = side if side is not None else (1 if elbow[0] >= sh[0] else -1)
+        if direction not in PROFILE:
+            max_out = abs(sh[0] - cx) + 4.0
+            if abs(elbow[0] - cx) > max_out:
+                elbow = (cx + math.copysign(max_out, elbow[0] - cx), elbow[1])
+            # Never allow an inboard elbow on back/front (diamond silhouette).
+            if direction in BACK or direction == "N" or direction in FRONT or direction == "S":
+                # Keep a hair outside the shoulder so the arm doesn't collapse
+                # into the torso, but allow the tight N tuck (0.5px).
+                min_out = 0.4 if direction == "N" else 0.8
+                if s > 0 and elbow[0] < sh[0] + min_out:
+                    elbow = (sh[0] + min_out, elbow[1])
+                if s < 0 and elbow[0] > sh[0] - min_out:
+                    elbow = (sh[0] - min_out, elbow[1])
+    # Back views: only a short forearm stub should show below the head.
+    # Aim the capsule at a point on the shoulder→hand segment near the neck
+    # so the visible bend is upper-arm + elbow, not a long inward diamond.
+    draw_hand = hand
+    if (not jabbing) and direction is not None and (direction in BACK or direction == "N"):
+        skin2 = tuple(int(v * 0.86) for v in skin)
+        skin3 = tuple(int(v * 0.80) for v in skin)
+        real = glove_parts(sh, elbow, hand, skin, gr, False)
+        if direction == "N":
+            # Pure back: only hanging upper arms + tucked elbow caps.
+            # No forearm tubes (they read as chicken-wing diamonds). Gloves
+            # stay under the skull and get stamped over.
+            u0, u1 = 5.2, 4.6
+            mid = (sh[0] * 0.55 + elbow[0] * 0.45, sh[1] * 0.55 + elbow[1] * 0.45)
+            tubes = [
+                (capsule_fn(sh, u0, elbow, u1), skin),
+                (capsule_fn(sh, u0 * 0.55, elbow, u1 * 0.55), skin2),
+                (disc_fn(mid, u0 * 0.35), skin3),
+                (disc_fn(elbow, 3.6), skin),
+                (disc_fn(elbow, 2.2), skin2),
+            ]
+            parts = tubes + real[5:]
+            return shapes_layer(size, parts, ARM_LINE, 1.0)
+        # NE/NW: short vertical-ish forearm stub only.
+        neck_y = sh[1] - 3.0
+        dy = hand[1] - elbow[1]
+        if abs(dy) > 1.0 and hand[1] < neck_y:
+            t = (neck_y - elbow[1]) / dy
+            t = max(0.12, min(0.40, t))
+            # Bias stub X toward the elbow so it hangs up, not inward.
+            stub = (elbow[0] * 0.75 + hand[0] * 0.25,
+                    elbow[1] + (hand[1] - elbow[1]) * t)
+            arm_only = glove_parts(sh, elbow, stub, skin, max(3.0, gr * 0.35), False)
+            tubes = arm_only[:5]
+            parts = tubes + real[5:]
+            return shapes_layer(size, parts, ARM_LINE, 1.0)
     return shapes_layer(size, glove_parts(sh, elbow, hand, skin, gr, jabbing), ARM_LINE, 1.0)
 
 
@@ -995,15 +1095,20 @@ def stamp_head_over(res, rc, g, direction=None):
     )
     cuff = (a >= 200) & (rgb.sum(-1) / 3.0 > 200) & (yy < g.neck + 2) & (yy > g.neck - 30)
     band = (yy <= g.neck + 1) & (yy >= g.neck - 36)
-    half = g.head_hw * 1.05
+    # Pure N: wipe gloves across a generous head width so nothing peeks
+    # beside the ears (those peeks read as chicken-wing high elbows).
+    if direction == "N":
+        half = g.head_hw * 1.35
+    else:
+        half = g.head_hw * 1.05
     span = (xx >= g.head_cx - half) & (xx <= g.head_cx + half)
     # NE/NW: leave a peek strip past the facing face edge.
     if direction in ("NE", "NW"):
         facing = BACK[direction]
         if facing > 0:
-            span &= xx <= g.head_cx + g.head_hw * 0.90
+            span &= xx <= g.head_cx + g.head_hw * 0.85
         else:
-            span &= xx >= g.head_cx - g.head_hw * 0.90
+            span &= xx >= g.head_cx - g.head_hw * 0.85
     # Also clear glove/cuff in the occluder but outside opaque hair (crown gap).
     hide = (band & span & (glove | cuff)) | (head & ~opaque & (glove | cuff))
     restore = hide & opaque
@@ -1052,20 +1157,29 @@ def boxify(frame, direction, anim, col, meta):
     if tag:
         n = rng["count"]
         p = min(k, n - 1)
+        # Start/end of the jab stay in the down-elbow guard; only mid frames
+        # straighten into the punch.
+        jabbing = JAB_BLEND[min(p, len(JAB_BLEND) - 1)] > 0.35
         if direction not in PROFILE:
             far = -side
             sh_f = shoulder(g, direction, far)
             hd_f = guard_hand(sh_f, direction, far, 0.0, gr, g)
-            out = over(out, down(draw_arm(size, sh_f, hd_f, skin, gr, False, g.head_cx)))
+            out = over(out, down(draw_arm(
+                size, sh_f, hd_f, skin, gr, False, g.head_cx,
+                direction=direction, side=far)))
         sh_n = shoulder(g, direction, side)
         hd_n = jab_hand(g, direction, side, p, gr)
-        out = over(out, down(draw_arm(size, sh_n, hd_n, skin, gr * 1.05, True, g.head_cx)))
+        out = over(out, down(draw_arm(
+            size, sh_n, hd_n, skin, gr * 1.05, jabbing, g.head_cx,
+            direction=direction, side=side)))
     else:
         show = [side] if direction in PROFILE else [1, -1]
         for s in show:
             sh = shoulder(g, direction, s)
             hd = guard_hand(sh, direction, s, bounce, gr, g)
-            out = over(out, down(draw_arm(size, sh, hd, skin, gr, False, g.head_cx)))
+            out = over(out, down(draw_arm(
+                size, sh, hd, skin, gr, False, g.head_cx,
+                direction=direction, side=s)))
 
     res = to_u8(out)
     res[res[..., 3] < 8] = 0
@@ -1110,30 +1224,47 @@ def boxify(frame, direction, anim, col, meta):
         res[bad & ~edge & ~reddish, :3] = TRIM
     # Final hip scrub AFTER solidify (which can re-bleed peach stubs). Convert
     # mid-tone peach beside the gold waistband into trunk red so the
-    # hanging-arm check stays clean. Brighter peach (lum>=160) is already
-    # ignored by the checker; our face-matched palette is darker.
+    # hanging-arm check stays clean. Match the consistency checker's gold
+    # waistband scan (pad+70..pad+84) so ¾-view narrow bands aren't missed.
     rr0 = res[..., 0].astype(np.float64)
     gg0 = res[..., 1].astype(np.float64)
     bb0 = res[..., 2].astype(np.float64)
     al0 = res[..., 3]
     gold0 = (al0 >= 128) & (rr0 > 180) & (gg0 > 140) & (bb0 < 140) & (rr0 - bb0 > 60)
-    wb_lo = wb_hi = None
-    for y in range(max(int(waist) - 2, 0), min(int(waist) + 5, h)):
+    wb_lo = wb_hi = wb_y = None
+    # Prefer the same Y window the checker uses (baseline pad ≈ PAD_TOP).
+    scan_lo = max(PAD_TOP + 70, 0)
+    scan_hi = min(PAD_TOP + 84, h)
+    for y in range(scan_lo, scan_hi):
         xs = np.nonzero(gold0[y])[0]
         if len(xs) >= 8:
-            wb_lo, wb_hi = int(xs.min()), int(xs.max())
+            wb_lo, wb_hi, wb_y = int(xs.min()), int(xs.max()), y
             break
+    if wb_lo is None:
+        for y in range(max(int(waist) - 2, 0), min(int(waist) + 5, h)):
+            xs = np.nonzero(gold0[y])[0]
+            if len(xs) >= 8:
+                wb_lo, wb_hi, wb_y = int(xs.min()), int(xs.max()), y
+                break
     if wb_lo is not None:
-        for y in range(max(int(waist) - 1, 0), min(int(waist) + 12, h)):
+        y_top = max(int(wb_y) - 4, 0)
+        y_bot = min(int(wb_y) + 12, h)
+        keep_lo = max(wb_lo - 2, 0)
+        keep_hi = min(wb_hi + 2, w - 1)
+        for y in range(y_top, y_bot):
             peach = (
-                (al0[y] >= 128) & (rr0[y] > 140) & (rr0[y] > bb0[y] + 20)
-                & (rr0[y] > gg0[y] + 8) & (gg0[y] > 70) & (bb0[y] > 50)
-                & ((rr0[y] + gg0[y] + bb0[y]) / 3.0 < 200)
+                (al0[y] >= 100) & (rr0[y] > 115) & (rr0[y] > bb0[y] + 12)
+                & (rr0[y] > gg0[y] + 4) & (gg0[y] > 50) & (bb0[y] > 35)
+                & ((rr0[y] + gg0[y] + bb0[y]) / 3.0 < 210)
+            )
+            line = (
+                (al0[y] >= 100) & (rr0[y] < 90) & (gg0[y] < 60) & (bb0[y] < 50)
+                & (rr0[y] >= gg0[y]) & (rr0[y] >= bb0[y])
             )
             # Skip saturated glove red
             peach &= ~((rr0[y] > 160) & (rr0[y] - gg0[y] > 70) & (gg0[y] < 110))
-            kill = peach.copy()
-            kill[max(wb_lo - 2, 0): min(wb_hi + 3, w)] = False
+            kill = peach | line
+            kill[keep_lo: keep_hi + 1] = False
             if kill.any():
                 res[y, kill, :3] = TRUNK
                 res[y, kill, 3] = 255
