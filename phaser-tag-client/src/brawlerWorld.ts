@@ -6,11 +6,20 @@ import Phaser from "phaser";
 import type { GameAudio } from "./audio";
 import { shouldPlayAttackAnim } from "./brawlerAttack";
 import {
+  parallaxOffsets,
+  stepBrawlerCamera,
+} from "./brawlerCamera";
+import {
   shouldBeginDeath,
   shouldBeginWin,
   shouldDrawBrawlerPeer,
   type BrawlerEnding,
 } from "./brawlerLeave";
+import {
+  buildBrawlerStage,
+  resizeParallax,
+  type ParallaxLayers,
+} from "./brawlerMap";
 import { toCosmetic, type Cosmetic } from "./cosmetics";
 import { onLocaleChange, t } from "./i18n";
 import { KidAvatar } from "./kid";
@@ -119,41 +128,26 @@ function enemyKey(kind: string): string {
   return "brawler-grunt";
 }
 
-function ensureBackdrop(scene: Phaser.Scene) {
-  if (scene.textures.exists("brawler-bg")) return;
-  const w = 640;
-  const h = 360;
-  const g = scene.make.graphics({ x: 0, y: 0 });
-  g.fillGradientStyle(0x6ec6ff, 0x6ec6ff, 0xffe0a8, 0xffc878, 1);
-  g.fillRect(0, 0, w, h);
-  g.fillStyle(0x88c060, 1);
-  g.fillRect(0, h * 0.55, w, h * 0.45);
-  for (let i = 0; i < 8; i++) {
-    const x = 40 + i * 80;
-    g.fillStyle(0x5a9a40, 1);
-    g.fillTriangle(x, h * 0.55, x + 30, h * 0.35, x + 60, h * 0.55);
-  }
-  g.fillStyle(0x5c4030, 1);
-  g.fillRect(0, h * 0.72, w, h * 0.28);
-  g.fillStyle(0x4a3224, 1);
-  for (let x = 0; x < w; x += 16) g.fillRect(x, h * 0.72, 8, 4);
-  g.generateTexture("brawler-bg", w, h);
-  g.destroy();
-}
-
 function ensureHudBar(scene: Phaser.Scene) {
   if (scene.textures.exists("brawler-bar-bg")) return;
   const g = scene.make.graphics({ x: 0, y: 0 });
-  g.fillStyle(0x111111, 0.85);
+  // Arcade life bar chrome: dark well + gold rim.
+  g.fillStyle(0x0a0a0a, 0.92);
   g.fillRoundedRect(0, 0, 200, 18, 4);
+  g.lineStyle(2, 0xffe680, 1);
+  g.strokeRoundedRect(1, 1, 198, 16, 4);
   g.generateTexture("brawler-bar-bg", 200, 18);
   g.clear();
   g.fillStyle(0x33cc55, 1);
   g.fillRoundedRect(0, 0, 196, 14, 3);
+  g.fillStyle(0x88ffaa, 0.45);
+  g.fillRoundedRect(0, 0, 196, 5, 2);
   g.generateTexture("brawler-bar-fill", 196, 14);
   g.clear();
   g.fillStyle(0xcc3344, 1);
   g.fillRoundedRect(0, 0, 196, 14, 3);
+  g.fillStyle(0xff8899, 0.4);
+  g.fillRoundedRect(0, 0, 196, 5, 2);
   g.generateTexture("brawler-boss-fill", 196, 14);
   g.destroy();
 }
@@ -165,7 +159,10 @@ export class BrawlerWorldScene extends Phaser.Scene {
   private localMaxHp = 100;
   private peers = new Map<UUID, Peer>();
   private enemies = new Map<number, Phaser.GameObjects.Image>();
-  private bg!: Phaser.GameObjects.TileSprite;
+  private layers!: ParallaxLayers;
+  private camX = 200;
+  private camY = 180;
+  private scrollMin = 0;
   private hudRoot!: Phaser.GameObjects.Container;
   private hpFill!: Phaser.GameObjects.Image;
   private hpLabel!: Phaser.GameObjects.Text;
@@ -193,30 +190,29 @@ export class BrawlerWorldScene extends Phaser.Scene {
     this.enemies.clear();
     this.ending = "none";
     this.left = false;
+    this.scrollMin = 0;
+    this.lockLeft = null;
+    this.lockRight = null;
+    this.camX = 200;
+    this.camY = 180;
   }
 
   create() {
-    this.cameras.main.setBackgroundColor("#6ec6ff");
+    this.cameras.main.setBackgroundColor("#5eb0ff");
     this.cameras.main.setBounds(0, 0, BRAWLER.w, 360);
     this.cameras.main.setRoundPixels(true);
+    // Disable built-in follow — we drive scroll with arcade group-cam logic.
+    this.cameras.main.stopFollow();
 
-    ensureBackdrop(this);
     ensureEnemyTextures(this);
     ensureHudBar(this);
 
-    this.bg = this.add
-      .tileSprite(0, 0, this.scale.width, this.scale.height, "brawler-bg")
-      .setOrigin(0, 0)
-      .setScrollFactor(0)
-      .setDepth(0);
-    this.add
-      .rectangle(BRAWLER.w / 2, BRAWLER.groundY + 40, BRAWLER.w, 120, 0x5c4030)
-      .setDepth(1);
-
-    // Soft lane markers
-    for (let x = 0; x < BRAWLER.w; x += 120) {
-      this.add.rectangle(x, BRAWLER.groundY + 8, 40, 4, 0x4a3224, 0.5).setDepth(1);
-    }
+    const stage = buildBrawlerStage(this);
+    this.layers = stage.layers;
+    this.camX = 200;
+    this.camY = 180;
+    this.scrollMin = 0;
+    this.cameras.main.centerOn(this.camX, this.camY);
 
     this.buildHud();
     // fillAlpha must be 1 — GameObject.alpha multiplies it; a 0 fill never shows.
@@ -245,11 +241,12 @@ export class BrawlerWorldScene extends Phaser.Scene {
 
   private onResize = () => {
     const { width, height } = this.scale;
-    this.bg?.setSize(width, height);
+    if (this.layers) resizeParallax(this.layers, width, height);
     this.fade?.setSize(width, height);
     this.hudRoot?.setPosition(12, 10);
     this.bossWrap?.setPosition(width / 2, 10);
     this.banner?.setPosition(width / 2, height * 0.4);
+    this.goLabel?.setPosition(width / 2, height * 0.28);
     this.cameras.main.setSize(width, height);
   };
 
@@ -403,18 +400,11 @@ export class BrawlerWorldScene extends Phaser.Scene {
       else peer.avatar.sprite.setAngle(0);
       peer.avatar.setDrawn(shouldDrawBrawlerPeer({ dead: p.dead, ending: this.ending }));
       peer.avatar.update();
+      // Y-sort like classic beat-'em-ups (lower feet = in front).
+      peer.avatar.sprite.setDepth(20 + p.y);
       if (p.id === this.localId) {
         this.localHp = p.hp;
         this.localMaxHp = p.max_hp;
-        let camX = p.x;
-        if (this.lockLeft != null && this.lockRight != null) {
-          const half = this.cameras.main.width / 2;
-          const min = this.lockLeft + half;
-          const max = this.lockRight - half;
-          camX = max >= min ? Phaser.Math.Clamp(p.x, min, max) : (this.lockLeft + this.lockRight) / 2;
-        }
-        this.cameras.main.centerOn(camX, 180);
-        this.bg.tilePositionX = camX * 0.25;
         // Belt-and-suspenders: if Died was missed, snapshot still starts the exit.
         if (shouldBeginDeath({ isLocal: true, dead: p.dead, ending: this.ending })) {
           this.beginDeath();
@@ -442,6 +432,7 @@ export class BrawlerWorldScene extends Phaser.Scene {
 
     this.lockLeft = snap.lock_left ?? null;
     this.lockRight = snap.lock_right ?? null;
+    this.scrollMin = snap.scroll_min ?? this.scrollMin;
     this.updateHud(snap);
   }
 
@@ -472,12 +463,13 @@ export class BrawlerWorldScene extends Phaser.Scene {
     img.setAlpha(e.hit_flash ? 0.7 : 1);
     if (e.hit_flash) img.setTint(0xffaaaa);
     else img.clearTint();
-    img.setDepth(10 + e.y / 10);
+    img.setDepth(20 + e.y);
   }
 
   private updateHud(snap: BrawlerSnapshotData) {
     const ratio = this.localMaxHp > 0 ? Math.max(0, this.localHp / this.localMaxHp) : 0;
-    this.hpFill.setScale(ratio, 1);
+    this.hpFill.setScale(Math.max(0.001, ratio), 1);
+    this.hpFill.setTint(ratio > 0.3 ? 0x33cc55 : ratio > 0.15 ? 0xcccc33 : 0xcc3344);
     this.waveLabel.setText(t("brawler.wave", { n: snap.wave }));
     const bossHp = snap.boss_hp;
     const bossMax = snap.boss_max_hp;
@@ -496,7 +488,8 @@ export class BrawlerWorldScene extends Phaser.Scene {
     }
   }
 
-  update(_time: number, _delta: number) {
+  update(_time: number, delta: number) {
+    this.stepCamera(delta / 1000);
     if (this.left || this.ending !== "none") return;
     const move = this.hooks.readMove();
     let dx = move.dx;
@@ -508,6 +501,44 @@ export class BrawlerWorldScene extends Phaser.Scene {
     }
     const attack = this.hooks.readAttack();
     this.hooks.sendInput(dx, dy, attack);
+  }
+
+  /** Smooth group-follow camera with lock / scroll_min / parallax. */
+  private stepCamera(dtSec: number) {
+    const players = [...this.peers.values()].map(p => ({
+      x: p.snap.x,
+      y: p.snap.y,
+      dead: p.snap.dead,
+    }));
+    const local = this.localId ? this.peers.get(this.localId) : null;
+    const fallbackX = local?.snap.x ?? this.camX;
+    const fallbackY = local?.snap.y ?? BRAWLER.groundY;
+    const next = stepBrawlerCamera({
+      currentX: this.camX,
+      currentY: this.camY,
+      players,
+      fallbackX,
+      fallbackY,
+      lock: {
+        scrollMin: this.scrollMin,
+        lockLeft: this.lockLeft,
+        lockRight: this.lockRight,
+        worldW: BRAWLER.w,
+        viewW: this.cameras.main.width,
+        viewCenterY: 180,
+      },
+      dtSec,
+    });
+    // Round to whole pixels after lerp to kill sub-pixel jitter on sprites.
+    this.camX = next.x;
+    this.camY = next.y;
+    this.cameras.main.centerOn(Math.round(this.camX), Math.round(this.camY));
+    if (this.layers) {
+      const o = parallaxOffsets(this.camX, this.cameras.main.width);
+      this.layers.far.tilePositionX = o.far;
+      this.layers.mid.tilePositionX = o.mid;
+      this.layers.ground.tilePositionX = o.near;
+    }
   }
 
   private beginDeath() {

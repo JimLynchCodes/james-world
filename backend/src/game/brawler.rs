@@ -174,6 +174,8 @@ pub struct BrawlerSnapshot {
     /// While fighting, players/camera are clamped to this band (inclusive).
     pub lock_left: Option<f32>,
     pub lock_right: Option<f32>,
+    /// Leftmost camera/player fence — never scrolls or walks back past this.
+    pub scroll_min: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,6 +201,8 @@ pub struct BrawlerWorld {
     pub lock_right: Option<f32>,
     /// Wave just cleared; show GO until the next trigger fires.
     pub show_go: bool,
+    /// Progress fence: players and camera cannot go left of this.
+    pub scroll_min: f32,
 }
 
 impl BrawlerWorld {
@@ -264,7 +268,10 @@ impl BrawlerWorld {
                 Some(acc.map_or(x, |a| a.max(x)))
             });
         match furthest {
-            Some(fx) => ((fx - SPAWN_BEHIND).max(20.0), GROUND_Y),
+            Some(fx) => (
+                (fx - SPAWN_BEHIND).max(self.scroll_min).max(20.0),
+                GROUND_Y,
+            ),
             None => (START_X, GROUND_Y),
         }
     }
@@ -346,7 +353,11 @@ impl BrawlerWorld {
     }
 
     fn tick_player(&mut self, id: Uuid, dt: f32) {
-        let min_x = self.lock_left.unwrap_or(20.0).max(20.0);
+        let min_x = self
+            .lock_left
+            .unwrap_or(20.0)
+            .max(self.scroll_min)
+            .max(20.0);
         let max_x = self.lock_right.unwrap_or(WORLD_W - 20.0).min(WORLD_W - 20.0);
 
         let Some(p) = self.players.get_mut(&id) else {
@@ -444,8 +455,9 @@ impl BrawlerWorld {
             return;
         }
 
-        let min_x = self.lock_left.unwrap_or(20.0).max(20.0);
-        let max_x = self.lock_right.unwrap_or(WORLD_W - 20.0).min(WORLD_W - 20.0);
+        // Allow a margin so off-screen spawns can walk into the fight band.
+        let min_x = (self.lock_left.unwrap_or(20.0) - ENTER_FROM).max(0.0);
+        let max_x = (self.lock_right.unwrap_or(WORLD_W - 20.0) + ENTER_FROM).min(WORLD_W);
         let mut hits: Vec<(Uuid, f32)> = Vec::new();
 
         for enemy in &mut self.enemies {
@@ -508,8 +520,11 @@ impl BrawlerWorld {
             return;
         }
 
-        // Wave just cleared → unlock, show GO, wait for the next trigger.
+        // Wave just cleared → raise progress fence, unlock, show GO.
         if self.lock_right.is_some() && self.enemies.is_empty() && self.waves_spawned > 0 {
+            if let Some(left) = self.lock_left {
+                self.scroll_min = self.scroll_min.max(left);
+            }
             self.lock_left = None;
             self.lock_right = None;
             if self.waves_spawned < 5 && !self.boss_defeated() {
@@ -556,48 +571,54 @@ impl BrawlerWorld {
         let gate = segment_trigger(wave);
         let left = (gate - 100.0).max(20.0);
         let right = (gate + FIGHT_WIDTH).min(WORLD_W - 20.0);
-        // Enter from the right edge of the fight band (still inside the lock).
-        let edge = right - 30.0;
+        // Arcade entrance: pour in from just off the right (and a few from the left).
+        let right_in = right + ENTER_FROM;
+        let left_in = left - ENTER_FROM;
         let pack: Vec<(EnemyKind, f32, f32)> = match wave {
             1 => vec![
-                (EnemyKind::Grunt, edge, GROUND_Y - 10.0),
-                (EnemyKind::Grunt, edge - 40.0, GROUND_Y + 10.0),
-                (EnemyKind::Grunt, edge - 80.0, GROUND_Y),
+                (EnemyKind::Grunt, right_in, GROUND_Y - 10.0),
+                (EnemyKind::Grunt, right_in + 30.0, GROUND_Y + 10.0),
+                (EnemyKind::Grunt, right_in + 60.0, GROUND_Y),
             ],
             2 => vec![
-                (EnemyKind::Grunt, edge, GROUND_Y - 15.0),
-                (EnemyKind::Grunt, edge - 35.0, GROUND_Y + 15.0),
-                (EnemyKind::Bruiser, edge - 70.0, GROUND_Y),
-                (EnemyKind::Swift, edge - 110.0, GROUND_Y - 8.0),
+                (EnemyKind::Grunt, right_in, GROUND_Y - 15.0),
+                (EnemyKind::Grunt, right_in + 40.0, GROUND_Y + 15.0),
+                (EnemyKind::Bruiser, right_in + 70.0, GROUND_Y),
+                (EnemyKind::Swift, left_in, GROUND_Y - 8.0),
             ],
             3 => vec![
-                (EnemyKind::Swift, edge, GROUND_Y - 20.0),
-                (EnemyKind::Swift, edge - 30.0, GROUND_Y + 20.0),
-                (EnemyKind::Bruiser, edge - 65.0, GROUND_Y - 5.0),
-                (EnemyKind::Bruiser, edge - 100.0, GROUND_Y + 10.0),
-                (EnemyKind::Grunt, edge - 140.0, GROUND_Y),
+                (EnemyKind::Swift, right_in, GROUND_Y - 20.0),
+                (EnemyKind::Swift, right_in + 35.0, GROUND_Y + 20.0),
+                (EnemyKind::Bruiser, right_in + 65.0, GROUND_Y - 5.0),
+                (EnemyKind::Bruiser, left_in, GROUND_Y + 10.0),
+                (EnemyKind::Grunt, left_in - 30.0, GROUND_Y),
             ],
             4 => vec![
-                (EnemyKind::Bruiser, edge, GROUND_Y),
-                (EnemyKind::Bruiser, edge - 40.0, GROUND_Y - 18.0),
-                (EnemyKind::Swift, edge - 80.0, GROUND_Y + 18.0),
-                (EnemyKind::Swift, edge - 110.0, GROUND_Y),
-                (EnemyKind::Grunt, edge - 145.0, GROUND_Y - 12.0),
-                (EnemyKind::Grunt, edge - 175.0, GROUND_Y + 12.0),
+                (EnemyKind::Bruiser, right_in, GROUND_Y),
+                (EnemyKind::Bruiser, right_in + 40.0, GROUND_Y - 18.0),
+                (EnemyKind::Swift, right_in + 80.0, GROUND_Y + 18.0),
+                (EnemyKind::Swift, left_in, GROUND_Y),
+                (EnemyKind::Grunt, left_in - 30.0, GROUND_Y - 12.0),
+                (EnemyKind::Grunt, right_in + 110.0, GROUND_Y + 12.0),
             ],
-            _ => vec![(EnemyKind::Boss, edge - 20.0, GROUND_Y)],
+            _ => vec![(EnemyKind::Boss, right_in + 20.0, GROUND_Y)],
         };
 
         for (kind, x, y) in pack {
             self.next_enemy_id += 1;
             let id = self.next_enemy_id;
+            // Do NOT clamp into the fight band — they walk in from off-screen.
             self.enemies.push(Enemy {
                 id,
                 kind,
-                x: x.clamp(left + 10.0, right - 10.0),
+                x,
                 y: y.clamp(LANE_TOP, LANE_BOTTOM),
                 hp: kind.max_hp(),
-                facing: std::f32::consts::PI,
+                facing: if x > right {
+                    std::f32::consts::PI
+                } else {
+                    0.0
+                },
                 attack_cooldown: 0.6,
                 hit_flash: 0.0,
             });
@@ -652,6 +673,7 @@ impl BrawlerWorld {
             show_go: self.show_go,
             lock_left: self.lock_left,
             lock_right: self.lock_right,
+            scroll_min: self.scroll_min,
         }
     }
 
@@ -669,6 +691,8 @@ impl BrawlerWorld {
 
 /// Horizontal width of a locked fight arena.
 pub const FIGHT_WIDTH: f32 = 360.0;
+/// How far off-screen enemies spawn before walking into the lock band.
+pub const ENTER_FROM: f32 = 90.0;
 
 /// X position the lead player must reach to trigger wave N (1..=5).
 pub fn segment_trigger(wave: u32) -> f32 {
@@ -893,7 +917,98 @@ mod tests {
         );
     }
 
+    
     #[test]
+    fn clearing_wave_advances_scroll_min_and_unlocks() {
+        let mut w = BrawlerWorld::new();
+        let a = Uuid::new_v4();
+        w.join(a, "James 1".into(), skin(), cos());
+        w.players.get_mut(&a).unwrap().x = segment_trigger(1) + 1.0;
+        let _ = w.advance(0.05);
+        assert_eq!(w.wave, 1);
+        let left = w.lock_left.expect("fight lock left");
+        w.enemies.clear();
+        let _ = w.advance(0.05);
+        assert!(w.show_go);
+        assert!(w.lock_right.is_none());
+        assert!(
+            w.scroll_min >= left - 0.01,
+            "scroll_min should advance to cleared lock_left ({left}), got {}",
+            w.scroll_min
+        );
+        let snap = w.snapshot();
+        assert!((snap.scroll_min - w.scroll_min).abs() < 0.01);
+    }
+
+    #[test]
+    fn player_cannot_walk_left_of_scroll_min() {
+        let mut w = BrawlerWorld::new();
+        let a = Uuid::new_v4();
+        w.join(a, "James 1".into(), skin(), cos());
+        w.scroll_min = 400.0;
+        w.lock_left = None;
+        w.lock_right = None;
+        {
+            let p = w.players.get_mut(&a).unwrap();
+            p.x = 410.0;
+            p.y = GROUND_Y;
+        }
+        w.set_input(a, -1.0, 0.0, false);
+        for _ in 0..40 {
+            let _ = w.advance(0.05);
+        }
+        assert!(
+            w.players[&a].x + 0.5 >= w.scroll_min.max(20.0),
+            "player x {} should stay >= scroll_min {}",
+            w.players[&a].x,
+            w.scroll_min
+        );
+    }
+
+    #[test]
+    fn wave_enemies_spawn_from_offscreen_edges() {
+        let mut w = BrawlerWorld::new();
+        let a = Uuid::new_v4();
+        w.join(a, "James 1".into(), skin(), cos());
+        w.players.get_mut(&a).unwrap().x = segment_trigger(1) + 1.0;
+        let _ = w.advance(0.05);
+        let left = w.lock_left.expect("lock");
+        let right = w.lock_right.expect("lock");
+        assert!(!w.enemies.is_empty());
+        for e in &w.enemies {
+            let from_left = e.x < left;
+            let from_right = e.x > right;
+            assert!(
+                from_left || from_right,
+                "enemy at {} should start outside [{left}, {right}]",
+                e.x
+            );
+        }
+    }
+
+    #[test]
+    fn boss_arena_locks_camera_band() {
+        let mut w = BrawlerWorld::new();
+        let a = Uuid::new_v4();
+        w.join(a, "James 1".into(), skin(), cos());
+        // Fast-forward through segments 1..=4 clears then trigger boss.
+        for wave in 1..=4 {
+            w.players.get_mut(&a).unwrap().x = segment_trigger(wave) + 1.0;
+            let _ = w.advance(0.05);
+            w.enemies.clear();
+            let _ = w.advance(0.05);
+        }
+        w.players.get_mut(&a).unwrap().x = segment_trigger(5) + 1.0;
+        let _ = w.advance(0.05);
+        assert_eq!(w.wave, 5);
+        assert!(w.lock_left.is_some());
+        assert!(w.lock_right.is_some());
+        assert!(!w.show_go);
+        // Boss present
+        assert!(w.enemies.iter().any(|e| matches!(e.kind, EnemyKind::Boss)));
+    }
+
+#[test]
     fn last_player_leave_after_death_resets_room() {
         let mut w = BrawlerWorld::new();
         let a = Uuid::new_v4();

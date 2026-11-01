@@ -99,6 +99,8 @@ export type BrawlerSnapshotData = {
   show_go?: boolean;
   lock_left?: number | null;
   lock_right?: number | null;
+  /** Leftmost camera/player fence — never scrolls back past this. */
+  scroll_min?: number;
 };
 
 export type ServerMessage =
