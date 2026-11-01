@@ -139,6 +139,8 @@ export const urPK: Messages = {
   "skin.cobra.note": "سسس… بجلی جیسا تیز۔ اب تمہاری باری!",
   "skin.billy": "Billy",
   "skin.billy.note": "جیمز کا دوست",
+  "skin.boxer": "باکسر جیمز",
+  "skin.boxer.note": "تتلی کی طرح اڑو، مکھی کی طرح ٹیگ کرو۔",
 
   "settings.credits.heading": "کریڈٹ",
   "credits.bio":

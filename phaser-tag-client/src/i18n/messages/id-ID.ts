@@ -122,6 +122,8 @@ export const idID: Messages = {
   "skin.cobra.note": "Sss-uper cepat. Kamu yang jaga!",
   "skin.billy": "Billy",
   "skin.billy.note": "Teman James",
+  "skin.boxer": "James Petinju",
+  "skin.boxer.note": "Melayang seperti kupu-kupu, tag seperti lebah.",
   "settings.credits.heading": "Kredit",
   "credits.bio": "Game ini dibuat oleh James, seorang software engineer yang tinggal di New York City (juga dikenal dengan banyak nama lain seperti Jim, Jimbo, Jimothy, dan Sir Jims-a-lot).",
   "credits.linkedinLead": "Yuk, terhubung sama aku di LinkedIn:",

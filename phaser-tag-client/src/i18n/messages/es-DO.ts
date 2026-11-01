@@ -15,6 +15,8 @@ export const esDO: Partial<Messages> = {
   "skin.cobra.note": "¡Sss-úper rápido! ¡Te toca!",
   "skin.billy": "Billy",
   "skin.billy.note": "Amigo de James",
+  "skin.boxer": "James Boxeador",
+  "skin.boxer.note": "Flota como mariposa, etiqueta como abeja.",
   "howto.helpKeyboard": "Tócalo si lo tienes cerca para que la lleve.",
   "howto.tag": "¡Toca!",
   "credits.bio":

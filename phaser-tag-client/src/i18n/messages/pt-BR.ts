@@ -122,6 +122,8 @@ export const ptBR: Messages = {
   "skin.cobra.note": "Sss-uper rápido. Tá com você!",
   "skin.billy": "Billy",
   "skin.billy.note": "Amigo do James",
+  "skin.boxer": "James Boxeador",
+  "skin.boxer.note": "Flutue como uma borboleta, marque como uma abelha.",
   "settings.credits.heading": "Créditos",
   "credits.bio": "Este jogo foi feito pelo James, um engenheiro de software que mora em Nova York (também conhecido por vários outros nomes, como Jim, Jimbo, Jimothy e Sir Jims-a-lot).",
   "credits.linkedinLead": "Bora se conectar no LinkedIn:",
