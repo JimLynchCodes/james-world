@@ -26,3 +26,22 @@ export function shouldQueueBrawlerAttack(opts: {
 export function shouldPlayAttackAnim(attacking: boolean, wasAttacking: boolean): boolean {
   return attacking && !wasAttacking;
 }
+
+/**
+ * Restart the tag clip whenever the server begins a new swing (attack_seq bump),
+ * including mid-animation chains when cooldown < duration.
+ */
+export function shouldRestartAttackAnim(opts: {
+  attackSeq: number;
+  wasAttackSeq: number;
+  attacking: boolean;
+}): boolean {
+  return opts.attacking && opts.attackSeq > 0 && opts.attackSeq !== opts.wasAttackSeq;
+}
+
+/** Approximate tag clip length in seconds (must stay >= server ATTACK_COOLDOWN_S). */
+export const TAG_ANIM_LENGTH_S = 0.355;
+
+/** Keep in sync with server ATTACK_COOLDOWN_S / ATTACK_DURATION_S. */
+export const BRAWLER_ATTACK_COOLDOWN_S = 0.22;
+export const BRAWLER_ATTACK_DURATION_S = 0.32;

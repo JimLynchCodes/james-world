@@ -320,12 +320,14 @@ fn playtest_two_waves_side_scroller_by_x() {
     }
     assert!(w.enemies.is_empty(), "wave 1 should be clearable in-range");
     let _ = w.advance(0.05);
-    assert!(w.show_go, "cleared wave should show GO");
-    assert!(w.lock_right.is_none());
-
-    // Advance to segment 2.
-    w.players.get_mut(&a).unwrap().x = segment_trigger(2) + 5.0;
-    let _ = w.advance(0.05);
+    // Wide fight bands can leave the player already past the next gate, so the
+    // next wave may start on the following tick (GO is skipped). Either path is OK.
+    if w.wave == 1 {
+        assert!(w.show_go, "cleared wave should show GO when still before the next gate");
+        assert!(w.lock_right.is_none());
+        w.players.get_mut(&a).unwrap().x = segment_trigger(2) + 5.0;
+        let _ = w.advance(0.05);
+    }
     assert_eq!(w.wave, 2);
     assert!(!w.enemies.is_empty());
     assert!(!w.show_go);

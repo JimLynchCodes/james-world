@@ -568,24 +568,33 @@ export class KidAvatar {
    * Play the tag (arm reach) once, in the direction the kid is facing right
    * now. `towardAngle` locks a different facing (a remote kid swinging at
    * someone). Walking does not restart or replace this clip.
+   *
+   * Pass `{ restart: true }` to force the clip from frame 0 even if a tag is
+   * already playing (brawler rapid taps). Playground omits it so a second
+   * Tag while mid-swing still no-ops.
    */
-  playTag(towardAngle?: number) {
-    if (this.tagging) return;
+  playTag(towardAngle?: number, opts?: { restart?: boolean }) {
+    if (this.tagging && !opts?.restart) return;
+    if (this.tagging && opts?.restart) {
+      this.endTag();
+      this.lungeTween?.stop();
+      this.lunge.t = 0;
+    }
     // A non-finite aim (atan2 of NaN positions) keeps the facing we have.
     const current = Number.isFinite(this.facing) ? this.facing : Math.PI / 2;
     const swing = typeof towardAngle === "number" && Number.isFinite(towardAngle) ? towardAngle : current;
     this.tagging = true;
     this.tagFacing = swing;
-    this.sprite.anims.play(
-      nextAvatarAnim({
-        texture: SKINS[this.skin].texture,
-        facing: current,
-        moving: this.moving,
-        running: this.running,
-        tagging: true,
-        tagFacing: swing,
-      })
-    );
+    const key = nextAvatarAnim({
+      texture: SKINS[this.skin].texture,
+      facing: current,
+      moving: this.moving,
+      running: this.running,
+      tagging: true,
+      tagFacing: swing,
+    });
+    // ignoreIfPlaying=false → always restart from frame 0 when forced.
+    this.sprite.anims.play(key, false);
 
     // Small forward lunge in the facing direction, synced to the reach.
     this.lungeTween?.stop();

@@ -4,7 +4,8 @@
  */
 import Phaser from "phaser";
 import type { GameAudio } from "./audio";
-import { shouldPlayAttackAnim } from "./brawlerAttack";
+import { shouldPlayAttackAnim, shouldRestartAttackAnim } from "./brawlerAttack";
+import { BRAWLER_LAYOUT } from "./brawlerLayout";
 import {
   parallaxOffsets,
   stepBrawlerCamera,
@@ -34,10 +35,12 @@ import { toSkin, type Skin } from "./skins";
 import type { UUID } from "./types";
 
 export const BRAWLER = {
-  w: 7000,
-  laneTop: 120,
-  laneBottom: 230,
-  groundY: 200,
+  w: BRAWLER_LAYOUT.w,
+  /** Vertical world / camera bounds — keep in sync with server WORLD_H. */
+  h: BRAWLER_LAYOUT.h,
+  laneTop: BRAWLER_LAYOUT.laneTop,
+  laneBottom: BRAWLER_LAYOUT.laneBottom,
+  groundY: BRAWLER_LAYOUT.groundY,
 } as const;
 
 export type BrawlerHooks = {
@@ -57,8 +60,12 @@ export type BrawlerHooks = {
 type Peer = {
   avatar: KidAvatar;
   snap: BrawlerPlayerSnap;
-  /** Last snapshot attacking flag — playTag only on rising edge. */
+  /** Last snapshot attacking flag — playTag on rising edge (legacy). */
   wasAttacking: boolean;
+  /** Last attack_seq — restart anim whenever the server starts a new swing. */
+  wasAttackSeq: number;
+  /** Local press already restarted the tag clip; snapshot should not double-play. */
+  localAnimPending: boolean;
 };
 
 const ENEMY_COLORS: Record<string, number> = {
@@ -175,7 +182,7 @@ export class BrawlerWorldScene extends Phaser.Scene {
   private enemies = new Map<number, Phaser.GameObjects.Image>();
   private layers!: ParallaxLayers;
   private camX = 200;
-  private camY = 180;
+  private camY: number = BRAWLER.groundY;
   private scrollMin = 0;
   private hudRoot!: Phaser.GameObjects.Container;
   private hpFill!: Phaser.GameObjects.Image;
@@ -208,12 +215,12 @@ export class BrawlerWorldScene extends Phaser.Scene {
     this.lockLeft = null;
     this.lockRight = null;
     this.camX = 200;
-    this.camY = 180;
+    this.camY = BRAWLER.groundY;
   }
 
   create() {
     this.cameras.main.setBackgroundColor("#5eb0ff");
-    this.cameras.main.setBounds(0, 0, BRAWLER.w, 360);
+    this.cameras.main.setBounds(0, 0, BRAWLER.w, BRAWLER.h);
     this.cameras.main.setRoundPixels(true);
     // Disable built-in follow — we drive scroll with arcade group-cam logic.
     this.cameras.main.stopFollow();
@@ -224,7 +231,7 @@ export class BrawlerWorldScene extends Phaser.Scene {
     const stage = buildBrawlerStage(this);
     this.layers = stage.layers;
     this.camX = 200;
-    this.camY = 180;
+    this.camY = BRAWLER.groundY;
     this.scrollMin = 0;
     this.cameras.main.centerOn(this.camX, this.camY);
 
@@ -403,13 +410,27 @@ export class BrawlerWorldScene extends Phaser.Scene {
       peer.avatar.setSkin(toSkin(p.skin));
       peer.avatar.setCosmetic(toCosmetic(p.cosmetic));
       peer.avatar.setLabels({ name: p.name, you: p.id === this.localId, it: false });
-      // Only start the tag clip on a fresh server attacking rising-edge.
-      // Snapshots that keep attacking:true after the clip ends must not re-fire it.
-      if (shouldPlayAttackAnim(p.attacking, peer.wasAttacking)) {
-        peer.avatar.playTag(p.facing);
-        if (p.id === this.localId) this.hooks.audio?.playSfx("brawlerHit", 0.85);
+      // Restart tag clip on every new swing (attack_seq bump), including mid-anim chains.
+      // Local presses also force-restart optimistically in update() for zero-latency feedback.
+      const seq = p.attack_seq ?? 0;
+      const seqRestart = shouldRestartAttackAnim({
+        attackSeq: seq,
+        wasAttackSeq: peer.wasAttackSeq,
+        attacking: p.attacking,
+      });
+      const rising = shouldPlayAttackAnim(p.attacking, peer.wasAttacking);
+      if (seqRestart || rising) {
+        if (p.id === this.localId && peer.localAnimPending) {
+          // Optimistic press already restarted the clip for this swing.
+          peer.localAnimPending = false;
+        } else {
+          peer.avatar.playTag(p.facing, { restart: true });
+          if (p.id === this.localId) this.hooks.audio?.playSfx("brawlerHit", 0.75);
+          else this.hooks.audio?.playSfx("brawlerHit", 0.7);
+        }
       }
       peer.wasAttacking = p.attacking;
+      peer.wasAttackSeq = seq;
       if (p.dead) peer.avatar.sprite.setAngle(90);
       else peer.avatar.sprite.setAngle(0);
       peer.avatar.setDrawn(shouldDrawBrawlerPeer({ dead: p.dead, ending: this.ending }));
@@ -458,7 +479,7 @@ export class BrawlerWorldScene extends Phaser.Scene {
     avatar.setCosmetic(toCosmetic(p.cosmetic));
     avatar.setRole(p.id === this.localId ? "self" : "human");
     avatar.setLabels({ name: p.name, you: p.id === this.localId, it: false });
-    const peer = { avatar, snap: p, wasAttacking: false };
+    const peer = { avatar, snap: p, wasAttacking: false, wasAttackSeq: 0, localAnimPending: false };
     this.peers.set(p.id, peer);
     return peer;
   }
@@ -516,6 +537,15 @@ export class BrawlerWorldScene extends Phaser.Scene {
       dy = 0;
     }
     const attack = this.hooks.readAttack();
+    // Immediate visible feedback on every fresh press (all skins use KidAvatar.playTag).
+    if (attack && this.localId) {
+      const local = this.peers.get(this.localId);
+      if (local && !local.snap.dead) {
+        local.localAnimPending = true;
+        local.avatar.playTag(local.avatar.facing, { restart: true });
+        this.hooks.audio?.playSfx("brawlerHit", 0.75);
+      }
+    }
     this.hooks.sendInput(dx, dy, attack);
   }
 
@@ -541,7 +571,7 @@ export class BrawlerWorldScene extends Phaser.Scene {
         lockRight: this.lockRight,
         worldW: BRAWLER.w,
         viewW: this.cameras.main.width,
-        viewCenterY: 180,
+        viewCenterY: BRAWLER.groundY,
       },
       dtSec,
     });

@@ -13,10 +13,12 @@ use super::{cosmetic::Cosmetic, skin::Skin};
 
 /// Horizontal length of the scroller.
 pub const WORLD_W: f32 = 7000.0;
-/// Vertical playable band (lane).
-pub const LANE_TOP: f32 = 120.0;
-pub const LANE_BOTTOM: f32 = 230.0;
-pub const GROUND_Y: f32 = 200.0;
+/// Vertical world extent (camera bounds height). Keep in sync with client BRAWLER.h.
+pub const WORLD_H: f32 = 540.0;
+/// Vertical playable band (lane): just under the HUD/horizon down to near the bottom edge.
+pub const LANE_TOP: f32 = 72.0;
+pub const LANE_BOTTOM: f32 = 520.0;
+pub const GROUND_Y: f32 = 300.0;
 
 pub const PLAYER_MAX_HP: f32 = 100.0;
 pub const PLAYER_SPEED: f32 = 160.0;
@@ -24,9 +26,12 @@ pub const PLAYER_RADIUS: f32 = 14.0;
 
 pub const ATTACK_RANGE: f32 = 52.0;
 pub const ATTACK_DAMAGE: f32 = 22.0;
-pub const ATTACK_DURATION_S: f32 = 0.28;
-pub const ATTACK_COOLDOWN_S: f32 = 0.38;
-pub const ATTACK_HIT_Y: f32 = 28.0;
+/// Active strike window — roughly the tag clip length.
+pub const ATTACK_DURATION_S: f32 = 0.32;
+/// Must be <= ATTACK_DURATION_S so rapid presses chain (no dead gap after the anim).
+pub const ATTACK_COOLDOWN_S: f32 = 0.22;
+/// Vertical hit slop — taller lane needs more Y tolerance.
+pub const ATTACK_HIT_Y: f32 = 56.0;
 
 pub const SPAWN_BEHIND: f32 = 70.0;
 const START_X: f32 = 80.0;
@@ -119,6 +124,10 @@ pub struct BrawlerPlayer {
     pub attacking: bool,
     pub attack_timer: f32,
     pub attack_cooldown: f32,
+    /// Increments on every swing start so clients can restart the anim mid-clip.
+    pub attack_seq: u32,
+    /// Fresh press arrived while cooldown was active — fire when cooldown ends.
+    pub attack_buffered: bool,
     pub invuln: f32,
     pub dead: bool,
     /// Input for this tick.
@@ -154,6 +163,7 @@ pub struct BrawlerPlayerSnap {
     pub facing: f32,
     pub moving: bool,
     pub attacking: bool,
+    pub attack_seq: u32,
     pub dead: bool,
 }
 
@@ -255,6 +265,8 @@ impl BrawlerWorld {
                 attacking: false,
                 attack_timer: 0.0,
                 attack_cooldown: 0.0,
+                attack_seq: 0,
+                attack_buffered: false,
                 invuln: 1.0,
                 dead: false,
                 input_dx: 0.0,
@@ -381,17 +393,23 @@ impl BrawlerWorld {
         let pressed = p.input_attack && !p.attack_held_prev;
         p.attack_held_prev = p.input_attack;
 
-        if p.attack_timer > 0.0 {
-            p.attack_timer = (p.attack_timer - dt).max(0.0);
-            p.attacking = p.attack_timer > 0.0;
-        } else {
-            p.attacking = false;
-            if pressed && p.attack_cooldown <= 0.0 {
-                p.attack_timer = ATTACK_DURATION_S;
-                p.attack_cooldown = ATTACK_COOLDOWN_S;
-                p.attacking = true;
+        if pressed {
+            if p.attack_cooldown <= 0.0 {
+                Self::start_player_attack(p);
+            } else {
+                // Don't drop the press — fire as soon as cooldown ends.
+                p.attack_buffered = true;
             }
         }
+        if p.attack_buffered && p.attack_cooldown <= 0.0 {
+            p.attack_buffered = false;
+            Self::start_player_attack(p);
+        }
+
+        if p.attack_timer > 0.0 {
+            p.attack_timer = (p.attack_timer - dt).max(0.0);
+        }
+        p.attacking = p.attack_timer > 0.0;
 
         let mut dx = p.input_dx;
         let mut dy = p.input_dy;
@@ -415,6 +433,16 @@ impl BrawlerWorld {
                 p.facing = if dx >= 0.0 { 0.0 } else { std::f32::consts::PI };
             }
         }
+    }
+
+    /// Begin (or restart) a swing. Cooldown gates how often this can run;
+    /// calling again while still attacking resets the timer so the anim can restart.
+    fn start_player_attack(p: &mut BrawlerPlayer) {
+        p.attack_timer = ATTACK_DURATION_S;
+        p.attack_cooldown = ATTACK_COOLDOWN_S;
+        p.attacking = true;
+        p.attack_seq = p.attack_seq.wrapping_add(1);
+        p.attack_buffered = false;
     }
 
     fn resolve_player_attacks(&mut self) {
@@ -698,6 +726,7 @@ impl BrawlerWorld {
                     facing: p.facing,
                     moving: p.moving,
                     attacking: p.attacking,
+                    attack_seq: p.attack_seq,
                     dead: p.dead,
                 })
                 .collect(),
@@ -738,8 +767,8 @@ impl BrawlerWorld {
     }
 }
 
-/// Horizontal width of a locked fight arena.
-pub const FIGHT_WIDTH: f32 = 360.0;
+/// Horizontal width of a locked fight arena (near full camera view on typical desktops).
+pub const FIGHT_WIDTH: f32 = 1100.0;
 /// How far off-screen enemies spawn before walking into the lock band.
 pub const ENTER_FROM: f32 = 90.0;
 /// Total waves including the final boss.
@@ -1117,5 +1146,105 @@ mod tests {
         w.join(b, "James 2".into(), skin(), cos());
         assert!(!w.players[&b].dead);
         assert!((w.players[&b].hp - PLAYER_MAX_HP).abs() < 0.01);
+    }
+
+    #[test]
+    fn lane_spans_most_of_world_height() {
+        let span = LANE_BOTTOM - LANE_TOP;
+        assert!(span >= WORLD_H * 0.75, "lane {span} should cover most of WORLD_H {WORLD_H}");
+        assert!(LANE_TOP <= 90.0, "lane top should sit just under the HUD/horizon");
+        assert!(LANE_BOTTOM + 30.0 >= WORLD_H, "lane bottom should reach near the world bottom edge");
+        assert!(GROUND_Y > LANE_TOP && GROUND_Y < LANE_BOTTOM);
+    }
+
+    #[test]
+    fn fight_band_is_wide_for_near_edge_to_edge_walk() {
+        assert!(
+            FIGHT_WIDTH >= 900.0,
+            "fight lock should let players walk nearly across a typical camera view"
+        );
+    }
+
+    #[test]
+    fn attack_cooldown_not_longer_than_duration() {
+        assert!(
+            ATTACK_COOLDOWN_S <= ATTACK_DURATION_S,
+            "cooldown {} must be <= duration {} so presses aren't dropped after the anim",
+            ATTACK_COOLDOWN_S,
+            ATTACK_DURATION_S
+        );
+    }
+
+    #[test]
+    fn buffered_press_during_cooldown_fires_when_ready() {
+        let mut w = BrawlerWorld::new();
+        let a = Uuid::new_v4();
+        w.join(a, "James 1".into(), skin(), cos());
+        w.enemies.clear();
+        // First swing.
+        w.set_input(a, 0.0, 0.0, true);
+        let _ = w.advance(0.05);
+        assert!(w.players[&a].attacking);
+        let seq1 = w.players[&a].attack_seq;
+        // Release, then press again while still on cooldown — must buffer, not drop.
+        w.set_input(a, 0.0, 0.0, false);
+        let _ = w.advance(0.05);
+        w.set_input(a, 0.0, 0.0, true);
+        let _ = w.advance(0.05);
+        assert!(w.players[&a].attack_buffered || w.players[&a].attack_seq > seq1);
+        w.set_input(a, 0.0, 0.0, false);
+        // Advance past remaining cooldown; buffered press should start a new swing.
+        for _ in 0..20 {
+            let _ = w.advance(0.05);
+            if w.players[&a].attack_seq > seq1 {
+                break;
+            }
+        }
+        assert!(
+            w.players[&a].attack_seq > seq1,
+            "buffered press must fire a new attack_seq after cooldown"
+        );
+        assert!(!w.players[&a].attack_buffered);
+    }
+
+    #[test]
+    fn rapid_press_restarts_attack_and_bumps_seq() {
+        let mut w = BrawlerWorld::new();
+        let a = Uuid::new_v4();
+        w.join(a, "James 1".into(), skin(), cos());
+        w.enemies.clear();
+        w.set_input(a, 0.0, 0.0, true);
+        let _ = w.advance(0.05);
+        let seq1 = w.players[&a].attack_seq;
+        assert!(seq1 >= 1);
+        // Wait just past cooldown (shorter than duration) while released.
+        w.set_input(a, 0.0, 0.0, false);
+        let steps = ((ATTACK_COOLDOWN_S / 0.05).ceil() as i32) + 1;
+        for _ in 0..steps {
+            let _ = w.advance(0.05);
+        }
+        // Still within first attack window possibly — press again must restart.
+        w.set_input(a, 0.0, 0.0, true);
+        let _ = w.advance(0.05);
+        assert!(w.players[&a].attack_seq > seq1);
+        assert!(w.players[&a].attacking);
+        assert!((w.players[&a].attack_timer - ATTACK_DURATION_S).abs() < 0.06);
+    }
+
+    #[test]
+    fn player_y_clamped_to_expanded_lane() {
+        let mut w = BrawlerWorld::new();
+        let a = Uuid::new_v4();
+        w.join(a, "James 1".into(), skin(), cos());
+        w.set_input(a, 0.0, -1.0, false);
+        for _ in 0..200 {
+            let _ = w.advance(0.05);
+        }
+        assert!((w.players[&a].y - LANE_TOP).abs() < 0.5);
+        w.set_input(a, 0.0, 1.0, false);
+        for _ in 0..400 {
+            let _ = w.advance(0.05);
+        }
+        assert!((w.players[&a].y - LANE_BOTTOM).abs() < 0.5);
     }
 }

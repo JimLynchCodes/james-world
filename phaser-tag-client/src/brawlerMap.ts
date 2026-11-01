@@ -3,9 +3,11 @@
  * themed sections and clear gate markers (Simpsons / TMNT arcade vibe).
  */
 import Phaser from "phaser";
+import { BRAWLER_LAYOUT } from "./brawlerLayout";
 
-/** Keep in sync with server WORLD_W / LANE_* and client BRAWLER. */
-const MAP = { w: 7000, laneTop: 120, laneBottom: 230, groundY: 200 } as const;
+/** Re-export layout for checks; stage drawing uses MAP locally. */
+export const BRAWLER_MAP = BRAWLER_LAYOUT;
+const MAP = BRAWLER_LAYOUT;
 
 export type ParallaxLayers = {
   far: Phaser.GameObjects.TileSprite;
@@ -257,14 +259,16 @@ export function buildBrawlerStage(scene: Phaser.Scene, gates: number[] = DEFAULT
     .setDepth(1)
     .setAlpha(0.92);
 
+  const laneMid = (MAP.laneTop + MAP.laneBottom) / 2;
+  const laneH = MAP.laneBottom - MAP.laneTop;
   for (const sec of SECTION) {
     const midX = (sec.from + sec.to) / 2;
     const width = sec.to - sec.from;
     scene.add
-      .rectangle(midX, MAP.laneTop - 30, width, 80, sec.accent, 0.35)
+      .rectangle(midX, MAP.laneTop - 36, width, 72, sec.accent, 0.35)
       .setDepth(2);
     scene.add
-      .rectangle(midX, (MAP.laneTop + MAP.laneBottom) / 2 + 40, width, 140, sec.ground, 1)
+      .rectangle(midX, laneMid, width, laneH + 24, sec.ground, 1)
       .setDepth(3);
     scene.add
       .rectangle(midX, MAP.laneTop, width, 3, 0xffffff, 0.25)
@@ -328,23 +332,23 @@ export function buildBrawlerStage(scene: Phaser.Scene, gates: number[] = DEFAULT
     scene.add.image(gx - 18, MAP.laneTop - 4, "brawler-gate").setOrigin(0.5, 1).setDepth(7);
     scene.add.image(gx + 18, MAP.laneTop - 4, "brawler-gate").setOrigin(0.5, 1).setDepth(7).setFlipX(true);
     scene.add
-      .rectangle(gx, (MAP.laneTop + MAP.laneBottom) / 2, 6, MAP.laneBottom - MAP.laneTop + 20, 0xffe680, 0.55)
+      .rectangle(gx, laneMid, 6, laneH + 20, 0xffe680, 0.55)
       .setDepth(4);
   }
 
   // Boss arena floor flourish (centered near boss gate)
   const arenaX = 6400;
   scene.add
-    .rectangle(arenaX, (MAP.laneTop + MAP.laneBottom) / 2, 700, 100, 0x7a2030, 0.45)
+    .rectangle(arenaX, laneMid, 700, laneH * 0.55, 0x7a2030, 0.45)
     .setDepth(3);
   scene.add
-    .rectangle(arenaX, (MAP.laneTop + MAP.laneBottom) / 2, 640, 4, 0xffe680, 0.7)
+    .rectangle(arenaX, laneMid, 640, 4, 0xffe680, 0.7)
     .setDepth(4);
 
   // Warehouse floor stripes
   for (let x = 2550; x < 3350; x += 80) {
     scene.add
-      .rectangle(x, (MAP.laneTop + MAP.laneBottom) / 2 + 20, 40, 6, 0xffcc33, 0.35)
+      .rectangle(x, laneMid + 20, 40, 6, 0xffcc33, 0.35)
       .setDepth(4);
   }
 

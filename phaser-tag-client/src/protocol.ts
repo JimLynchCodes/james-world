@@ -75,6 +75,8 @@ export type BrawlerPlayerSnap = {
   facing: number;
   moving: boolean;
   attacking: boolean;
+  /** Bumps on every swing start so clients can restart the tag clip. */
+  attack_seq?: number;
   dead: boolean;
 };
 
