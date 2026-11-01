@@ -17,6 +17,8 @@ export const esCO: Partial<Messages> = {
   "skin.cobra.note": "¡Sss-úper rápido! ¡La lleva!",
   "skin.billy": "Billy",
   "skin.billy.note": "Amigo de James",
+  "skin.boxer": "James Boxeador",
+  "skin.boxer.note": "Flota como mariposa, etiqueta como abeja.",
   "howto.helpKeyboard": "Toca a alguien cerca para que la lleve.",
   "settings.controls.phoneHint":
     "¿Juegas en el celular o en una tableta? Elige <strong>Celular</strong> para una palanca y botones grandes de TOCA y CORRE.",

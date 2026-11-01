@@ -139,6 +139,8 @@ export const jaJP: Messages = {
   "skin.cobra.note": "シャーッと速攻。きみがオニ！",
   "skin.billy": "Billy",
   "skin.billy.note": "ジェームズの友だち",
+  "skin.boxer": "ボクサー・ジェームズ",
+  "skin.boxer.note": "蝶のように舞い、ハチのようにタッチ。",
 
   "settings.credits.heading": "クレジット",
   "credits.bio":

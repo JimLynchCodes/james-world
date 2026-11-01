@@ -17,7 +17,7 @@ import type { Mood, Settings } from "./settings";
 /** Billy's slurp lands on the sip frame of the tag animation (see "billySwing"). */
 export const BILLY_SLURP_DELAY_S = 0.45;
 
-export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "spacemanStep" | "spacemanSwing" | "wizardStep" | "wizardSwing" | "centaurStep" | "centaurSwing" | "tennisStep" | "tennisSwing" | "cobraStep" | "cobraSwing" | "billySwing" | "click" | "blip" | "secret";
+export type Sfx = "swing" | "hit" | "join" | "leave" | "step" | "bananaStep" | "trexStep" | "tuxedoStep" | "pirateStep" | "pirateSwing" | "pharaohStep" | "pharaohSwing" | "spacemanStep" | "spacemanSwing" | "wizardStep" | "wizardSwing" | "centaurStep" | "centaurSwing" | "tennisStep" | "tennisSwing" | "cobraStep" | "cobraSwing" | "billySwing" | "boxerSwing" | "click" | "blip" | "secret";
 
 const CROSSFADE_S = 1.5;
 const LOOKAHEAD_S = 0.15;
@@ -831,6 +831,13 @@ export class GameAudio {
         syn.noise(t, { filter: "highpass", freq: 4200, q: 0.7, gain: 0.2 * v, attack: 0.06, release: 0.45 });
         syn.noise(t, { filter: "bandpass", freq: 6500, sweepTo: 5200, q: 2, gain: 0.12 * v, attack: 0.05, release: 0.42 });
         syn.noise(t + 0.12, { filter: "bandpass", freq: 1500, q: 3, gain: 0.14 * v, attack: 0.001, release: 0.04 });
+        break;
+      }
+      case "boxerSwing": { // Boxer James's tag: short whoosh then a punchy glove thwack
+        syn.noise(t, { filter: "bandpass", freq: 480, sweepTo: 2400, q: 1.3, gain: 0.28 * v, attack: 0.02, release: 0.09 });
+        syn.noise(t + 0.06, { filter: "bandpass", freq: 900, q: 3.5, gain: 0.36 * v, attack: 0.001, release: 0.045 });
+        syn.tone(t + 0.06, 180, { type: "sine", gain: 0.12 * v, attack: 0.001, release: 0.07, glideTo: 90 });
+        syn.tone(t + 0.06, 420, { type: "triangle", gain: 0.06 * v, attack: 0.001, release: 0.05 });
         break;
       }
       case "billySwing": { // Billy's tag: just a straw slurp, on the frame the straw reaches his mouth

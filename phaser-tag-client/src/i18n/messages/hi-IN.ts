@@ -139,6 +139,8 @@ export const hiIN: Messages = {
   "skin.cobra.note": "सस्स… बिजली जैसा तेज़। अब तुम्हारी बारी!",
   "skin.billy": "Billy",
   "skin.billy.note": "जेम्स का दोस्त",
+  "skin.boxer": "बॉक्सर जेम्स",
+  "skin.boxer.note": "तितली की तरह उड़ो, मधुमक्खी की तरह टैग करो।",
 
   "settings.credits.heading": "श्रेय",
   "credits.bio":

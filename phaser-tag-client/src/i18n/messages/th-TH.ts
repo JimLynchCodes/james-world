@@ -122,6 +122,8 @@ export const thTH: Messages = {
   "skin.cobra.note": "ฟู่ๆ เร็วปานสายฟ้า เธอเป็นคนไล่!",
   "skin.billy": "Billy",
   "skin.billy.note": "เพื่อนของเจมส์",
+  "skin.boxer": "เจมส์นักมวย",
+  "skin.boxer.note": "โบยบินดั่งผีเสื้อ แท็กดั่งผึ้ง",
   "settings.credits.heading": "เครดิต",
   "credits.bio": "เกมนี้สร้างโดย James วิศวกรซอฟต์แวร์ที่อาศัยอยู่ในนิวยอร์ก (มีชื่อเรียกอื่นๆ อีกเพียบ เช่น Jim, Jimbo, Jimothy และ Sir Jims-a-lot)",
   "credits.linkedinLead": "มาเชื่อมต่อกันบน LinkedIn ได้เลย:",
