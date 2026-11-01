@@ -4,8 +4,8 @@
  */
 import Phaser from "phaser";
 
-/** Keep in sync with server WORLD_W / LANE_* and client MAP. */
-const MAP = { w: 3600, laneTop: 120, laneBottom: 230, groundY: 200 } as const;
+/** Keep in sync with server WORLD_W / LANE_* and client BRAWLER. */
+const MAP = { w: 7000, laneTop: 120, laneBottom: 230, groundY: 200 } as const;
 
 export type ParallaxLayers = {
   far: Phaser.GameObjects.TileSprite;
@@ -21,16 +21,19 @@ export type StageBuild = {
 };
 
 const SECTION = [
-  { name: "yard", from: 0, to: 320, ground: 0x6b9e4a, accent: 0x8bc34a },
-  { name: "street", from: 320, to: 900, ground: 0x5a5a5a, accent: 0x777777 },
-  { name: "alley", from: 900, to: 1500, ground: 0x4a3f35, accent: 0x6d5a4a },
-  { name: "plaza", from: 1500, to: 2200, ground: 0x8a7a5a, accent: 0xb0a070 },
-  { name: "docks", from: 2200, to: 3000, ground: 0x4a5560, accent: 0x6a7a8a },
-  { name: "arena", from: 3000, to: 3600, ground: 0x5a3040, accent: 0x8a4055 },
+  { name: "yard", from: 0, to: 400, ground: 0x6b9e4a, accent: 0x8bc34a },
+  { name: "street", from: 400, to: 1100, ground: 0x5a5a5a, accent: 0x777777 },
+  { name: "park", from: 1100, to: 1800, ground: 0x4f8a45, accent: 0x7ec87a },
+  { name: "alley", from: 1800, to: 2500, ground: 0x4a3f35, accent: 0x6d5a4a },
+  { name: "warehouse", from: 2500, to: 3400, ground: 0x5a5a48, accent: 0x8a8060 },
+  { name: "rooftop", from: 3400, to: 4200, ground: 0x4a4a55, accent: 0x6a7088 },
+  { name: "plaza", from: 4200, to: 5000, ground: 0x8a7a5a, accent: 0xb0a070 },
+  { name: "docks", from: 5000, to: 5800, ground: 0x4a5560, accent: 0x6a7a8a },
+  { name: "arena", from: 5800, to: 7000, ground: 0x5a3040, accent: 0x8a4055 },
 ] as const;
 
 /** Default segment triggers — keep in sync with server `segment_trigger`. */
-export const DEFAULT_GATES = [320, 900, 1500, 2200, 3000];
+export const DEFAULT_GATES = [380, 1000, 1650, 2350, 3100, 3850, 4600, 5350, 6100];
 
 function tex(scene: Phaser.Scene, key: string, w: number, h: number, draw: (g: Phaser.GameObjects.Graphics) => void) {
   if (scene.textures.exists(key)) return;
@@ -42,7 +45,6 @@ function tex(scene: Phaser.Scene, key: string, w: number, h: number, draw: (g: P
 }
 
 export function ensureStageTextures(scene: Phaser.Scene) {
-  // Far sky gradient strip
   tex(scene, "brawler-far", 320, 180, g => {
     g.fillGradientStyle(0x5eb0ff, 0x5eb0ff, 0xffd9a0, 0xffc070, 1);
     g.fillRect(0, 0, 320, 180);
@@ -52,15 +54,13 @@ export function ensureStageTextures(scene: Phaser.Scene) {
     g.fillCircle(28, 48, 12);
     g.fillCircle(200, 30, 16);
     g.fillCircle(218, 34, 12);
-    // Distant hills
     g.fillStyle(0x7ec87a, 1);
     g.fillTriangle(0, 180, 80, 110, 160, 180);
     g.fillTriangle(120, 180, 220, 100, 320, 180);
   });
 
-  // Mid city / trees silhouette
   tex(scene, "brawler-mid", 400, 160, g => {
-    g.fillStyle(0x000000, 0); // transparent base — draw only buildings
+    g.fillStyle(0x000000, 0);
     g.fillRect(0, 0, 400, 160);
     const buildings: Array<[number, number, number, number]> = [
       [10, 60, 50, 100],
@@ -80,7 +80,6 @@ export function ensureStageTextures(scene: Phaser.Scene) {
         }
       }
     }
-    // Trees between buildings
     g.fillStyle(0x2d5a2a, 1);
     for (const tx of [55, 175, 310]) {
       g.fillTriangle(tx, 100, tx + 18, 50, tx + 36, 100);
@@ -90,19 +89,15 @@ export function ensureStageTextures(scene: Phaser.Scene) {
     }
   });
 
-  // Ground / lane tile (walkable band look)
   tex(scene, "brawler-ground", 64, 128, g => {
     g.fillStyle(0x6b4a2e, 1);
     g.fillRect(0, 0, 64, 128);
     g.fillStyle(0x5a3c24, 1);
-    for (let y = 0; y < 128; y += 8) {
-      g.fillRect(0, y, 64, 3);
-    }
+    for (let y = 0; y < 128; y += 8) g.fillRect(0, y, 64, 3);
     g.fillStyle(0x7a5a3a, 0.5);
     g.fillRect(0, 0, 64, 10);
   });
 
-  // Foreground curb / fence strip
   tex(scene, "brawler-near", 96, 48, g => {
     g.fillStyle(0x3a2818, 1);
     g.fillRect(0, 24, 96, 24);
@@ -112,7 +107,6 @@ export function ensureStageTextures(scene: Phaser.Scene) {
     g.fillRect(0, 20, 96, 5);
   });
 
-  // Gate post
   tex(scene, "brawler-gate", 28, 72, g => {
     g.fillStyle(0xc45c26, 1);
     g.fillRect(8, 0, 12, 72);
@@ -122,7 +116,6 @@ export function ensureStageTextures(scene: Phaser.Scene) {
     g.fillRect(10, 20, 8, 18);
   });
 
-  // Barrel / crate props
   tex(scene, "brawler-barrel", 22, 28, g => {
     g.fillStyle(0x8b4513, 1);
     g.fillRoundedRect(1, 1, 20, 26, 3);
@@ -152,10 +145,94 @@ export function ensureStageTextures(scene: Phaser.Scene) {
     g.fillStyle(0xffe080, 1);
     g.fillCircle(6, 10, 7);
   });
+  // Park bench
+  tex(scene, "brawler-bench", 36, 18, g => {
+    g.fillStyle(0x6b4423, 1);
+    g.fillRect(2, 8, 32, 4);
+    g.fillRect(4, 12, 4, 6);
+    g.fillRect(28, 12, 4, 6);
+    g.fillStyle(0x8b5a2b, 1);
+    g.fillRect(2, 4, 32, 4);
+  });
+  // Tree (park)
+  tex(scene, "brawler-tree", 28, 40, g => {
+    g.fillStyle(0x5c4030, 1);
+    g.fillRect(11, 22, 6, 18);
+    g.fillStyle(0x2d7a2a, 1);
+    g.fillCircle(14, 16, 12);
+    g.fillCircle(8, 20, 8);
+    g.fillCircle(20, 20, 8);
+  });
+  // Dumpster (alley / warehouse)
+  tex(scene, "brawler-dumpster", 34, 26, g => {
+    g.fillStyle(0x3a6a3a, 1);
+    g.fillRoundedRect(1, 6, 32, 20, 2);
+    g.fillStyle(0x2a4a2a, 1);
+    g.fillRect(1, 6, 32, 5);
+    g.fillStyle(0x888888, 1);
+    g.fillRect(6, 2, 8, 5);
+    g.fillRect(20, 2, 8, 5);
+  });
+  // AC unit (rooftop)
+  tex(scene, "brawler-ac", 28, 20, g => {
+    g.fillStyle(0x888898, 1);
+    g.fillRect(1, 4, 26, 16);
+    g.lineStyle(1, 0x555566, 1);
+    g.strokeRect(1, 4, 26, 16);
+    g.fillStyle(0x333344, 1);
+    for (let i = 0; i < 4; i++) g.fillRect(5 + i * 5, 7, 3, 10);
+  });
+  // Vent / chimney (rooftop)
+  tex(scene, "brawler-vent", 18, 28, g => {
+    g.fillStyle(0x666670, 1);
+    g.fillRect(4, 8, 10, 20);
+    g.fillStyle(0x888890, 1);
+    g.fillRect(2, 4, 14, 6);
+    g.fillStyle(0xccccd0, 0.5);
+    g.fillCircle(9, 2, 4);
+  });
+  // Cone (street / plaza)
+  tex(scene, "brawler-cone", 14, 20, g => {
+    g.fillStyle(0xff6600, 1);
+    g.fillTriangle(7, 0, 0, 20, 14, 20);
+    g.fillStyle(0xffffff, 1);
+    g.fillRect(3, 10, 8, 3);
+  });
+  // Bollard (docks / plaza)
+  tex(scene, "brawler-bollard", 12, 22, g => {
+    g.fillStyle(0xccaa22, 1);
+    g.fillRect(2, 6, 8, 16);
+    g.fillCircle(6, 6, 5);
+    g.fillStyle(0x222222, 1);
+    g.fillRect(2, 12, 8, 3);
+  });
 }
 
 function sectionAt(x: number) {
   return SECTION.find(s => x >= s.from && x < s.to) ?? SECTION[SECTION.length - 1];
+}
+
+function propKeyFor(secName: string, r: number): string {
+  switch (secName) {
+    case "street":
+      return r > 0.55 ? "brawler-hydrant" : r > 0.25 ? "brawler-cone" : "brawler-crate";
+    case "park":
+      return r > 0.5 ? "brawler-tree" : "brawler-bench";
+    case "alley":
+      return r > 0.45 ? "brawler-dumpster" : "brawler-barrel";
+    case "warehouse":
+      return r > 0.5 ? "brawler-crate" : r > 0.25 ? "brawler-dumpster" : "brawler-barrel";
+    case "rooftop":
+      return r > 0.5 ? "brawler-ac" : "brawler-vent";
+    case "plaza":
+      return r > 0.55 ? "brawler-bollard" : r > 0.25 ? "brawler-cone" : "brawler-lamp";
+    case "docks":
+      return r > 0.45 ? "brawler-bollard" : r > 0.2 ? "brawler-crate" : "brawler-barrel";
+    case "arena":
+      return r > 0.5 ? "brawler-crate" : "brawler-lamp";
+    default:
+      return r > 0.6 ? "brawler-tree" : "brawler-barrel";
+  }
 }
 
 /**
@@ -180,25 +257,33 @@ export function buildBrawlerStage(scene: Phaser.Scene, gates: number[] = DEFAULT
     .setDepth(1)
     .setAlpha(0.92);
 
-  // Colored ground band per section — drawn as world-space rects for variety.
   for (const sec of SECTION) {
     const midX = (sec.from + sec.to) / 2;
     const width = sec.to - sec.from;
-    // Backdrop wash behind the lane
     scene.add
       .rectangle(midX, MAP.laneTop - 30, width, 80, sec.accent, 0.35)
       .setDepth(2);
-    // Walkable floor
     scene.add
       .rectangle(midX, (MAP.laneTop + MAP.laneBottom) / 2 + 40, width, 140, sec.ground, 1)
       .setDepth(3);
-    // Lane top edge (clear bound)
     scene.add
       .rectangle(midX, MAP.laneTop, width, 3, 0xffffff, 0.25)
       .setDepth(4);
     scene.add
       .rectangle(midX, MAP.laneBottom, width, 3, 0x000000, 0.35)
       .setDepth(4);
+
+    // Section name plate (subtle landmark)
+    scene.add
+      .text(sec.from + 24, MAP.laneTop - 48, sec.name.toUpperCase(), {
+        fontFamily: "monospace",
+        fontSize: "11px",
+        color: "#ffe680",
+        stroke: "#000000",
+        strokeThickness: 3,
+      })
+      .setDepth(8)
+      .setAlpha(0.7);
   }
 
   const ground = scene.add
@@ -207,30 +292,31 @@ export function buildBrawlerStage(scene: Phaser.Scene, gates: number[] = DEFAULT
     .setScrollFactor(0)
     .setDepth(5);
 
-  // Near foreground props container (scrolls with world via children positions)
   const near = scene.add.container(0, 0).setDepth(200);
 
-  // Scatter props along the stage
-  const propEvery = 140;
+  const propEvery = 130;
   for (let x = 40; x < MAP.w; x += propEvery) {
     const sec = sectionAt(x);
     const roll = (Math.sin(x * 12.9898) * 43758.5453) % 1;
     const r = Math.abs(roll);
-    let key = "brawler-barrel";
-    if (sec.name === "street" || sec.name === "plaza") key = r > 0.5 ? "brawler-hydrant" : "brawler-crate";
-    else if (sec.name === "docks") key = r > 0.4 ? "brawler-crate" : "brawler-barrel";
-    else if (sec.name === "alley") key = "brawler-barrel";
-    else if (sec.name === "arena") key = r > 0.5 ? "brawler-crate" : "brawler-lamp";
-    else key = r > 0.6 ? "brawler-lamp" : "brawler-barrel";
-    // Keep props on the near edge so they don't block the lane center.
+    const key = propKeyFor(sec.name, r);
     const side = r > 0.5 ? MAP.laneBottom + 4 : MAP.laneTop - 8;
     const img = scene.add.image(x + (r - 0.5) * 40, side, key).setOrigin(0.5, 1);
     img.setDepth(side >= MAP.laneBottom ? 180 : 6);
     if (side >= MAP.laneBottom) near.add(img);
   }
 
-  // Street lamps along the mid depth
+  // Extra park trees / rooftop vents for density
+  for (let x = 1150; x < 1780; x += 160) {
+    scene.add.image(x, MAP.laneTop - 6, "brawler-tree").setOrigin(0.5, 1).setDepth(6);
+  }
+  for (let x = 3450; x < 4150; x += 180) {
+    scene.add.image(x, MAP.laneTop - 4, "brawler-vent").setOrigin(0.5, 1).setDepth(6).setAlpha(0.95);
+  }
+
   for (let x = 100; x < MAP.w; x += 280) {
+    const sec = sectionAt(x);
+    if (sec.name === "park" || sec.name === "rooftop") continue;
     scene.add
       .image(x, MAP.laneTop - 4, "brawler-lamp")
       .setOrigin(0.5, 1)
@@ -238,23 +324,29 @@ export function buildBrawlerStage(scene: Phaser.Scene, gates: number[] = DEFAULT
       .setAlpha(0.9);
   }
 
-  // Section gates — clear visual "doors" at each wave trigger
   for (const gx of gates) {
     scene.add.image(gx - 18, MAP.laneTop - 4, "brawler-gate").setOrigin(0.5, 1).setDepth(7);
     scene.add.image(gx + 18, MAP.laneTop - 4, "brawler-gate").setOrigin(0.5, 1).setDepth(7).setFlipX(true);
-    // Floor stripe
     scene.add
       .rectangle(gx, (MAP.laneTop + MAP.laneBottom) / 2, 6, MAP.laneBottom - MAP.laneTop + 20, 0xffe680, 0.55)
       .setDepth(4);
   }
 
-  // Boss arena floor flourish
+  // Boss arena floor flourish (centered near boss gate)
+  const arenaX = 6400;
   scene.add
-    .rectangle(3300, (MAP.laneTop + MAP.laneBottom) / 2, 520, 100, 0x7a2030, 0.45)
+    .rectangle(arenaX, (MAP.laneTop + MAP.laneBottom) / 2, 700, 100, 0x7a2030, 0.45)
     .setDepth(3);
   scene.add
-    .rectangle(3300, (MAP.laneTop + MAP.laneBottom) / 2, 480, 4, 0xffe680, 0.7)
+    .rectangle(arenaX, (MAP.laneTop + MAP.laneBottom) / 2, 640, 4, 0xffe680, 0.7)
     .setDepth(4);
+
+  // Warehouse floor stripes
+  for (let x = 2550; x < 3350; x += 80) {
+    scene.add
+      .rectangle(x, (MAP.laneTop + MAP.laneBottom) / 2 + 20, 40, 6, 0xffcc33, 0.35)
+      .setDepth(4);
+  }
 
   return { layers: { far, mid, ground, near }, gates };
 }

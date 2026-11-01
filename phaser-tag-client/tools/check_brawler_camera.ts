@@ -39,19 +39,19 @@ test("clamp respects scroll_min and fight lock", () => {
     scrollMin: 0,
     lockLeft: null as number | null,
     lockRight: null as number | null,
-    worldW: 3600,
+    worldW: 7000,
     viewW: 640,
     viewCenterY: 180,
   };
   assert.equal(clampCameraCenterX(100, base), 320); // half view
-  assert.equal(clampCameraCenterX(4000, base), 3600 - 320);
+  assert.equal(clampCameraCenterX(8000, base), 7000 - 320);
 
   const locked = { ...base, lockLeft: 300, lockRight: 660 };
   // View 640, band 360 → pin to midpoint
   assert.equal(clampCameraCenterX(500, locked), 480);
 
   const wide = { ...base, viewW: 200, lockLeft: 300, lockRight: 700, scrollMin: 250 };
-  // half=100; minCenter=max(250+100, 300+100)=400; maxCenter=min(3600-100,700-100)=600
+  // half=100; minCenter=max(250+100, 300+100)=400; maxCenter=min(7000-100,700-100)=600
   assert.equal(clampCameraCenterX(350, wide), 400);
   assert.equal(clampCameraCenterX(550, wide), 550);
   assert.equal(clampCameraCenterX(800, wide), 600);
@@ -75,7 +75,7 @@ test("step never scrolls left of scroll_min and stays in lock", () => {
       scrollMin: 400,
       lockLeft: 400,
       lockRight: 760,
-      worldW: 3600,
+      worldW: 7000,
       viewW: 640,
       viewCenterY: 180,
     },

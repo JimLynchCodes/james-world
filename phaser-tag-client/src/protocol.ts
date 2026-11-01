@@ -61,7 +61,7 @@ export type PlayerSnapshot = {
   facing: number;
 };
 
-export type EnemyKind = "grunt" | "bruiser" | "swift" | "boss";
+export type EnemyKind = "grunt" | "bruiser" | "swift" | "elite" | "boss";
 
 export type BrawlerPlayerSnap = {
   id: UUID;

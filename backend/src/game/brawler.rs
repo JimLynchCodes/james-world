@@ -12,7 +12,7 @@ use uuid::Uuid;
 use super::{cosmetic::Cosmetic, skin::Skin};
 
 /// Horizontal length of the scroller.
-pub const WORLD_W: f32 = 3600.0;
+pub const WORLD_W: f32 = 7000.0;
 /// Vertical playable band (lane).
 pub const LANE_TOP: f32 = 120.0;
 pub const LANE_BOTTOM: f32 = 230.0;
@@ -37,6 +37,8 @@ pub enum EnemyKind {
     Grunt,
     Bruiser,
     Swift,
+    /// Mid-run mini-boss (about halfway).
+    Elite,
     Boss,
 }
 
@@ -46,6 +48,7 @@ impl EnemyKind {
             Self::Grunt => 40.0,
             Self::Bruiser => 90.0,
             Self::Swift => 30.0,
+            Self::Elite => 240.0,
             Self::Boss => 520.0,
         }
     }
@@ -55,6 +58,7 @@ impl EnemyKind {
             Self::Grunt => 8.0,
             Self::Bruiser => 16.0,
             Self::Swift => 10.0,
+            Self::Elite => 18.0,
             Self::Boss => 22.0,
         }
     }
@@ -64,6 +68,7 @@ impl EnemyKind {
             Self::Grunt => 55.0,
             Self::Bruiser => 40.0,
             Self::Swift => 95.0,
+            Self::Elite => 58.0,
             Self::Boss => 70.0,
         }
     }
@@ -74,6 +79,7 @@ impl EnemyKind {
             Self::Grunt => 14.0,
             Self::Bruiser => 20.0,
             Self::Swift => 12.0,
+            Self::Elite => 26.0,
             Self::Boss => 36.0,
         }
     }
@@ -83,6 +89,7 @@ impl EnemyKind {
             Self::Grunt => 1.1,
             Self::Bruiser => 1.4,
             Self::Swift => 0.85,
+            Self::Elite => 1.0,
             Self::Boss => 0.95,
         }
     }
@@ -92,6 +99,7 @@ impl EnemyKind {
             Self::Grunt => 28.0,
             Self::Bruiser => 34.0,
             Self::Swift => 24.0,
+            Self::Elite => 40.0,
             Self::Boss => 48.0,
         }
     }
@@ -527,7 +535,7 @@ impl BrawlerWorld {
             }
             self.lock_left = None;
             self.lock_right = None;
-            if self.waves_spawned < 5 && !self.boss_defeated() {
+            if self.waves_spawned < TOTAL_WAVES && !self.boss_defeated() {
                 self.show_go = true;
             }
             return;
@@ -536,7 +544,7 @@ impl BrawlerWorld {
         if !self.enemies.is_empty() {
             return;
         }
-        if self.waves_spawned >= 5 {
+        if self.waves_spawned >= TOTAL_WAVES {
             return;
         }
 
@@ -548,7 +556,7 @@ impl BrawlerWorld {
             .fold(0.0_f32, f32::max);
         let next = self.waves_spawned + 1;
         let gate = segment_trigger(next);
-        if next <= 5 && lead >= gate {
+        if next <= TOTAL_WAVES && lead >= gate {
             self.spawn_wave(next);
             self.waves_spawned = next;
             self.wave = next;
@@ -583,23 +591,60 @@ impl BrawlerWorld {
             2 => vec![
                 (EnemyKind::Grunt, right_in, GROUND_Y - 15.0),
                 (EnemyKind::Grunt, right_in + 40.0, GROUND_Y + 15.0),
-                (EnemyKind::Bruiser, right_in + 70.0, GROUND_Y),
+                (EnemyKind::Grunt, right_in + 70.0, GROUND_Y),
                 (EnemyKind::Swift, left_in, GROUND_Y - 8.0),
             ],
             3 => vec![
                 (EnemyKind::Swift, right_in, GROUND_Y - 20.0),
-                (EnemyKind::Swift, right_in + 35.0, GROUND_Y + 20.0),
+                (EnemyKind::Grunt, right_in + 35.0, GROUND_Y + 20.0),
                 (EnemyKind::Bruiser, right_in + 65.0, GROUND_Y - 5.0),
-                (EnemyKind::Bruiser, left_in, GROUND_Y + 10.0),
+                (EnemyKind::Swift, left_in, GROUND_Y + 10.0),
                 (EnemyKind::Grunt, left_in - 30.0, GROUND_Y),
             ],
             4 => vec![
                 (EnemyKind::Bruiser, right_in, GROUND_Y),
-                (EnemyKind::Bruiser, right_in + 40.0, GROUND_Y - 18.0),
+                (EnemyKind::Grunt, right_in + 40.0, GROUND_Y - 18.0),
                 (EnemyKind::Swift, right_in + 80.0, GROUND_Y + 18.0),
                 (EnemyKind::Swift, left_in, GROUND_Y),
-                (EnemyKind::Grunt, left_in - 30.0, GROUND_Y - 12.0),
+                (EnemyKind::Bruiser, left_in - 30.0, GROUND_Y - 12.0),
                 (EnemyKind::Grunt, right_in + 110.0, GROUND_Y + 12.0),
+            ],
+            // Midway elite / mini-boss + escorts.
+            5 => vec![
+                (EnemyKind::Elite, right_in + 20.0, GROUND_Y),
+                (EnemyKind::Bruiser, right_in + 70.0, GROUND_Y - 16.0),
+                (EnemyKind::Bruiser, left_in, GROUND_Y + 14.0),
+                (EnemyKind::Swift, left_in - 40.0, GROUND_Y - 8.0),
+            ],
+            6 => vec![
+                (EnemyKind::Bruiser, right_in, GROUND_Y),
+                (EnemyKind::Bruiser, right_in + 45.0, GROUND_Y - 18.0),
+                (EnemyKind::Swift, right_in + 85.0, GROUND_Y + 16.0),
+                (EnemyKind::Swift, left_in, GROUND_Y),
+                (EnemyKind::Grunt, left_in - 35.0, GROUND_Y - 12.0),
+                (EnemyKind::Grunt, right_in + 120.0, GROUND_Y + 12.0),
+                (EnemyKind::Bruiser, left_in - 70.0, GROUND_Y + 8.0),
+            ],
+            7 => vec![
+                (EnemyKind::Bruiser, right_in, GROUND_Y - 10.0),
+                (EnemyKind::Bruiser, right_in + 40.0, GROUND_Y + 14.0),
+                (EnemyKind::Bruiser, left_in, GROUND_Y),
+                (EnemyKind::Swift, right_in + 80.0, GROUND_Y - 18.0),
+                (EnemyKind::Swift, right_in + 110.0, GROUND_Y + 18.0),
+                (EnemyKind::Swift, left_in - 40.0, GROUND_Y + 10.0),
+                (EnemyKind::Grunt, left_in - 70.0, GROUND_Y - 8.0),
+                (EnemyKind::Grunt, right_in + 140.0, GROUND_Y),
+            ],
+            8 => vec![
+                (EnemyKind::Bruiser, right_in, GROUND_Y),
+                (EnemyKind::Bruiser, right_in + 35.0, GROUND_Y - 16.0),
+                (EnemyKind::Bruiser, right_in + 70.0, GROUND_Y + 16.0),
+                (EnemyKind::Bruiser, left_in, GROUND_Y - 8.0),
+                (EnemyKind::Swift, right_in + 105.0, GROUND_Y),
+                (EnemyKind::Swift, left_in - 35.0, GROUND_Y + 14.0),
+                (EnemyKind::Swift, left_in - 70.0, GROUND_Y - 14.0),
+                (EnemyKind::Grunt, right_in + 140.0, GROUND_Y + 8.0),
+                (EnemyKind::Grunt, left_in - 100.0, GROUND_Y),
             ],
             _ => vec![(EnemyKind::Boss, right_in + 20.0, GROUND_Y)],
         };
@@ -626,13 +671,17 @@ impl BrawlerWorld {
     }
 
     fn boss_defeated(&self) -> bool {
-        self.waves_spawned >= 5
+        self.waves_spawned >= TOTAL_WAVES
             && !self.enemies.iter().any(|e| e.kind == EnemyKind::Boss)
-            && self.wave >= 5
+            && self.wave >= TOTAL_WAVES
     }
 
     pub fn snapshot(&self) -> BrawlerSnapshot {
-        let boss = self.enemies.iter().find(|e| e.kind == EnemyKind::Boss);
+        let boss = self
+            .enemies
+            .iter()
+            .find(|e| e.kind == EnemyKind::Boss)
+            .or_else(|| self.enemies.iter().find(|e| e.kind == EnemyKind::Elite));
         BrawlerSnapshot {
             players: self
                 .players
@@ -693,15 +742,25 @@ impl BrawlerWorld {
 pub const FIGHT_WIDTH: f32 = 360.0;
 /// How far off-screen enemies spawn before walking into the lock band.
 pub const ENTER_FROM: f32 = 90.0;
+/// Total waves including the final boss.
+pub const TOTAL_WAVES: u32 = 9;
+/// Wave index of the midway elite / mini-boss.
+pub const ELITE_WAVE: u32 = 5;
+/// Wave index of the final boss arena fight.
+pub const BOSS_WAVE: u32 = 9;
 
-/// X position the lead player must reach to trigger wave N (1..=5).
+/// X position the lead player must reach to trigger wave N (1..=TOTAL_WAVES).
 pub fn segment_trigger(wave: u32) -> f32 {
     match wave {
-        1 => 320.0,
-        2 => 900.0,
-        3 => 1500.0,
-        4 => 2200.0,
-        _ => 3000.0,
+        1 => 380.0,
+        2 => 1000.0,
+        3 => 1650.0,
+        4 => 2350.0,
+        5 => 3100.0, // elite / mini-boss
+        6 => 3850.0,
+        7 => 4600.0,
+        8 => 5350.0,
+        _ => 6100.0, // final boss arena
     }
 }
 
@@ -987,25 +1046,57 @@ mod tests {
     }
 
     #[test]
-    fn boss_arena_locks_camera_band() {
+    fn elite_wave_spawns_midway_mini_boss() {
         let mut w = BrawlerWorld::new();
         let a = Uuid::new_v4();
         w.join(a, "James 1".into(), skin(), cos());
-        // Fast-forward through segments 1..=4 clears then trigger boss.
-        for wave in 1..=4 {
+        for wave in 1..(ELITE_WAVE) {
             w.players.get_mut(&a).unwrap().x = segment_trigger(wave) + 1.0;
             let _ = w.advance(0.05);
             w.enemies.clear();
             let _ = w.advance(0.05);
         }
-        w.players.get_mut(&a).unwrap().x = segment_trigger(5) + 1.0;
+        w.players.get_mut(&a).unwrap().x = segment_trigger(ELITE_WAVE) + 1.0;
         let _ = w.advance(0.05);
-        assert_eq!(w.wave, 5);
+        assert_eq!(w.wave, ELITE_WAVE);
+        assert!(w.enemies.iter().any(|e| matches!(e.kind, EnemyKind::Elite)));
+        assert!(w.lock_left.is_some());
+        let snap = w.snapshot();
+        assert!(snap.boss_hp.is_some(), "elite exposes HP on the boss bar");
+    }
+
+    #[test]
+    fn boss_arena_locks_camera_band() {
+        let mut w = BrawlerWorld::new();
+        let a = Uuid::new_v4();
+        w.join(a, "James 1".into(), skin(), cos());
+        // Fast-forward through crawl waves, then trigger the final boss.
+        for wave in 1..BOSS_WAVE {
+            w.players.get_mut(&a).unwrap().x = segment_trigger(wave) + 1.0;
+            let _ = w.advance(0.05);
+            w.enemies.clear();
+            let _ = w.advance(0.05);
+        }
+        w.players.get_mut(&a).unwrap().x = segment_trigger(BOSS_WAVE) + 1.0;
+        let _ = w.advance(0.05);
+        assert_eq!(w.wave, BOSS_WAVE);
         assert!(w.lock_left.is_some());
         assert!(w.lock_right.is_some());
         assert!(!w.show_go);
-        // Boss present
         assert!(w.enemies.iter().any(|e| matches!(e.kind, EnemyKind::Boss)));
+        assert!(
+            segment_trigger(BOSS_WAVE) >= 6000.0,
+            "boss arena should sit near the end of the doubled stage"
+        );
+    }
+
+    #[test]
+    fn stage_is_roughly_double_pre_boss_length() {
+        // Pre-boss crawl used to end at 3000; keep boss gate ~2x that.
+        assert!(segment_trigger(BOSS_WAVE) >= 5800.0);
+        assert!(WORLD_W >= 6800.0);
+        assert_eq!(TOTAL_WAVES, BOSS_WAVE);
+        assert_eq!(ELITE_WAVE, 5);
     }
 
 #[test]

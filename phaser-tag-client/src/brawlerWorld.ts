@@ -34,7 +34,7 @@ import { toSkin, type Skin } from "./skins";
 import type { UUID } from "./types";
 
 export const BRAWLER = {
-  w: 3600,
+  w: 7000,
   laneTop: 120,
   laneBottom: 230,
   groundY: 200,
@@ -65,6 +65,7 @@ const ENEMY_COLORS: Record<string, number> = {
   grunt: 0xc45c26,
   bruiser: 0x6b3a2a,
   swift: 0x3d8b6e,
+  elite: 0x8a2be2,
   boss: 0x7a1f2b,
 };
 
@@ -107,6 +108,18 @@ function ensureEnemyTextures(scene: Phaser.Scene) {
     g.fillCircle(8, 10, 1.5);
     g.fillCircle(16, 10, 1.5);
   });
+  make("brawler-elite", 52, 60, ENEMY_COLORS.elite, g => {
+    g.fillStyle(0xffe0c0, 1);
+    g.fillCircle(18, 18, 7);
+    g.fillCircle(34, 18, 7);
+    g.fillStyle(0x1a0f0a, 1);
+    g.fillCircle(18, 18, 3);
+    g.fillCircle(34, 18, 3);
+    g.fillStyle(0xffd700, 1);
+    g.fillTriangle(26, 2, 18, 14, 34, 14);
+    g.fillStyle(0xaa44ff, 1);
+    g.fillRect(10, 36, 32, 10);
+  });
   make("brawler-boss", 72, 84, ENEMY_COLORS.boss, g => {
     g.fillStyle(0xffcc88, 1);
     g.fillCircle(24, 22, 8);
@@ -124,6 +137,7 @@ function ensureEnemyTextures(scene: Phaser.Scene) {
 function enemyKey(kind: string): string {
   if (kind === "bruiser") return "brawler-bruiser";
   if (kind === "swift") return "brawler-swift";
+  if (kind === "elite") return "brawler-elite";
   if (kind === "boss") return "brawler-boss";
   return "brawler-grunt";
 }
@@ -476,6 +490,8 @@ export class BrawlerWorldScene extends Phaser.Scene {
     if (bossHp != null && bossMax != null && bossMax > 0) {
       this.bossWrap.setVisible(true);
       this.bossFill.setScale(Math.max(0, bossHp / bossMax), 1);
+      // Elite mini-boss is weaker than the final boss — retitle the bar.
+      this.bossLabel.setText(bossMax < 400 ? "ELITE" : t("brawler.boss"));
     } else {
       this.bossWrap.setVisible(false);
     }
