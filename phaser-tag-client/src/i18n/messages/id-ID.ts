@@ -145,5 +145,8 @@ export const idID: Messages = {
   "brawler.wave": "GELOMBANG {n}",
   "brawler.boss": "BOSS",
   "brawler.go": "AYO →",
-  "brawler.win": "KAMU MENANG!"
+  "brawler.win": "KAMU MENANG!",
+  "brawler.youDied": "KAMU MATI",
+  "brawler.reachedWave": "Mencapai gelombang {n}",
+  "brawler.returnPlayground": "Kembali ke halaman"
 };

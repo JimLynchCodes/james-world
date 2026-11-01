@@ -145,5 +145,8 @@ export const koKR: Messages = {
   "brawler.wave": "웨이브 {n}",
   "brawler.boss": "보스",
   "brawler.go": "GO →",
-  "brawler.win": "승리!"
+  "brawler.win": "승리!",
+  "brawler.youDied": "사망",
+  "brawler.reachedWave": "웨이브 {n} 도달",
+  "brawler.returnPlayground": "운동장으로 돌아가기"
 };

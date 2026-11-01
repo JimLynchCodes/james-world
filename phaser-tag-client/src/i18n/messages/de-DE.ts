@@ -145,5 +145,8 @@ export const deDE: Messages = {
   "brawler.wave": "WELLE {n}",
   "brawler.boss": "BOSS",
   "brawler.go": "LOS →",
-  "brawler.win": "DU HAST GEWONNEN!"
+  "brawler.win": "DU HAST GEWONNEN!",
+  "brawler.youDied": "DU BIST GESTORBEN",
+  "brawler.reachedWave": "Welle {n} erreicht",
+  "brawler.returnPlayground": "Zurück zum Hof"
 };

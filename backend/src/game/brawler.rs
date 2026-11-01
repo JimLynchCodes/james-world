@@ -972,6 +972,52 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_player_hp_drops_after_enemy_hit() {
+        let mut w = BrawlerWorld::new();
+        let a = Uuid::new_v4();
+        w.join(a, "James 1".into(), skin(), cos());
+        w.enemies.clear();
+        {
+            let p = w.players.get_mut(&a).unwrap();
+            p.x = 200.0;
+            p.y = GROUND_Y;
+            p.hp = PLAYER_MAX_HP;
+            p.invuln = 0.0;
+        }
+        w.next_enemy_id += 1;
+        w.enemies.push(Enemy {
+            id: w.next_enemy_id,
+            kind: EnemyKind::Grunt,
+            x: 205.0,
+            y: GROUND_Y,
+            hp: 40.0,
+            facing: std::f32::consts::PI,
+            attack_cooldown: 0.0,
+            hit_flash: 0.0,
+        });
+        let before = w.snapshot();
+        let before_p = before
+            .players
+            .iter()
+            .find(|p| p.id == a)
+            .expect("local player in snapshot");
+        assert!((before_p.hp - PLAYER_MAX_HP).abs() < 0.01);
+        assert!((before_p.max_hp - PLAYER_MAX_HP).abs() < 0.01);
+        let _ = w.advance(0.05);
+        let after = w.snapshot();
+        let after_p = after
+            .players
+            .iter()
+            .find(|p| p.id == a)
+            .expect("local player in snapshot");
+        assert!(
+            after_p.hp < before_p.hp,
+            "snapshot must carry the reduced HP so the client HUD can shrink"
+        );
+        assert!((after_p.max_hp - PLAYER_MAX_HP).abs() < 0.01);
+    }
+
+    #[test]
     fn enemy_kill_emits_player_died() {
         let mut w = BrawlerWorld::new();
         let a = Uuid::new_v4();

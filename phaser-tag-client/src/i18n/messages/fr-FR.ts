@@ -145,5 +145,8 @@ export const frFR: Messages = {
   "brawler.wave": "VAGUE {n}",
   "brawler.boss": "BOSS",
   "brawler.go": "GO →",
-  "brawler.win": "TU AS GAGNÉ !"
+  "brawler.win": "TU AS GAGNÉ !",
+  "brawler.youDied": "TU ES MORT",
+  "brawler.reachedWave": "Vague {n} atteinte",
+  "brawler.returnPlayground": "Retour à la cour"
 };

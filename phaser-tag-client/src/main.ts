@@ -1017,6 +1017,7 @@ class GameScene extends Phaser.Scene {
     // Stay away from the playground while fighting.
     this.socket.send({ type: "SetAway", data: { away: true } });
     const hooks: BrawlerHooks = {
+      localPlayerId: this.localPlayerId,
       skin: this.localSkin,
       cosmetic: this.localCosmetic,
       name: this.localName || "James",

@@ -145,5 +145,8 @@ export const ptBR: Messages = {
   "brawler.wave": "ONDA {n}",
   "brawler.boss": "CHEFE",
   "brawler.go": "VAI →",
-  "brawler.win": "VOCÊ VENCEU!"
+  "brawler.win": "VOCÊ VENCEU!",
+  "brawler.youDied": "VOCÊ MORREU",
+  "brawler.reachedWave": "Chegou à onda {n}",
+  "brawler.returnPlayground": "Voltar ao pátio"
 };

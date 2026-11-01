@@ -145,5 +145,8 @@ export const filPH: Messages = {
   "brawler.wave": "ALON {n}",
   "brawler.boss": "BOSS",
   "brawler.go": "GO →",
-  "brawler.win": "NANALO KA!"
+  "brawler.win": "NANALO KA!",
+  "brawler.youDied": "NAMATAY KA",
+  "brawler.reachedWave": "Umabot sa wave {n}",
+  "brawler.returnPlayground": "Bumalik sa playground"
 };

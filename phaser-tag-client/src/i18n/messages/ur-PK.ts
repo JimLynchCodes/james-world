@@ -192,5 +192,8 @@ Advanced Startup Options چننے کے لیے F8 دبائیں، اور پھر
   "brawler.wave": "لہر {n}",
   "brawler.boss": "باس",
   "brawler.go": "آگے →",
-  "brawler.win": "آپ جیت گئے!"
+  "brawler.win": "آپ جیت گئے!",
+  "brawler.youDied": "آپ مر گئے",
+  "brawler.reachedWave": "لہر {n} تک پہنچے",
+  "brawler.returnPlayground": "میدان میں واپس جائیں"
 };

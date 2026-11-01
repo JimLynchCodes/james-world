@@ -11,6 +11,16 @@ import {
   stepBrawlerCamera,
 } from "./brawlerCamera";
 import {
+  HP_FILL_H,
+  hpBarColor,
+  hpBarFillWidth,
+  hpBarRatio,
+  shouldFlashHit,
+  smoothHpStep,
+} from "./brawlerHud";
+import {
+  DEATH_ANIM_MS,
+  deathOverlayAt,
   shouldBeginDeath,
   shouldBeginWin,
   shouldDrawBrawlerPeer,
@@ -44,6 +54,8 @@ export const BRAWLER = {
 } as const;
 
 export type BrawlerHooks = {
+  /** Playground Welcome id — same id the brawler room uses. */
+  localPlayerId: UUID | null;
   skin: Skin;
   cosmetic: Cosmetic;
   name: string;
@@ -178,6 +190,18 @@ export class BrawlerWorldScene extends Phaser.Scene {
   private localId: UUID | null = null;
   private localHp = 100;
   private localMaxHp = 100;
+  /** Smoothed value drawn on the life bar (eases toward localHp). */
+  private displayHp = 100;
+  private prevLocalHp = 100;
+  private lastWave = 0;
+  private deathStartedAt: number | null = null;
+  private returnClickedAtMs: number | null = null;
+  private deathLeft = false;
+  private deathPopup?: Phaser.GameObjects.Container;
+  private deathTitle?: Phaser.GameObjects.Text;
+  private deathSub?: Phaser.GameObjects.Text;
+  private deathButton?: Phaser.GameObjects.Container;
+  private hitFlashUntil = 0;
   private peers = new Map<UUID, Peer>();
   private enemies = new Map<number, Phaser.GameObjects.Image>();
   private layers!: ParallaxLayers;
@@ -206,7 +230,18 @@ export class BrawlerWorldScene extends Phaser.Scene {
 
   init(hooks: BrawlerHooks) {
     this.hooks = hooks;
-    this.localId = null;
+    // Bind immediately from the playground id so snapshots update the life bar
+    // even if BrawlerWelcome is delayed or dropped.
+    this.localId = hooks.localPlayerId;
+    this.localHp = 100;
+    this.localMaxHp = 100;
+    this.displayHp = 100;
+    this.prevLocalHp = 100;
+    this.lastWave = 0;
+    this.deathStartedAt = null;
+    this.returnClickedAtMs = null;
+    this.deathLeft = false;
+    this.hitFlashUntil = 0;
     this.peers.clear();
     this.enemies.clear();
     this.ending = "none";
@@ -268,6 +303,7 @@ export class BrawlerWorldScene extends Phaser.Scene {
     this.bossWrap?.setPosition(width / 2, 10);
     this.banner?.setPosition(width / 2, height * 0.4);
     this.goLabel?.setPosition(width / 2, height * 0.28);
+    this.deathPopup?.setPosition(width / 2, height * 0.42);
     this.cameras.main.setSize(width, height);
   };
 
@@ -335,13 +371,62 @@ export class BrawlerWorldScene extends Phaser.Scene {
       .setDepth(940)
       .setVisible(false);
 
+    this.buildDeathPopup();
     this.refreshHudText();
+  }
+
+  private buildDeathPopup() {
+    const w = this.scale.width;
+    const h = this.scale.height;
+    this.deathPopup = this.add.container(w / 2, h * 0.42).setScrollFactor(0).setDepth(980).setVisible(false);
+
+    const panel = this.add.rectangle(0, 0, 340, 168, 0x0a0a12, 0.92).setStrokeStyle(3, 0xffe680);
+    this.deathTitle = this.add
+      .text(0, -48, "", {
+        fontFamily: "monospace",
+        fontSize: "32px",
+        color: "#ff6688",
+        stroke: "#000000",
+        strokeThickness: 6,
+      })
+      .setOrigin(0.5);
+    this.deathSub = this.add
+      .text(0, -8, "", {
+        fontFamily: "monospace",
+        fontSize: "16px",
+        color: "#ffe680",
+        stroke: "#000000",
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5);
+
+    const btnBg = this.add.rectangle(0, 48, 200, 36, 0x33cc55, 1).setStrokeStyle(2, 0xffe680);
+    const btnLabel = this.add
+      .text(0, 48, "", {
+        fontFamily: "monospace",
+        fontSize: "16px",
+        color: "#0a0a12",
+        stroke: "#ffffff",
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5);
+    this.deathButton = this.add.container(0, 0, [btnBg, btnLabel]);
+    btnBg.setInteractive({ useHandCursor: true });
+    btnBg.on("pointerover", () => btnBg.setFillStyle(0x55ee77, 1));
+    btnBg.on("pointerout", () => btnBg.setFillStyle(0x33cc55, 1));
+    btnBg.on("pointerup", () => this.onDeathReturnClicked());
+
+    this.deathPopup.add([panel, this.deathTitle, this.deathSub, this.deathButton]);
   }
 
   private refreshHudText() {
     this.hpLabel?.setText(this.hooks?.name || t("brawler.fighter"));
     this.bossLabel?.setText(t("brawler.boss"));
     this.goLabel?.setText(t("brawler.go"));
+    this.deathTitle?.setText(t("brawler.youDied"));
+    this.deathSub?.setText(t("brawler.reachedWave", { n: this.lastWave }));
+    const btn = this.deathButton?.list[1] as Phaser.GameObjects.Text | undefined;
+    btn?.setText(t("brawler.returnPlayground"));
   }
 
   /** Route a brawler-related server message into the scene. */
@@ -349,9 +434,11 @@ export class BrawlerWorldScene extends Phaser.Scene {
     if (this.left) return;
     switch (message.type) {
       case "BrawlerWelcome":
-        this.localId = message.data.player_id;
+        this.localId = message.data.player_id || this.hooks.localPlayerId;
         this.localHp = message.data.hp;
         this.localMaxHp = message.data.max_hp;
+        this.displayHp = message.data.hp;
+        this.prevLocalHp = message.data.hp;
         this.ensurePeer({
           id: message.data.player_id,
           name: this.hooks.name,
@@ -373,7 +460,7 @@ export class BrawlerWorldScene extends Phaser.Scene {
       case "BrawlerPlayerDied":
         if (
           shouldBeginDeath({
-            isLocal: message.data.player_id === this.localId,
+            isLocal: this.isLocalPlayer(message.data.player_id),
             dead: true,
             ending: this.ending,
           })
@@ -384,7 +471,11 @@ export class BrawlerWorldScene extends Phaser.Scene {
       case "BrawlerWon":
         if (
           shouldBeginWin({
-            isLocalWinner: !!(this.localId && message.data.player_ids.includes(this.localId)),
+            isLocalWinner: !!(
+              (this.localId && message.data.player_ids.includes(this.localId)) ||
+              (this.hooks.localPlayerId &&
+                message.data.player_ids.includes(this.hooks.localPlayerId))
+            ),
             ending: this.ending,
           })
         ) {
@@ -409,7 +500,7 @@ export class BrawlerWorldScene extends Phaser.Scene {
       peer.avatar.running = false;
       peer.avatar.setSkin(toSkin(p.skin));
       peer.avatar.setCosmetic(toCosmetic(p.cosmetic));
-      peer.avatar.setLabels({ name: p.name, you: p.id === this.localId, it: false });
+      peer.avatar.setLabels({ name: p.name, you: this.isLocalPlayer(p.id), it: false });
       // Restart tag clip on every new swing (attack_seq bump), including mid-anim chains.
       // Local presses also force-restart optimistically in update() for zero-latency feedback.
       const seq = p.attack_seq ?? 0;
@@ -420,13 +511,12 @@ export class BrawlerWorldScene extends Phaser.Scene {
       });
       const rising = shouldPlayAttackAnim(p.attacking, peer.wasAttacking);
       if (seqRestart || rising) {
-        if (p.id === this.localId && peer.localAnimPending) {
+        if (this.isLocalPlayer(p.id) && peer.localAnimPending) {
           // Optimistic press already restarted the clip for this swing.
           peer.localAnimPending = false;
         } else {
           peer.avatar.playTag(p.facing, { restart: true });
-          if (p.id === this.localId) this.hooks.audio?.playSfx("brawlerHit", 0.75);
-          else this.hooks.audio?.playSfx("brawlerHit", 0.7);
+          this.hooks.audio?.playSfx("brawlerHit", this.isLocalPlayer(p.id) ? 0.75 : 0.7);
         }
       }
       peer.wasAttacking = p.attacking;
@@ -437,9 +527,13 @@ export class BrawlerWorldScene extends Phaser.Scene {
       peer.avatar.update();
       // Y-sort like classic beat-'em-ups (lower feet = in front).
       peer.avatar.sprite.setDepth(20 + p.y);
-      if (p.id === this.localId) {
+      if (this.isLocalPlayer(p.id)) {
+        this.localId = p.id;
+        const tookHit = shouldFlashHit(this.prevLocalHp, p.hp);
+        this.prevLocalHp = p.hp;
         this.localHp = p.hp;
-        this.localMaxHp = p.max_hp;
+        this.localMaxHp = p.max_hp > 0 ? p.max_hp : this.localMaxHp;
+        if (tookHit) this.flashLocalHit();
         // Belt-and-suspenders: if Died was missed, snapshot still starts the exit.
         if (shouldBeginDeath({ isLocal: true, dead: p.dead, ending: this.ending })) {
           this.beginDeath();
@@ -468,6 +562,7 @@ export class BrawlerWorldScene extends Phaser.Scene {
     this.lockLeft = snap.lock_left ?? null;
     this.lockRight = snap.lock_right ?? null;
     this.scrollMin = snap.scroll_min ?? this.scrollMin;
+    this.lastWave = snap.wave ?? this.lastWave;
     this.updateHud(snap);
   }
 
@@ -477,8 +572,8 @@ export class BrawlerWorldScene extends Phaser.Scene {
     const avatar = new KidAvatar(this, p.x, p.y, 14, p.name);
     avatar.setSkin(toSkin(p.skin));
     avatar.setCosmetic(toCosmetic(p.cosmetic));
-    avatar.setRole(p.id === this.localId ? "self" : "human");
-    avatar.setLabels({ name: p.name, you: p.id === this.localId, it: false });
+    avatar.setRole(this.isLocalPlayer(p.id) ? "self" : "human");
+    avatar.setLabels({ name: p.name, you: this.isLocalPlayer(p.id), it: false });
     const peer = { avatar, snap: p, wasAttacking: false, wasAttackSeq: 0, localAnimPending: false };
     this.peers.set(p.id, peer);
     return peer;
@@ -502,9 +597,7 @@ export class BrawlerWorldScene extends Phaser.Scene {
   }
 
   private updateHud(snap: BrawlerSnapshotData) {
-    const ratio = this.localMaxHp > 0 ? Math.max(0, this.localHp / this.localMaxHp) : 0;
-    this.hpFill.setScale(Math.max(0.001, ratio), 1);
-    this.hpFill.setTint(ratio > 0.3 ? 0x33cc55 : ratio > 0.15 ? 0xcccc33 : 0xcc3344);
+    this.paintHpBar(this.displayHp, this.localMaxHp);
     this.waveLabel.setText(t("brawler.wave", { n: snap.wave }));
     const bossHp = snap.boss_hp;
     const bossMax = snap.boss_max_hp;
@@ -527,6 +620,8 @@ export class BrawlerWorldScene extends Phaser.Scene {
 
   update(_time: number, delta: number) {
     this.stepCamera(delta / 1000);
+    this.stepHpBar(delta / 1000);
+    this.stepDeathOverlay();
     if (this.left || this.ending !== "none") return;
     const move = this.hooks.readMove();
     let dx = move.dx;
@@ -587,32 +682,102 @@ export class BrawlerWorldScene extends Phaser.Scene {
     }
   }
 
+  private isLocalPlayer(id: UUID): boolean {
+    if (this.localId && id === this.localId) return true;
+    if (this.hooks?.localPlayerId && id === this.hooks.localPlayerId) return true;
+    return false;
+  }
+
+  private paintHpBar(hp: number, maxHp: number) {
+    if (!this.hpFill) return;
+    const ratio = hpBarRatio(hp, maxHp);
+    const width = hpBarFillWidth(ratio);
+    // displayWidth (not setScale) so the fill visibly shrinks left→right over the dark well.
+    this.hpFill.setDisplaySize(Math.max(width, 0.001), HP_FILL_H);
+    this.hpFill.setVisible(width > 0);
+    this.hpFill.setTint(hpBarColor(ratio));
+  }
+
+  private stepHpBar(dtSec: number) {
+    if (!this.hpFill) return;
+    // Damage eases in quickly so every hit is obvious on the green bar.
+    this.displayHp = smoothHpStep(this.displayHp, this.localHp, dtSec);
+    this.paintHpBar(this.displayHp, this.localMaxHp);
+    // Clear hit flash tint after a short window.
+    if (this.hitFlashUntil && this.time.now >= this.hitFlashUntil) {
+      this.hitFlashUntil = 0;
+      const me = this.localId ? this.peers.get(this.localId) : null;
+      me?.avatar.sprite.clearTint();
+    }
+  }
+
+  private flashLocalHit() {
+    this.hooks.audio?.playSfx("hit", 0.7);
+    this.cameras.main.shake(140, 0.008);
+    const me = this.localId ? this.peers.get(this.localId) : null;
+    if (me) {
+      me.avatar.sprite.setTint(0xff5555);
+      this.hitFlashUntil = this.time.now + 180;
+    }
+    // Snap the bar a bit toward the new value so the drop reads immediately.
+    this.displayHp = this.displayHp * 0.35 + this.localHp * 0.65;
+    this.paintHpBar(this.displayHp, this.localMaxHp);
+  }
+
   private beginDeath() {
     if (this.ending !== "none") return;
     this.ending = "dying";
+    this.deathStartedAt = this.time.now;
+    this.returnClickedAtMs = null;
+    this.deathLeft = false;
+    this.localHp = 0;
+    this.displayHp = 0;
+    this.paintHpBar(0, this.localMaxHp);
     this.hooks.audio?.playSfx("hit", 0.9);
     const me = this.localId ? this.peers.get(this.localId) : null;
     if (me) {
       this.tweens.add({
         targets: me.avatar.sprite,
         angle: 90,
-        alpha: 0.2,
-        duration: 700,
+        alpha: 0.25,
+        duration: DEATH_ANIM_MS,
         ease: "Sine.easeIn",
       });
     }
-    this.tweens.add({
-      targets: this.fade,
-      alpha: 1,
-      duration: 900,
-      delay: 400,
-      onComplete: () => {
-        this.ending = "done";
-        this.left = true;
-        // Defer so we do not stop this scene from inside its own tween callback.
-        this.time.delayedCall(0, () => this.hooks.onDied());
-      },
+    // Popup / fade are driven from stepDeathOverlay so Return can cut the hold short.
+  }
+
+  private onDeathReturnClicked() {
+    if (this.ending !== "dying" || this.deathStartedAt == null) return;
+    if (this.returnClickedAtMs != null) return;
+    const elapsed = this.time.now - this.deathStartedAt;
+    // Only meaningful once the flop is done and the card is up (or about to be).
+    this.returnClickedAtMs = Math.max(elapsed, DEATH_ANIM_MS);
+  }
+
+  private stepDeathOverlay() {
+    if (this.ending !== "dying" || this.deathStartedAt == null || this.deathLeft) return;
+    const elapsed = this.time.now - this.deathStartedAt;
+    const ui = deathOverlayAt({
+      elapsedMs: elapsed,
+      returnClickedAtMs: this.returnClickedAtMs,
     });
+    if (this.deathPopup) {
+      this.deathPopup.setVisible(ui.showPopup);
+      if (ui.showPopup) {
+        this.deathPopup.setPosition(this.scale.width / 2, this.scale.height * 0.42);
+        this.deathTitle?.setText(t("brawler.youDied"));
+        this.deathSub?.setText(t("brawler.reachedWave", { n: this.lastWave }));
+      }
+    }
+    if (this.fade) this.fade.setAlpha(ui.fadeAlpha);
+    if (ui.phase === "done") {
+      this.deathLeft = true;
+      this.ending = "done";
+      this.left = true;
+      // Defer so we do not stop this scene mid-update.
+      this.time.delayedCall(0, () => this.hooks.onDied());
+    }
   }
 
   private beginWin() {

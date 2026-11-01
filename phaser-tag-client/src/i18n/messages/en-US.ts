@@ -190,7 +190,10 @@ Press any key or tap to continue `,
   "brawler.wave": "WAVE {n}",
   "brawler.boss": "BOSS",
   "brawler.go": "GO →",
-  "brawler.win": "YOU WIN!"
+  "brawler.win": "YOU WIN!",
+  "brawler.youDied": "YOU DIED",
+  "brawler.reachedWave": "Reached wave {n}",
+  "brawler.returnPlayground": "Return to playground"
 } as const;
 
 export type MessageKey = keyof typeof enUS;

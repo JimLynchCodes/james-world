@@ -145,5 +145,8 @@ export const itIT: Messages = {
   "brawler.wave": "ONDATA {n}",
   "brawler.boss": "BOSS",
   "brawler.go": "VIA →",
-  "brawler.win": "HAI VINTO!"
+  "brawler.win": "HAI VINTO!",
+  "brawler.youDied": "SEI MORTO",
+  "brawler.reachedWave": "Raggiunta l'ondata {n}",
+  "brawler.returnPlayground": "Torna al cortile"
 };

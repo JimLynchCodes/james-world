@@ -1,11 +1,15 @@
 /**
- * Brawler → playground return path (death / win / leave guard).
+ * Brawler → playground return path (death / win / leave guard / You-died popup).
  *
- *   node --experimental-strip-types --test tools/check_brawler_leave.ts
+ *   npx tsx --test tools/check_brawler_leave.ts
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  DEATH_ANIM_MS,
+  DEATH_FADE_MS,
+  DEATH_POPUP_HOLD_MS,
+  deathOverlayAt,
   shouldBeginDeath,
   shouldBeginWin,
   shouldDrawBrawlerPeer,
@@ -53,21 +57,71 @@ test("dead peer stays drawn during dying flop, hidden otherwise", () => {
   assert.equal(shouldDrawBrawlerPeer({ dead: true, ending: "done" }), false);
 });
 
-test("death then leave is a one-shot sequence", () => {
+test("You-died popup appears after the flop, then auto-fades home", () => {
+  const midFlop = deathOverlayAt({ elapsedMs: DEATH_ANIM_MS / 2, returnClickedAtMs: null });
+  assert.equal(midFlop.phase, "anim");
+  assert.equal(midFlop.showPopup, false);
+  assert.equal(midFlop.fadeAlpha, 0);
+
+  const popup = deathOverlayAt({
+    elapsedMs: DEATH_ANIM_MS + 100,
+    returnClickedAtMs: null,
+  });
+  assert.equal(popup.phase, "popup");
+  assert.equal(popup.showPopup, true);
+  assert.equal(popup.fadeAlpha, 0);
+
+  const fading = deathOverlayAt({
+    elapsedMs: DEATH_ANIM_MS + DEATH_POPUP_HOLD_MS + DEATH_FADE_MS / 2,
+    returnClickedAtMs: null,
+  });
+  assert.equal(fading.phase, "fading");
+  assert.equal(fading.showPopup, true);
+  assert.ok(fading.fadeAlpha > 0.4 && fading.fadeAlpha < 0.9);
+
+  const done = deathOverlayAt({
+    elapsedMs: DEATH_ANIM_MS + DEATH_POPUP_HOLD_MS + DEATH_FADE_MS + 10,
+    returnClickedAtMs: null,
+  });
+  assert.equal(done.phase, "done");
+  assert.equal(done.fadeAlpha, 1);
+});
+
+test("Return button skips the hold and fades out immediately", () => {
+  const clickAt = DEATH_ANIM_MS + 200;
+  const rightAfterClick = deathOverlayAt({
+    elapsedMs: clickAt + 10,
+    returnClickedAtMs: clickAt,
+  });
+  assert.equal(rightAfterClick.phase, "fading");
+  assert.equal(rightAfterClick.showPopup, true);
+
+  const afterFade = deathOverlayAt({
+    elapsedMs: clickAt + DEATH_FADE_MS + 10,
+    returnClickedAtMs: clickAt,
+  });
+  assert.equal(afterFade.phase, "done");
+});
+
+test("death then leave is a one-shot sequence including last-player death", () => {
   let ending: "none" | "dying" | "winning" | "done" = "none";
   let inBrawler = true;
 
-  // Snapshot arrives with dead:true (or Died message) → begin death.
+  // Snapshot / Died for the local (and only) player.
   assert.equal(shouldBeginDeath({ isLocal: true, dead: true, ending }), true);
   ending = "dying";
   assert.equal(shouldDrawBrawlerPeer({ dead: true, ending }), true);
 
-  // Fade completes → leave once.
+  const popup = deathOverlayAt({
+    elapsedMs: DEATH_ANIM_MS + 50,
+    returnClickedAtMs: null,
+  });
+  assert.equal(popup.showPopup, true);
+
+  // Auto or button finishes → leave once (works when they were the last player).
   ending = "done";
   assert.equal(shouldLeaveBrawler(inBrawler), true);
   inBrawler = false;
   assert.equal(shouldLeaveBrawler(inBrawler), false);
-
-  // A late snapshot must not restart death or leave.
   assert.equal(shouldBeginDeath({ isLocal: true, dead: true, ending }), false);
 });
