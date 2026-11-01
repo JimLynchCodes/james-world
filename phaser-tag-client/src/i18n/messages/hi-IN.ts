@@ -187,4 +187,13 @@ Advanced Startup Options चुनने के लिए F8 दबाएँ, �
 
 
 जारी रखने के लिए कोई भी कुंजी दबाएँ या टैप करें `,
+
+  "brawler.fighter": "योद्धा",
+  "brawler.wave": "लहर {n}",
+  "brawler.boss": "बॉस",
+  "brawler.go": "आगे →",
+  "brawler.win": "आप जीत गए!",
+  "brawler.youDied": "आप मर गए",
+  "brawler.reachedWave": "लहर {n} तक पहुँचे",
+  "brawler.returnPlayground": "मैदान पर लौटें"
 };

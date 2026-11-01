@@ -6,8 +6,10 @@
  *
  * The player is locked until the two-line message finishes revealing.
  * Walls, both fires, and the old man are solid. The sword is not: touching
- * it opens a full-screen blue error page. Walking out the bottom door, or
- * dismissing that page, returns to the schoolyard.
+ * it plays a classic Zelda-style "item get" (hold sword overhead ~1.5s),
+ * then the sword vanishes. Walking out without taking it returns to the
+ * schoolyard; leaving after taking it sends the player to the brawler.
+ * The old BSOD page is preserved behind ?bsod=1 (easter egg).
  */
 import Phaser from "phaser";
 import type { GameAudio } from "./audio";
@@ -89,11 +91,13 @@ function swordRect(sword: PlacedSprite): CaveRect {
   };
 }
 
+export type DungeonExit = { tookSword: boolean };
+
 export type DungeonHooks = {
   skin: Skin;
   readMove: () => { dx: number; dy: number; mode: ControlMode };
   audio: GameAudio | null;
-  onExit: () => void;
+  onExit: (result: DungeonExit) => void;
 };
 
 const GLYPH_W = CAVE_GLYPH_W;
@@ -208,6 +212,13 @@ export class SecretDungeonScene extends Phaser.Scene {
   private tapTarget: { x: number; y: number } | null = null;
   private left = false;
   private bsodEl: HTMLElement | null = null;
+  /** True after the Zelda item-get finishes (or instantly if already taken). */
+  private tookSword = false;
+  /** Mid item-get ceremony: movement locked, sword held overhead. */
+  private gettingItem = false;
+  private heldSword: Phaser.GameObjects.Image | null = null;
+  private sparkles: Phaser.GameObjects.Arc[] = [];
+  private getUntil = 0;
   private unsubLocale: (() => void) | null = null;
   private readonly onBsodKey = (event: KeyboardEvent) => {
     if (event.repeat || !this.bsodEl) return;
@@ -231,6 +242,11 @@ export class SecretDungeonScene extends Phaser.Scene {
     this.ly = SPAWN.y;
     this.facing = -Math.PI / 2;
     this.bsodEl = null;
+    this.tookSword = false;
+    this.gettingItem = false;
+    this.heldSword = null;
+    this.sparkles = [];
+    this.getUntil = 0;
   }
 
   preload() {
@@ -274,7 +290,7 @@ export class SecretDungeonScene extends Phaser.Scene {
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
 
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
-      if (this.locked || this.bsodEl || this.left) return;
+      if (this.locked || this.bsodEl || this.gettingItem || this.left) return;
       if (this.hooks.readMove().mode !== "mobile") return;
       const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
       const lx = (world.x - this.fit.ox) / this.fit.scale;
@@ -424,7 +440,19 @@ export class SecretDungeonScene extends Phaser.Scene {
     }
     this.reveal(time);
     this.flicker(time);
-    if (this.locked || this.bsodEl) {
+    if (this.bsodEl) {
+      if (this.avatar) {
+        this.avatar.moving = false;
+        this.avatar.running = false;
+        this.placeAvatar();
+      }
+      return;
+    }
+    if (this.gettingItem) {
+      this.runItemGet(time);
+      return;
+    }
+    if (this.locked) {
       if (this.avatar) {
         this.avatar.moving = false;
         this.avatar.running = false;
@@ -434,7 +462,9 @@ export class SecretDungeonScene extends Phaser.Scene {
     }
     this.walk(delta);
     if (this.left) return;
-    if (circleHits(this.lx, this.ly, CAVE.playerR, swordRect(this.sprites.sword))) this.showBsod();
+    if (!this.tookSword && this.sword.visible && circleHits(this.lx, this.ly, CAVE.playerR, swordRect(this.sprites.sword))) {
+      this.onSwordTouch();
+    }
   }
 
   private reveal(time: number) {
@@ -621,6 +651,82 @@ export class SecretDungeonScene extends Phaser.Scene {
     return this.solids.some(rect => circleHits(x, y, CAVE.playerR, rect));
   }
 
+
+  private preferBsod(): boolean {
+    try {
+      return new URLSearchParams(window.location.search).get("bsod") === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  private onSwordTouch() {
+    if (this.tookSword || this.gettingItem || this.bsodEl) return;
+    if (this.preferBsod()) {
+      this.showBsod();
+      return;
+    }
+    this.gettingItem = true;
+    this.tapTarget = null;
+    this.sword.setVisible(false);
+    this.facing = Math.PI / 2; // face the camera (south)
+    if (this.avatar) {
+      this.avatar.facing = this.facing;
+      this.avatar.moving = false;
+      this.avatar.running = false;
+      this.placeAvatar();
+    }
+    const { scale, ox, oy } = this.fit;
+    const ax = ox + this.lx * scale;
+    const ay = oy + this.ly * scale;
+    const targetH = CAVE.h * scale * PLAYER_ROOM_FRACTION;
+    const holdY = ay - targetH * 0.95;
+    this.heldSword = this.add
+      .image(ax, holdY, "dungeon-sword")
+      .setOrigin(0.5, 1)
+      .setDepth(90)
+      .setScale(this.pixelScale("dungeon-sword", this.sprites.sword.h) * 1.05);
+    // Sparkles around the blade tip
+    this.sparkles = [];
+    for (let i = 0; i < 6; i++) {
+      const spark = this.add.circle(ax, holdY - this.sprites.sword.h * scale * 0.5, 2, 0xfff6a0, 1).setDepth(91);
+      this.sparkles.push(spark);
+    }
+    this.hooks.audio?.playSfx("itemGet", 1);
+    this.getUntil = this.time.now + 1500;
+  }
+
+  private runItemGet(time: number) {
+    if (this.avatar) {
+      this.avatar.facing = Math.PI / 2;
+      this.avatar.moving = false;
+      this.avatar.running = false;
+      this.placeAvatar();
+    }
+    const { scale, ox, oy } = this.fit;
+    const ax = ox + this.lx * scale;
+    const ay = oy + this.ly * scale;
+    const targetH = CAVE.h * scale * PLAYER_ROOM_FRACTION;
+    const holdY = ay - targetH * 0.95;
+    if (this.heldSword) this.heldSword.setPosition(ax, holdY);
+    const tipY = holdY - this.sprites.sword.h * this.heldSword!.scaleY * 0.85;
+    this.sparkles.forEach((spark, i) => {
+      const a = time / 180 + i * (Math.PI / 3);
+      spark.setPosition(ax + Math.cos(a) * 14, tipY + Math.sin(a) * 10);
+      spark.setAlpha(0.5 + 0.5 * Math.sin(time / 90 + i));
+    });
+    if (time >= this.getUntil) this.finishItemGet();
+  }
+
+  private finishItemGet() {
+    this.gettingItem = false;
+    this.tookSword = true;
+    this.heldSword?.destroy();
+    this.heldSword = null;
+    this.sparkles.forEach(s => s.destroy());
+    this.sparkles = [];
+  }
+
   private showBsod() {
     if (this.bsodEl) return;
     this.tapTarget = null;
@@ -660,7 +766,13 @@ export class SecretDungeonScene extends Phaser.Scene {
   private leave() {
     if (this.left) return;
     this.left = true;
+    const tookSword = this.tookSword;
     this.teardownBsod();
-    this.hooks.onExit();
+    this.heldSword?.destroy();
+    this.heldSword = null;
+    this.sparkles.forEach(s => s.destroy());
+    this.sparkles = [];
+    this.gettingItem = false;
+    this.hooks.onExit({ tookSword });
   }
 }

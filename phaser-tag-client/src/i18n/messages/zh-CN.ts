@@ -187,4 +187,13 @@ export const zhCN: Messages = {
 
 
 按任意键或点按以继续 `,
+
+  "brawler.fighter": "战士",
+  "brawler.wave": "第 {n} 波",
+  "brawler.boss": "首领",
+  "brawler.go": "出发 →",
+  "brawler.win": "你赢了！",
+  "brawler.youDied": "你死了",
+  "brawler.reachedWave": "到达第 {n} 波",
+  "brawler.returnPlayground": "返回操场"
 };

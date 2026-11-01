@@ -190,4 +190,13 @@ Información técnica:
 
 
 Pulsa cualquier tecla o toca para continuar `,
+
+  "brawler.fighter": "Luchador",
+  "brawler.wave": "OLEADA {n}",
+  "brawler.boss": "JEFE",
+  "brawler.go": "¡YA →",
+  "brawler.win": "¡GANASTE!",
+  "brawler.youDied": "MORISTE",
+  "brawler.reachedWave": "Llegaste a la oleada {n}",
+  "brawler.returnPlayground": "Volver al patio"
 };

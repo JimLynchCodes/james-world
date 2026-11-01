@@ -187,4 +187,13 @@ James World をシャットダウンしました。
 
 
 いずれかのキーを押すか、タップして続行 `,
+
+  "brawler.fighter": "ファイター",
+  "brawler.wave": "WAVE {n}",
+  "brawler.boss": "ボス",
+  "brawler.go": "GO →",
+  "brawler.win": "クリア！",
+  "brawler.youDied": "やられた…",
+  "brawler.reachedWave": "ウェーブ {n} 到達",
+  "brawler.returnPlayground": "広場に戻る"
 };

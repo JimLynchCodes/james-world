@@ -1,3 +1,5 @@
+pub mod brawler;
+pub mod cosmetic;
 pub mod bot;
 pub mod collision;
 pub mod energy;

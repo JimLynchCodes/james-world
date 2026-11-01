@@ -1,7 +1,11 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::game::skin::Skin;
+use crate::game::{
+    brawler::BrawlerSnapshot,
+    cosmetic::Cosmetic,
+    skin::Skin,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
@@ -12,11 +16,19 @@ pub enum ClientMessage {
         /// invalid values fall back to "james" (see `Skin::parse`).
         #[serde(default)]
         skin: Option<String>,
+        /// Opaque cosmetic key (e.g. "crown"). Optional; defaults to "none".
+        #[serde(default)]
+        cosmetic: Option<String>,
     },
 
     /// Change skin mid-game (from the settings panel).
     SetSkin {
         skin: String,
+    },
+
+    /// Change opaque cosmetic mid-game (e.g. after loading a saved crown).
+    SetCosmetic {
+        cosmetic: String,
     },
 
     MoveInput {
@@ -38,6 +50,20 @@ pub enum ClientMessage {
     /// and they cannot tag or be tagged until this is cleared.
     SetAway {
         away: bool,
+    },
+
+    /// Enter the co-op sword brawler room (player should already be away).
+    JoinBrawler {},
+
+    /// Leave the brawler room (death, win, or quit). Does not clear away by itself.
+    LeaveBrawler {},
+
+    /// Movement + attack for the brawler room. `attack` is the tag button.
+    BrawlerInput {
+        seq: u64,
+        dx: f32,
+        dy: f32,
+        attack: bool,
     },
 }
 
@@ -67,6 +93,9 @@ pub enum ServerMessage {
         name: String,
         /// Skin at join time; live changes arrive in snapshots.
         skin: Skin,
+        /// Opaque cosmetic at join time; live changes arrive in snapshots.
+        #[serde(default)]
+        cosmetic: Cosmetic,
         /// Where they are standing, so other clients don't draw them at the
         /// world centre for a frame and then jump.
         x: f32,
@@ -89,6 +118,31 @@ pub enum ServerMessage {
     Error {
         message: String,
     },
+
+    /// Welcome into the brawler arena.
+    BrawlerWelcome {
+        player_id: Uuid,
+        x: f32,
+        y: f32,
+        hp: f32,
+        max_hp: f32,
+    },
+
+    /// Authoritative brawler state (only sent to players in the arena).
+    BrawlerSnapshot {
+        #[serde(flatten)]
+        snapshot: BrawlerSnapshot,
+    },
+
+    /// This player died in the brawler (client plays death anim and leaves).
+    BrawlerPlayerDied {
+        player_id: Uuid,
+    },
+
+    /// The final boss is down; listed players win a crown.
+    BrawlerWon {
+        player_ids: Vec<Uuid>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,6 +151,9 @@ pub struct PlayerSnapshot {
     /// Display name, e.g. "James 3".
     pub name: String,
     pub skin: Skin,
+    /// Opaque cosmetic key (e.g. "crown"). Defaults to "none" for old peers.
+    #[serde(default)]
+    pub cosmetic: Cosmetic,
     pub x: f32,
     pub y: f32,
     pub energy: f32,
@@ -113,3 +170,4 @@ impl ServerMessage {
         serde_json::to_string(self)
     }
 }
+
