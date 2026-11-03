@@ -8,11 +8,22 @@ import { applyPhysicalKey, isTagKey, movementAxes, noteTagKey, physicalCode } fr
 import { createSchoolyard, type Occluder } from "./schoolyard";
 import { PLAYER_RADIUS, PLAY_AREA, WORLD_HEIGHT, WORLD_WIDTH } from "./world";
 import { GameAudio, type Sfx } from "./audio";
+import {
+  ensureCaveAssets,
+  ensureSkinLoaded,
+  isSkinReady,
+  loadBrawlerModule,
+  loadSecretModule,
+  markBootSkinsReady,
+  onSkinReady,
+  showLoadingOverlay,
+  startBackgroundLoads,
+} from "./assetLoader";
 import { consumeAttackPulse, shouldQueueBrawlerAttack } from "./brawlerAttack";
-import { BrawlerWorldScene, type BrawlerHooks } from "./brawlerWorld";
+import type { BrawlerHooks, BrawlerWorldScene } from "./brawlerWorld";
 import { shouldLeaveBrawler } from "./brawlerLeave";
 import { CROWN, loadSavedCosmetic, saveCosmetic, toCosmetic, type Cosmetic } from "./cosmetics";
-import { SecretDungeonScene, type DungeonHooks } from "./secretDungeon";
+import type { DungeonHooks } from "./secretDungeon";
 import {
   nearSecretTree,
   predominantDirection,
@@ -249,6 +260,7 @@ class GameScene extends Phaser.Scene {
 
   create() {
     this.createWorld();
+    markBootSkinsReady(this);
     createKidAnimations(this);
 
     // Title screen: watch the yard. Local kid is created on Start / Welcome.
@@ -969,7 +981,26 @@ class GameScene extends Phaser.Scene {
       readMove: () => this.dungeonAxes(),
       onExit: (result) => this.exitSecret(result),
     };
-    this.scene.launch("SecretDungeon", hooks);
+    void this.launchSecretDungeon(hooks);
+  }
+
+  /** Await cave assets + code-split scene, with a brief overlay if still loading. */
+  private async launchSecretDungeon(hooks: DungeonHooks) {
+    const hide = showLoadingOverlay();
+    try {
+      await ensureCaveAssets(this);
+      const { SecretDungeonScene } = await loadSecretModule();
+      if (!this.inSecret) return; // left somehow while loading
+      if (!this.scene.get("SecretDungeon")) {
+        this.scene.add("SecretDungeon", SecretDungeonScene, false);
+      }
+      this.scene.launch("SecretDungeon", hooks);
+    } catch (err) {
+      console.error("[lazy] secret dungeon failed to load", err);
+      this.exitSecret({ tookSword: false });
+    } finally {
+      hide();
+    }
   }
 
   /** Back to the schoolyard, or onward to the brawler if the sword was taken. */
@@ -1043,9 +1074,27 @@ class GameScene extends Phaser.Scene {
     };
     // Sleep the schoolyard so bots/remotes cannot render over the brawler.
     this.scene.sleep();
-    this.scene.launch("BrawlerWorld", hooks);
-    this.brawlerScene = this.scene.get("BrawlerWorld") as BrawlerWorldScene;
-    this.socket.send({ type: "JoinBrawler", data: {} });
+    void this.launchBrawlerWorld(hooks);
+  }
+
+  private async launchBrawlerWorld(hooks: BrawlerHooks) {
+    const hide = showLoadingOverlay();
+    try {
+      await ensureSkinLoaded(this, hooks.skin);
+      const { BrawlerWorldScene } = await loadBrawlerModule();
+      if (!this.inBrawler) return;
+      if (!this.scene.get("BrawlerWorld")) {
+        this.scene.add("BrawlerWorld", BrawlerWorldScene, false);
+      }
+      this.scene.launch("BrawlerWorld", hooks);
+      this.brawlerScene = this.scene.get("BrawlerWorld") as BrawlerWorldScene;
+      this.socket.send({ type: "JoinBrawler", data: {} });
+    } catch (err) {
+      console.error("[lazy] brawler failed to load", err);
+      this.leaveBrawlerToPlayground();
+    } finally {
+      hide();
+    }
   }
 
   private leaveBrawlerToPlayground() {
@@ -1106,6 +1155,14 @@ class GameScene extends Phaser.Scene {
     this.socket.send({ type: "SetCosmetic", data: { cosmetic: CROWN } });
     this.player?.setCosmetic(CROWN);
     this.leaveBrawlerToPlayground();
+  }
+
+  /**
+   * Kick off deferred skin / cave / scene loads. Call once settings are
+   * known so the player's saved skin is preferred in the idle queue.
+   */
+  beginBackgroundLoads(prefer: Skin = this.localSkin) {
+    startBackgroundLoads(this, prefer);
   }
 
   /**
@@ -1750,8 +1807,6 @@ class GameScene extends Phaser.Scene {
 }
 
 const scene = new GameScene();
-const secretDungeon = new SecretDungeonScene();
-const brawlerWorld = new BrawlerWorldScene();
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
@@ -1779,7 +1834,8 @@ const game = new Phaser.Game({
       debug: false,
     },
   },
-  scene: [scene, secretDungeon, brawlerWorld],
+  // Secret / brawler scenes are code-split and added on first enter.
+  scene: [scene],
 });
 
 const hud = document.createElement("div");
@@ -1833,6 +1889,7 @@ const audio = new GameAudio(settings);
 audio.installGestureUnlock();
 scene.setAudio(audio);
 scene.setSkin(settings.skin);
+scene.beginBackgroundLoads(settings.skin);
 
 document.body.classList.add("title-mode");
 const title = new TitleScreen({
@@ -1911,6 +1968,9 @@ const settingsPanel = new SettingsPanel(hud, settings, saved, {
     scene.setUiOpen(open || chrome.pickerOpen || chrome.signOpen);
   },
   onSound: kind => audio.playSfx(kind === "preview" ? "join" : "click"),
+  isSkinReady,
+  ensureSkin: skin => ensureSkinLoaded(scene, skin),
+  onSkinReady,
 });
 chrome.closeSettings = () => {
   if (settingsPanel.isOpen) settingsPanel.close();

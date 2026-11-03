@@ -1,6 +1,15 @@
 import Phaser from "phaser";
 import { getLocale, isRtl, t } from "./i18n";
 import { crownLiftPx, DEFAULT_COSMETIC, type Cosmetic } from "./cosmetics";
+import {
+  BOOT_SKINS,
+  ensureSkinLoaded,
+  isSkinReady,
+  setAfterSkinTextures,
+} from "./assetLoader";
+
+// Break the circular import: assetLoader loads textures, then calls back here.
+setAfterSkinTextures((scene, skin) => ensureSkinAnimations(scene, skin));
 import { DEFAULT_SKIN, SKINS, SKIN_IDS, type Skin, type SkinSheet } from "./skins";
 import { SPACEMAN_BOOSTERS } from "./spacemanBoosters";
 import { DIRECTIONS, directionFromAngle, nextAvatarAnim, type Direction } from "./tagging";
@@ -67,9 +76,9 @@ const TAG_LUNGE = 10 * SIZE;
 const WALK_FPS = 10;
 const RUN_FPS = 15;
 
-/** Load every skin's spritesheet. */
+/** Boot-only: the default James sheet. Other skins load in the background. */
 export function preloadKid(scene: Phaser.Scene) {
-  for (const id of SKIN_IDS) {
+  for (const id of BOOT_SKINS) {
     const sheet = SKINS[id];
     const frame = { frameWidth: sheet.frameWidth, frameHeight: sheet.frameHeight };
     scene.load.spritesheet(sheet.texture, sheet.url, frame);
@@ -110,10 +119,23 @@ function animOf(key: string | undefined): string | undefined {
   return key?.split("-")[1];
 }
 
-/** Register all kid animations for every skin once per game (idempotent). */
+/** Register animations for skins that are already loaded (boot = James). */
 export function createKidAnimations(scene: Phaser.Scene) {
   createSpacemanFlame(scene);
-  for (const id of SKIN_IDS) createSkinAnimations(scene, SKINS[id]);
+  for (const id of SKIN_IDS) {
+    if (isSkinReady(id) || scene.textures.exists(SKINS[id].texture)) {
+      createSkinAnimations(scene, SKINS[id]);
+    }
+  }
+}
+
+/** Idempotent: register one skin's animations once its textures exist. */
+export function ensureSkinAnimations(scene: Phaser.Scene, skin: Skin) {
+  createSpacemanFlame(scene);
+  const sheet = SKINS[skin];
+  if (!scene.textures.exists(sheet.texture)) return;
+  if (sheet.extra && !scene.textures.exists(sheet.extra.texture)) return;
+  createSkinAnimations(scene, sheet);
 }
 
 const FLAME_W = 12;
@@ -448,13 +470,35 @@ export class KidAvatar {
     else this.sprite.clearTint();
   }
 
+  /** Skin the game / server asked for. May differ from the drawn sheet while loading. */
+  private desiredSkin: Skin = DEFAULT_SKIN;
+  /** Bumps when setSkin is called so a stale load callback cannot overwrite a newer pick. */
+  private skinEpoch = 0;
+
   /**
    * Switch outfit (e.g. James <-> Banana James). Keeps whatever the kid is
    * doing: the same animation, direction and progress continue in the new
-   * skin's sheet.
+   * skin's sheet. If the sheet is not loaded yet, draw default James until
+   * it arrives, then swap.
    */
   setSkin(skin: Skin) {
-    if (skin === this.skin || !SKINS[skin]) return;
+    if (!SKINS[skin]) return;
+    this.desiredSkin = skin;
+    const epoch = ++this.skinEpoch;
+    if (isSkinReady(skin)) {
+      this.applySkinSheet(skin);
+      return;
+    }
+    // Placeholder until the sheet lands.
+    if (this.skin !== DEFAULT_SKIN) this.applySkinSheet(DEFAULT_SKIN);
+    void ensureSkinLoaded(this.scene, skin).then(ok => {
+      if (!ok || this.skinEpoch !== epoch || this.desiredSkin !== skin) return;
+      this.applySkinSheet(skin);
+    });
+  }
+
+  private applySkinSheet(skin: Skin) {
+    if (skin === this.skin) return;
     const current = this.sprite.anims.currentAnim?.key;
     const progress = this.sprite.anims.isPlaying ? this.sprite.anims.getProgress() : 0;
     this.skin = skin;
@@ -470,14 +514,17 @@ export class KidAvatar {
     this.sprite.setScale(this.drawScale);
     const [, name, dir] = current?.split("-") ?? [];
     if (name && dir && (DIRECTIONS as readonly string[]).includes(dir)) {
-      this.sprite.anims.play(animKey(name as AnimName, dir as KidDirection, skin));
-      if (progress) this.sprite.anims.setProgress(progress);
+      const key = animKey(name as AnimName, dir as KidDirection, skin);
+      if (this.scene.anims.exists(key)) {
+        this.sprite.anims.play(key);
+        if (progress) this.sprite.anims.setProgress(progress);
+      }
     }
     this.update();
   }
 
   get currentSkin(): Skin {
-    return this.skin;
+    return this.desiredSkin;
   }
 
   setCosmetic(cosmetic: Cosmetic) {

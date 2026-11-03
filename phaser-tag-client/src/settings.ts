@@ -85,7 +85,7 @@ function defaultSettings(): Settings {
     masterVolume: 80,
     musicVolume: 60,
     sfxVolume: 80,
-    mood: "happy",
+    mood: "chillin",
     skin: DEFAULT_SKIN,
     zoom: 0,
     hideButtons: false,
@@ -176,6 +176,12 @@ export interface SettingsPanelOptions {
   onOpenChange?(open: boolean): void;
   /** UI feedback sounds: a button/tab press, or a volume slider was let go. */
   onSound?(kind: "click" | "preview"): void;
+  /** True when the skin's sheet is ready for the card preview / in-world draw. */
+  isSkinReady?(skin: Skin): boolean;
+  /** Load a skin on demand (picker click / skins tab). */
+  ensureSkin?(skin: Skin): Promise<boolean>;
+  /** Fires when a deferred skin becomes ready so previews can light up. */
+  onSkinReady?(listener: (skin: Skin) => void): () => void;
 }
 
 type Tab = "controls" | "sound" | "view" | "skins" | "credits";
@@ -305,6 +311,20 @@ export class SettingsPanel {
     this.selectTab("controls");
     this.localize();
     onLocaleChange(() => this.localize());
+    this.options.onSkinReady?.(skin => this.paintSkinPreview(skin));
+    for (const id of SKIN_IDS) {
+      if (this.options.isSkinReady?.(id) ?? id === DEFAULT_SKIN) this.paintSkinPreview(id);
+    }
+  }
+
+  /** Attach the spritesheet URL once loaded; drop the spinner. */
+  private paintSkinPreview(skin: Skin) {
+    const card = this.backdrop.querySelector<HTMLButtonElement>(`.skin-card[data-skin="${skin}"]`);
+    if (!card) return;
+    const preview = card.querySelector<HTMLElement>(".skin-preview");
+    const sheet = SKINS[skin];
+    if (preview) preview.style.setProperty("--sheet", `url('${sheet.url}')`);
+    card.classList.remove("skin-loading");
   }
 
   get settings(): Readonly<Settings> {
@@ -365,15 +385,18 @@ export class SettingsPanel {
     // straight from the skin's spritesheet (breathing idle; walking when picked).
     const skinCards = SKIN_IDS.map(id => {
       const s = SKINS[id];
+      // --sheet is filled in once the skin is loaded (see paintSkinPreview).
       const vars = [
-        `--sheet:url('${s.url}')`,
         `--fw:${s.frameWidth}`,
         `--fh:${s.frameHeight}`,
         `--base:${s.baselineY}`,
       ].join(";");
       return `
-        <button type="button" class="skin-card" role="radio" aria-checked="false" data-skin="${id}">
-          <span class="skin-stage"><span class="skin-preview" style="${vars}"></span></span>
+        <button type="button" class="skin-card skin-loading" role="radio" aria-checked="false" data-skin="${id}">
+          <span class="skin-stage">
+            <span class="skin-preview" style="${vars}"></span>
+            <span class="skin-spinner" aria-hidden="true"></span>
+          </span>
           <span class="skin-name" data-i18n="skin.${id}"></span>
           <span class="skin-note" data-i18n="skin.${id}.note"></span>
         </button>`;
@@ -716,10 +739,18 @@ export class SettingsPanel {
     });
 
     const cards = [...this.backdrop.querySelectorAll<HTMLButtonElement>(".skin-card")];
+    const pickSkin = async (card: HTMLButtonElement) => {
+      const skin = card.dataset.skin as Skin;
+      this.options.onSound?.("click");
+      card.classList.add("skin-loading");
+      const ok = this.options.ensureSkin ? await this.options.ensureSkin(skin) : true;
+      if (ok) this.paintSkinPreview(skin);
+      else card.classList.remove("skin-loading");
+      this.set("skin", skin);
+    };
     cards.forEach((card, i) => {
       card.addEventListener("click", () => {
-        this.options.onSound?.("click");
-        this.set("skin", card.dataset.skin as Skin);
+        void pickSkin(card);
       });
       // Radio group keys: arrows move (and pick) between the cards.
       card.addEventListener("keydown", event => {
@@ -729,8 +760,8 @@ export class SettingsPanel {
         if (!step) return;
         event.preventDefault();
         const next = cards[(i + step + cards.length) % cards.length];
-        this.set("skin", next.dataset.skin as Skin);
         next.focus();
+        void pickSkin(next);
       });
     });
   }
@@ -775,6 +806,14 @@ export class SettingsPanel {
     const scroller = this.q<HTMLElement>(".settings-scroll");
     scroller.scrollTop = 0;
     this.updateScrollFade();
+    if (tab === "skins" && this.options.ensureSkin) {
+      for (const id of SKIN_IDS) {
+        if (this.options.isSkinReady?.(id)) continue;
+        void this.options.ensureSkin(id).then(ok => {
+          if (ok) this.paintSkinPreview(id);
+        });
+      }
+    }
   }
 
   /** Show a fade along the bottom edge while more options sit below. */
