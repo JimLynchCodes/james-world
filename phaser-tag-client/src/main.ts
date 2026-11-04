@@ -8,11 +8,23 @@ import { applyPhysicalKey, isTagKey, movementAxes, noteTagKey, physicalCode } fr
 import { createSchoolyard, type Occluder } from "./schoolyard";
 import { PLAYER_RADIUS, PLAY_AREA, WORLD_HEIGHT, WORLD_WIDTH } from "./world";
 import { GameAudio, type Sfx } from "./audio";
+import {
+  ensureCaveAssets,
+  ensureSkinLoaded,
+  isSkinReady,
+  loadBrawlerModule,
+  loadSecretModule,
+  markBootSkinsReady,
+  onSkinReady,
+  showLoadingOverlay,
+  startBackgroundLoads,
+} from "./assetLoader";
+import { canEnterField, optimisticSpawn } from "./startGate";
 import { consumeAttackPulse, shouldQueueBrawlerAttack } from "./brawlerAttack";
-import { BrawlerWorldScene, type BrawlerHooks } from "./brawlerWorld";
+import type { BrawlerHooks, BrawlerWorldScene } from "./brawlerWorld";
 import { shouldLeaveBrawler } from "./brawlerLeave";
 import { CROWN, loadSavedCosmetic, saveCosmetic, toCosmetic, type Cosmetic } from "./cosmetics";
-import { SecretDungeonScene, type DungeonHooks } from "./secretDungeon";
+import type { DungeonHooks } from "./secretDungeon";
 import {
   nearSecretTree,
   predominantDirection,
@@ -99,6 +111,34 @@ const TAG_DISTANCE = 70;
  */
 const LEGACY_SPAWN_X = 400;
 const LEGACY_SPAWN_Y = 300;
+/** Yard centre used for an optimistic spawn before Welcome arrives. */
+const OPTIMISTIC_SPAWN_X = 900;
+const OPTIMISTIC_SPAWN_Y = 700;
+
+/** Dev / ?timing=1 marks for click → field latency. */
+const START_TIMING =
+  import.meta.env.DEV ||
+  (typeof location !== "undefined" && new URLSearchParams(location.search).has("timing"));
+
+function startMark(name: string) {
+  if (!START_TIMING || typeof performance === "undefined") return;
+  try {
+    performance.mark(name);
+  } catch {
+    /* ignore */
+  }
+}
+
+function startMeasure(name: string, start: string, end: string) {
+  if (!START_TIMING || typeof performance === "undefined") return;
+  try {
+    performance.measure(name, start, end);
+    const entry = performance.getEntriesByName(name).at(-1);
+    if (entry) console.info(`[start-timing] ${name}: ${entry.duration.toFixed(1)}ms`);
+  } catch {
+    /* ignore */
+  }
+}
 
 /** A placeable world position. Missing, null, NaN and Infinity are not. */
 function finitePoint(x: unknown, y: unknown): { x: number; y: number } | null {
@@ -249,6 +289,7 @@ class GameScene extends Phaser.Scene {
 
   create() {
     this.createWorld();
+    markBootSkinsReady(this);
     createKidAnimations(this);
 
     // Title screen: watch the yard. Local kid is created on Start / Welcome.
@@ -272,22 +313,22 @@ class GameScene extends Phaser.Scene {
     this.socket = new GameSocket(WS_URL, {
       onOpen: () => {
         this.connected = true;
-        // Spectator until Start: Hello arrives next; Join is sent from startPlaying().
-        // After a reconnect (server restart / deploy, network blip) a player
-        // who had pressed Start joins again automatically, in the same skin;
-        // the server hands out a fresh "James N" in its Welcome.
+        this.everConnected = true;
+        // Warm Join happens on Hello (and again here after a reconnect if we
+        // already pressed Start / were playing). Title-screen players also
+        // Join early so Welcome is usually ready before Start.
         this.renderStatus();
-        if (this.startRequested) {
-          this.socket.send({
-            type: "Join",
-            data: { room_id: ROOM_ID, skin: this.localSkin, cosmetic: this.localCosmetic },
-          });
+        if (this.startRequested || this.playing || this.warmJoined) {
+          this.sendJoin();
         }
+        this.tryEnterField();
       },
       onClose: ({ retryInMs }) => {
         const wasConnected = this.connected;
         this.connected = false;
         this.socketFailed = true;
+        this.welcomeReceived = false;
+        this.joinSent = false;
         this.renderStatus();
         if (wasConnected) {
           // The next server is a fresh world: snap to wherever it spawns us
@@ -570,7 +611,9 @@ class GameScene extends Phaser.Scene {
   private handleServerMessage(message: ServerMessage) {
     switch (message.type) {
       case "Hello":
-        // Spectator: we receive snapshots of everyone else until Start.
+        // Warm-join while the title is up so Welcome (id + spawn) is ready
+        // before Start whenever the network allows.
+        this.sendJoin();
         this.renderStatus();
         break;
 
@@ -584,12 +627,24 @@ class GameScene extends Phaser.Scene {
         // Older servers omit x/y; spawnLocalPlayer falls back and the next
         // snapshot moves us.
         this.localPlayerId = message.data.player_id;
+        this.welcomeReceived = true;
+        this.welcomeName = message.data.name;
+        this.welcomeX = typeof message.data.x === "number" ? message.data.x : null;
+        this.welcomeY = typeof message.data.y === "number" ? message.data.y : null;
         this.removeRemotePlayer(message.data.player_id);
-        this.spawnLocalPlayer(message.data.name, message.data.x, message.data.y);
+        if (this.playing || this.startRequested) {
+          this.spawnLocalPlayer(message.data.name, message.data.x, message.data.y);
+        } else {
+          // Title still up: park the body at the server spot and stay away so
+          // others don't see a lingering idle kid under the overlay.
+          this.ensureLocalAvatar(message.data.name, message.data.x, message.data.y);
+          this.socket.send({ type: "SetAway", data: { away: true } });
+        }
         this.logEvent(
           t(this.rejoining ? "toast.reconnected" : "toast.joinedSelf", { name: message.data.name })
         );
         this.rejoining = false;
+        this.tryEnterField();
         break;
 
       case "PlayerJoined":
@@ -969,7 +1024,26 @@ class GameScene extends Phaser.Scene {
       readMove: () => this.dungeonAxes(),
       onExit: (result) => this.exitSecret(result),
     };
-    this.scene.launch("SecretDungeon", hooks);
+    void this.launchSecretDungeon(hooks);
+  }
+
+  /** Await cave assets + code-split scene, with a brief overlay if still loading. */
+  private async launchSecretDungeon(hooks: DungeonHooks) {
+    const hide = showLoadingOverlay();
+    try {
+      await ensureCaveAssets(this);
+      const { SecretDungeonScene } = await loadSecretModule();
+      if (!this.inSecret) return; // left somehow while loading
+      if (!this.scene.get("SecretDungeon")) {
+        this.scene.add("SecretDungeon", SecretDungeonScene, false);
+      }
+      this.scene.launch("SecretDungeon", hooks);
+    } catch (err) {
+      console.error("[lazy] secret dungeon failed to load", err);
+      this.exitSecret({ tookSword: false });
+    } finally {
+      hide();
+    }
   }
 
   /** Back to the schoolyard, or onward to the brawler if the sword was taken. */
@@ -1043,9 +1117,27 @@ class GameScene extends Phaser.Scene {
     };
     // Sleep the schoolyard so bots/remotes cannot render over the brawler.
     this.scene.sleep();
-    this.scene.launch("BrawlerWorld", hooks);
-    this.brawlerScene = this.scene.get("BrawlerWorld") as BrawlerWorldScene;
-    this.socket.send({ type: "JoinBrawler", data: {} });
+    void this.launchBrawlerWorld(hooks);
+  }
+
+  private async launchBrawlerWorld(hooks: BrawlerHooks) {
+    const hide = showLoadingOverlay();
+    try {
+      await ensureSkinLoaded(this, hooks.skin);
+      const { BrawlerWorldScene } = await loadBrawlerModule();
+      if (!this.inBrawler) return;
+      if (!this.scene.get("BrawlerWorld")) {
+        this.scene.add("BrawlerWorld", BrawlerWorldScene, false);
+      }
+      this.scene.launch("BrawlerWorld", hooks);
+      this.brawlerScene = this.scene.get("BrawlerWorld") as BrawlerWorldScene;
+      this.socket.send({ type: "JoinBrawler", data: {} });
+    } catch (err) {
+      console.error("[lazy] brawler failed to load", err);
+      this.leaveBrawlerToPlayground();
+    } finally {
+      hide();
+    }
   }
 
   private leaveBrawlerToPlayground() {
@@ -1109,6 +1201,21 @@ class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Kick off deferred skin / cave / scene loads. Call once settings are
+   * known so the player's saved skin is preferred in the idle queue.
+   */
+  beginBackgroundLoads(prefer: Skin = this.localSkin) {
+    startBackgroundLoads(this, prefer);
+  }
+
+  /** Title-screen: pull the player's skin so Start is not blocked on it. */
+  preloadPlaySkin(skin: Skin) {
+    void ensureSkinLoaded(this, skin).then(ok => {
+      if (ok) this.tryEnterField();
+    });
+  }
+
+  /**
    * Our skin: shown on our kid right away and sent to the server, which
    * puts it in the snapshots so everyone else sees it.
    */
@@ -1123,46 +1230,109 @@ class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Title-screen Start: Join the room. Welcome creates the local kid and
-   * dismisses the overlay (see spawnLocalPlayer).
+   * Title-screen Start: enter the field as soon as the socket + skin are
+   * ready. Welcome may already be in (warm Join on Hello); otherwise we
+   * spawn optimistically and reconcile when Welcome arrives.
    */
-  /** True once the user has pressed Start (Join may still be in flight). */
+  /** True once the user has pressed Start (Join / enter may still be in flight). */
   private startRequested = false;
+  /** Join was sent (warm title Join or Start / reconnect). */
+  private joinSent = false;
+  /** We warm-joined from the title screen at least once this session. */
+  private warmJoined = false;
+  private welcomeReceived = false;
+  private welcomeName: string | null = null;
+  private welcomeX: number | null = null;
+  private welcomeY: number | null = null;
 
-  startPlaying() {
-    if (this.playing || this.startRequested) return;
-    this.startRequested = true;
-    if (!this.connected) return; // Join as soon as onOpen fires
+  /**
+   * @returns true when the field was entered on this click (no "Starting…").
+   */
+  startPlaying(): boolean {
+    if (this.playing) return true;
+    if (!this.startRequested) {
+      this.startRequested = true;
+      startMark("start-click");
+    }
+    this.sendJoin();
+    // Kick the chosen skin if background load has not finished it yet.
+    void ensureSkinLoaded(this, this.localSkin).then(ok => {
+      if (ok) this.tryEnterField();
+    });
+    return this.tryEnterField();
+  }
+
+  private sendJoin() {
+    if (!this.connected || this.joinSent) return;
+    this.joinSent = true;
+    this.warmJoined = true;
     this.socket.send({
       type: "Join",
       data: { room_id: ROOM_ID, skin: this.localSkin, cosmetic: this.localCosmetic },
     });
   }
 
+  private gateState() {
+    return {
+      connected: this.connected,
+      skinReady: isSkinReady(this.localSkin),
+      startRequested: this.startRequested,
+      playing: this.playing,
+    };
+  }
+
   /**
-   * After Welcome: spawn our kid at the server's spot and put the camera
-   * there immediately. A rejoin (the kid already exists) teleports instead
-   * of easing across the yard from wherever we were standing. Coming back
-   * from the secret cave does not use this path — that returns beside the
-   * secret tree (see exitSecret).
+   * Drop onto the field when Start was pressed and connection + skin are
+   * ready. Does not wait on Welcome: an optimistic avatar appears at the
+   * known Welcome spot (or yard centre) and snaps when Welcome / Snapshot
+   * arrives.
    */
-  private spawnLocalPlayer(name: string, x?: number, y?: number) {
+  private tryEnterField(): boolean {
+    if (!this.startRequested || this.playing) return this.playing;
+    if (!canEnterField(this.gateState())) return false;
+
+    const name = this.welcomeName ?? (this.localName || "James");
+    const spot = optimisticSpawn({
+      welcomeX: this.welcomeX,
+      welcomeY: this.welcomeY,
+      fallbackX: OPTIMISTIC_SPAWN_X,
+      fallbackY: OPTIMISTIC_SPAWN_Y,
+    });
+    this.ensureLocalAvatar(name, spot.x, spot.y);
+    // Visible to others now that we're playing.
+    if (this.welcomeReceived) {
+      this.socket.send({ type: "SetAway", data: { away: false } });
+    }
+    this.playing = true;
+    this.renderStatus();
+    document.body.classList.remove("title-mode");
+    this.title?.dismiss(true);
+    this.title = null;
+    this.snapCameraToLocalPlayer();
+    this.playEffect("join");
+    startMark("start-field");
+    startMeasure("click-to-field", "start-click", "start-field");
+    return true;
+  }
+
+  /** Create or teleport the local kid without enabling play / dismissing title. */
+  private ensureLocalAvatar(name: string, x?: number, y?: number) {
     this.localName = name;
     const spot = finitePoint(x, y);
-    // No usable server spot: the old fixed spawn, and leave the easing
-    // target empty when we don't already have one so the next snapshot snaps.
     const px = spot?.x ?? this.localTargetX ?? LEGACY_SPAWN_X;
     const py = spot?.y ?? this.localTargetY ?? LEGACY_SPAWN_Y;
     if (spot) {
       this.localTargetX = spot.x;
       this.localTargetY = spot.y;
     }
-    if (this.playing && this.player) {
+    if (this.player) {
       this.player.x = px;
       this.player.y = py;
       this.player.setLabels({ name, you: true, it: false });
-      this.snapCameraToLocalPlayer();
-      this.renderStatus();
+      this.player.setSkin(this.localSkin);
+      this.player.setCosmetic(this.localCosmetic);
+      this.player.setDrawn(true);
+      this.player.update();
       return;
     }
     this.player = new KidAvatar(this, px, py, PLAYER_RADIUS, name);
@@ -1170,13 +1340,21 @@ class GameScene extends Phaser.Scene {
     this.player.setRole("self");
     this.player.setSkin(this.localSkin);
     this.player.setCosmetic(this.localCosmetic);
-    this.snapCameraToLocalPlayer();
-    this.playing = true;
-    this.renderStatus();
-    document.body.classList.remove("title-mode");
-    this.title?.dismiss();
-    this.title = null;
-    this.playEffect("join");
+  }
+
+  /**
+   * After Welcome while already playing (or Start in flight): snap to the
+   * server's spot. Coming back from the secret cave does not use this path
+   * — that returns beside the secret tree (see exitSecret).
+   */
+  private spawnLocalPlayer(name: string, x?: number, y?: number) {
+    this.ensureLocalAvatar(name, x, y);
+    if (this.playing) {
+      this.snapCameraToLocalPlayer();
+      this.renderStatus();
+      return;
+    }
+    this.tryEnterField();
   }
 
   /**
@@ -1750,8 +1928,6 @@ class GameScene extends Phaser.Scene {
 }
 
 const scene = new GameScene();
-const secretDungeon = new SecretDungeonScene();
-const brawlerWorld = new BrawlerWorldScene();
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
@@ -1779,7 +1955,8 @@ const game = new Phaser.Game({
       debug: false,
     },
   },
-  scene: [scene, secretDungeon, brawlerWorld],
+  // Secret / brawler scenes are code-split and added on first enter.
+  scene: [scene],
 });
 
 const hud = document.createElement("div");
@@ -1833,6 +2010,7 @@ const audio = new GameAudio(settings);
 audio.installGestureUnlock();
 scene.setAudio(audio);
 scene.setSkin(settings.skin);
+scene.beginBackgroundLoads(settings.skin);
 
 document.body.classList.add("title-mode");
 const title = new TitleScreen({
@@ -1840,6 +2018,9 @@ const title = new TitleScreen({
   onSound: () => audio.playSfx("click"),
 });
 scene.setTitle(title);
+
+// Preload the saved skin during the title screen so Start rarely waits on it.
+scene.preloadPlaySkin(settings.skin);
 
 const controls = hud.querySelector(".controls") as HTMLElement;
 const hintCopy = controls.querySelector(".controls-copy") as HTMLElement;
@@ -1911,6 +2092,9 @@ const settingsPanel = new SettingsPanel(hud, settings, saved, {
     scene.setUiOpen(open || chrome.pickerOpen || chrome.signOpen);
   },
   onSound: kind => audio.playSfx(kind === "preview" ? "join" : "click"),
+  isSkinReady,
+  ensureSkin: skin => ensureSkinLoaded(scene, skin),
+  onSkinReady,
 });
 chrome.closeSettings = () => {
   if (settingsPanel.isOpen) settingsPanel.close();
