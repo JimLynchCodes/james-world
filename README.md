@@ -2,7 +2,7 @@
 
 <img src='./james-world-screenshot.jpg'>
 
-A multiplayer game of tag in the browser: every player is ***James.***
+A multiplayer game of tag in the browser, featuring ***James!***
 
 The server decides who's IT, and you run around a schoolyard trying not to get
 tagged.
