@@ -1205,14 +1205,19 @@ class GameScene extends Phaser.Scene {
    * known so the player's saved skin is preferred in the idle queue.
    */
   beginBackgroundLoads(prefer: Skin = this.localSkin) {
+    // Safe before scene boot: assetLoader waits for START/READY.
     startBackgroundLoads(this, prefer);
   }
 
   /** Title-screen: pull the player's skin so Start is not blocked on it. */
   preloadPlaySkin(skin: Skin) {
-    void ensureSkinLoaded(this, skin).then(ok => {
-      if (ok) this.tryEnterField();
-    });
+    // May run right after `new Phaser.Game`, before Systems INIT. ensureSkinLoaded
+    // defers until the scene can load; never leave an uncaught rejection.
+    void ensureSkinLoaded(this, skin)
+      .then(ok => {
+        if (ok) this.tryEnterField();
+      })
+      .catch(err => console.error("[lazy] preloadPlaySkin failed", err));
   }
 
   /**
@@ -1256,9 +1261,11 @@ class GameScene extends Phaser.Scene {
     }
     this.sendJoin();
     // Kick the chosen skin if background load has not finished it yet.
-    void ensureSkinLoaded(this, this.localSkin).then(ok => {
-      if (ok) this.tryEnterField();
-    });
+    void ensureSkinLoaded(this, this.localSkin)
+      .then(ok => {
+        if (ok) this.tryEnterField();
+      })
+      .catch(err => console.error("[lazy] startPlaying skin load failed", err));
     return this.tryEnterField();
   }
 
@@ -2093,7 +2100,11 @@ const settingsPanel = new SettingsPanel(hud, settings, saved, {
   },
   onSound: kind => audio.playSfx(kind === "preview" ? "join" : "click"),
   isSkinReady,
-  ensureSkin: skin => ensureSkinLoaded(scene, skin),
+  ensureSkin: skin =>
+    ensureSkinLoaded(scene, skin).catch(err => {
+      console.error("[lazy] settings ensureSkin failed", err);
+      return false;
+    }),
   onSkinReady,
 });
 chrome.closeSettings = () => {
